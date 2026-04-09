@@ -1,0 +1,291 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Unconfigured ONUs{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-bar {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+    .search-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .search-group label {
+        color: #d8e6ff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .search-input {
+        min-width: 240px;
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.04);
+        color: #e8f0ff;
+        padding: 0 12px;
+        font: inherit;
+    }
+    .multi-filter {
+        position: relative;
+        min-width: 280px;
+    }
+    .multi-filter summary {
+        list-style: none;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.04);
+        color: #e8f0ff;
+        padding: 0 12px;
+        cursor: pointer;
+        user-select: none;
+    }
+    .multi-filter summary::-webkit-details-marker { display: none; }
+    .multi-filter summary .caret {
+        font-size: 12px;
+        opacity: 0.9;
+    }
+    .multi-filter-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        width: 100%;
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #122446;
+        z-index: 30;
+        box-shadow: 0 10px 24px rgba(3, 9, 22, 0.45);
+    }
+    .multi-filter-search {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding-bottom: 8px;
+        background: #122446;
+    }
+    .multi-filter-search input {
+        width: 100%;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.05);
+        color: #e8f0ff;
+        padding: 0 12px;
+        font: inherit;
+    }
+    .multi-filter-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 4px 8px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .multi-filter-actions button {
+        border: none;
+        background: transparent;
+        color: #dceaff;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 0;
+    }
+    .multi-filter-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 6px 4px;
+        color: #deebff;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .multi-filter-item small {
+        color: #8fa7c9;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .sn-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 120px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(47,128,255,0.12);
+        border: 1px solid rgba(47,128,255,0.3);
+        color: #dceaff;
+        font-weight: 800;
+    }
+    .muted-cell {
+        color: #9db0cf;
+    }
+    .olt-group {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .olt-group:first-of-type {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+    .olt-group-title {
+        margin: 0 0 10px;
+        font-size: 15px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel">
+        <form method="get" class="search-bar">
+            <div class="search-group">
+                <label>Search</label>
+                <input type="text" name="q" value="{{ unconfigured_search_query }}" class="search-input" placeholder="SN, type, board, port">
+            </div>
+            <div class="search-group">
+                <label>OLT</label>
+                <details class="multi-filter">
+                    <summary>
+                        <span>{% if unconfigured_selected_olts %}{{ unconfigured_selected_olts|length }} selected{% else %}Select OLT(s){% endif %}</span>
+                        <span class="caret">▼</span>
+                    </summary>
+                    <div class="multi-filter-menu">
+                        <div class="multi-filter-search">
+                            <input type="text" id="unconfigured-olt-filter" placeholder="Search by name or IP">
+                        </div>
+                        <div class="multi-filter-actions">
+                            <button type="button" id="unconfigured-select-all">Select All</button>
+                            <button type="button" id="unconfigured-clear-all">Clear</button>
+                        </div>
+                        {% for item in unconfigured_filter_olts %}
+                        <label class="multi-filter-item" data-filter-text="{{ item.name|lower }} {{ item.ip|default:''|lower }}">
+                            <input type="checkbox" name="olts" value="{{ item.id }}" {% if item.id in unconfigured_selected_olts %}checked{% endif %}>
+                            <span>{{ item.name }}{% if item.ip %}<br><small>{{ item.ip }}</small>{% endif %}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </details>
+            </div>
+            <button type="submit" class="btn btn-primary">Refresh</button>
+        </form>
+        <div class="muted-cell" style="margin-bottom: 14px; font-weight: 700;">
+            Total ONUs: {{ unconfigured_total }}
+        </div>
+
+        {% for group in unconfigured_groups %}
+        <div class="olt-group">
+            <h3 class="olt-group-title">{{ group.index }} - {{ group.olt_name }}</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No.</th>
+                            <th>PON type</th>
+                            <th>Board</th>
+                            <th>Port</th>
+                            <th>SN</th>
+                            <th>Type</th>
+                            <th>Autofind time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in group.rows %}
+                        <tr>
+                            <td>{{ row.number|default:forloop.counter }}</td>
+                            <td>{{ row.pon_type|default:"-" }}</td>
+                            <td>{% if row.board is not None %}{{ row.board }}{% else %}-{% endif %}</td>
+                            <td>{% if row.port is not None %}{{ row.port }}{% else %}-{% endif %}</td>
+                            <td><span class="sn-pill">{{ row.sn|default:"-" }}</span></td>
+                            <td>{{ row.type|default:"-" }}</td>
+                            <td>{{ row.autofind_time|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="muted-cell">No autofind ONUs found for this OLT.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% empty %}
+        <div class="table-wrap">
+            <table>
+                <tbody>
+                    <tr>
+                        <td colspan="7" class="muted-cell">
+                            {% if unconfigured_selected_olts %}
+                                No autofind ONUs found for selected OLTs.
+                            {% else %}
+                                Select OLT(s) and press Refresh.
+                            {% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </section>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const filterInput = document.getElementById('unconfigured-olt-filter');
+    const selectAllBtn = document.getElementById('unconfigured-select-all');
+    const clearAllBtn = document.getElementById('unconfigured-clear-all');
+    const items = Array.from(document.querySelectorAll('.multi-filter-item'));
+
+    if (filterInput) {
+        filterInput.addEventListener('input', function () {
+            const needle = (filterInput.value || '').trim().toLowerCase();
+            items.forEach((item) => {
+                const haystack = item.getAttribute('data-filter-text') || '';
+                item.style.display = !needle || haystack.includes(needle) ? '' : 'none';
+            });
+        });
+    }
+
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', function () {
+            items.forEach((item) => {
+                if (item.style.display === 'none') {
+                    return;
+                }
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        });
+    }
+
+    if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', function () {
+            items.forEach((item) => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

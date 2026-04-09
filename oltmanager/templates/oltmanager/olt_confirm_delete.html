@@ -1,0 +1,23 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Delete OLT{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <h1 class="brand">Delete OLT</h1>
+            <p class="subtle">This action is permanent and cannot be undone.</p>
+        </div>
+    </header>
+
+    <section class="panel">
+        <p>Are you sure you want to remove <strong>{{ olt.name }}</strong> from inventory?</p>
+        <form method="post" style="margin-top: 14px;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">Yes, Delete</button>
+            <a href="{% url 'olt_settings_olt' %}" class="btn btn-secondary">Cancel</a>
+        </form>
+    </section>
+</div>
+{% endblock %}

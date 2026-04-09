@@ -1,0 +1,1642 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}View {{ olt.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .view-layout {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr) 250px;
+        gap: 14px;
+    }
+    .menu-card, .content-card, .snap-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #13233f;
+        box-shadow: 0 10px 24px rgba(3, 8, 18, 0.35);
+    }
+    .menu-card { padding: 10px; }
+    .menu-card a {
+        display: block;
+        padding: 10px 12px;
+        border-radius: 9px;
+        color: #d7e5ff;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 13px;
+    }
+    .menu-card a:hover { background: #1b3359; }
+    .menu-card a.active {
+        background: #2f80ff;
+        color: #fff;
+    }
+    .content-card { padding: 16px; }
+    .quick-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        margin-bottom: 12px;
+        overflow-x: auto;
+    }
+    .quick-actions .btn {
+        padding: 9px 12px;
+        font-size: 13px;
+    }
+    .content-card section + section {
+        border-top: 1px solid var(--line);
+        margin-top: 12px;
+        padding-top: 12px;
+    }
+    .content-card h3 { margin: 0 0 8px; font-size: 16px; }
+    .cards-table-wrap { overflow-x: auto; }
+    .cards-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+    }
+    .cards-table th,
+    .cards-table td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 8px;
+        text-align: left;
+        font-size: 13px;
+    }
+    .cards-table th {
+        color: #9cb5db;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 11px;
+    }
+    #profiles .cards-table {
+        table-layout: fixed;
+    }
+    #profiles .cards-table td {
+        vertical-align: top;
+        white-space: normal;
+        word-break: break-word;
+    }
+    #profiles .cards-table th:nth-child(2),
+    #profiles .cards-table td:nth-child(2) {
+        width: 34%;
+    }
+    #profiles .cards-table th:nth-child(5),
+    #profiles .cards-table td:nth-child(5) {
+        width: 140px;
+    }
+    .kv {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .kv div {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: #0f1b32;
+    }
+    .kv small {
+        color: var(--muted);
+        display: block;
+    }
+    .snap-card { padding: 12px; }
+    .snap-title { margin: 0 0 8px; font-size: 15px; }
+    .snap-box {
+        border: 1px dashed #3f5f8f;
+        border-radius: 12px;
+        padding: 10px;
+        background: #0f1b32;
+    }
+    .snap-box p {
+        margin: 0 0 8px;
+        font-size: 12px;
+        line-height: 1.45;
+        word-break: break-word;
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 5px 8px;
+        border-radius: 999px;
+        background: #e6f5eb;
+        color: #145f37;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .refresh-form {
+        margin: 0;
+    }
+    .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .profile-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .profile-actions .btn,
+    .profile-actions .refresh-btn {
+        min-width: 140px;
+        justify-content: center;
+        padding: 10px 14px;
+    }
+    .vlan-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .vlan-actions .btn,
+    .vlan-actions .refresh-btn {
+        min-width: 140px;
+        justify-content: center;
+        padding: 10px 14px;
+    }
+    .vlan-add-card {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #0f1b32;
+    }
+    .vlan-add-card[hidden] {
+        display: none;
+    }
+    .vlan-add-card h4 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        color: #dbe8ff;
+    }
+    .vlan-add-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        align-items: start;
+    }
+    .vlan-submit-row {
+        margin-top: 12px;
+    }
+    .vlan-cli-output {
+        margin-top: 12px;
+        border: 1px solid #3f5f8f;
+        border-radius: 12px;
+        padding: 12px;
+        background: #09111f;
+    }
+    .vlan-cli-output pre {
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #d9f7d0;
+    }
+    .profile-add-card {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #0f1b32;
+    }
+    .profile-add-card[hidden] {
+        display: none;
+    }
+    .profile-add-card h4 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        color: #dbe8ff;
+    }
+    .profile-add-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        align-items: start;
+    }
+    .profile-add-grid .field-wrap {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    .profile-add-grid label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #c9daff;
+        min-height: 16px;
+    }
+    .profile-add-grid .form-control {
+        min-height: 44px;
+    }
+    .profile-add-grid .helptext {
+        display: block;
+        margin-top: 6px;
+    }
+    .profile-add-grid .errorlist {
+        margin-top: 6px;
+    }
+    .field-live-error {
+        display: none;
+        margin-top: 6px;
+        color: #ff8f8f;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .field-live-error.active {
+        display: block;
+    }
+    .form-control.field-invalid {
+        border-color: #a94a57;
+        box-shadow: 0 0 0 3px rgba(169, 74, 87, 0.16);
+    }
+    .profile-submit-row {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .profile-add-submit {
+        min-width: 150px;
+    }
+    .profile-add-error {
+        margin: 0 0 10px;
+    }
+    .profile-cli-output {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid #29466f;
+        border-radius: 10px;
+        background: #091120;
+    }
+    .profile-cli-output strong {
+        display: block;
+        margin-bottom: 8px;
+        color: #dbe8ff;
+        font-size: 12px;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .profile-cli-output pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #c8f6c8;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+    }
+    .profile-config-box {
+        margin: 10px 0 14px;
+        padding: 8px 10px;
+        border: 1px solid #29466f;
+        border-radius: 10px;
+        background: #0a1323;
+    }
+    .profile-config-output {
+        margin: 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #07101c;
+        color: #c8f6c8;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .profile-config-btn {
+        min-width: 104px;
+        padding: 8px 10px;
+        font-size: 12px;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+    .profile-list-wrap[hidden] {
+        display: none;
+    }
+    .refresh-btn {
+        min-width: 146px;
+        position: relative;
+    }
+    .refresh-btn.loading {
+        opacity: 0.9;
+        pointer-events: none;
+    }
+    .refresh-spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 0.7s linear infinite;
+        vertical-align: middle;
+    }
+    .cli-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    .cli-terminal {
+        background: #04070e;
+        border: 1px solid #243a61;
+        border-radius: 10px;
+        min-height: 280px;
+        height: 420px;
+        overflow: auto;
+        padding: 10px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+        line-height: 1.35;
+        color: #c8f6c8;
+        white-space: pre-wrap;
+        outline: none;
+    }
+    .cli-status {
+        color: #9cb5db;
+        margin-bottom: 8px;
+        font-size: 12px;
+    }
+    .status-normal { color: #4edb73; font-weight: 700; }
+    .status-failed { color: #ff5f5f; font-weight: 700; }
+    .pon-slot-title {
+        margin: 14px 0 8px;
+        font-size: 20px;
+        color: #dbe8ff;
+    }
+    .pon-status-up { color: #4edb73; font-weight: 700; }
+    .pon-status-down { color: #ff5f5f; font-weight: 700; }
+      .onus-box { line-height: 1.25; white-space: nowrap; }
+      .onus-online { color: #4edb73; font-weight: 700; }
+      .onus-offline { color: #ff8f8f; }
+      .onus-link {
+          text-decoration: none;
+      }
+      .onus-link.onus-online,
+      .onus-link.onus-online:visited,
+      .onus-link.onus-online:hover {
+          color: #4edb73;
+      }
+      .onus-link.onus-offline,
+      .onus-link.onus-offline:visited,
+      .onus-link.onus-offline:hover {
+          color: #ff8f8f;
+      }
+    .avg-signal-box { line-height: 1.2; white-space: nowrap; }
+    .avg-signal-value { font-weight: 700; }
+    .avg-signal-good { color: #35d07f; }
+    .avg-signal-warn { color: #ffb347; }
+    .avg-signal-bad { color: #ff5f5f; }
+    .avg-signal-link.avg-signal-good,
+    .avg-signal-link.avg-signal-good:visited,
+    .avg-signal-link.avg-signal-good:hover,
+    .avg-signal-link.avg-signal-good:active,
+    .avg-signal-link.avg-signal-good:focus { color: #35d07f; }
+    .avg-signal-link.avg-signal-warn,
+    .avg-signal-link.avg-signal-warn:visited,
+    .avg-signal-link.avg-signal-warn:hover,
+    .avg-signal-link.avg-signal-warn:active,
+    .avg-signal-link.avg-signal-warn:focus { color: #ffb347; }
+    .avg-signal-link.avg-signal-bad,
+    .avg-signal-link.avg-signal-bad:visited,
+    .avg-signal-link.avg-signal-bad:hover,
+    .avg-signal-link.avg-signal-bad:active,
+    .avg-signal-link.avg-signal-bad:focus { color: #ff5f5f; }
+    .avg-signal-link {
+        color: inherit;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .avg-signal-link:visited,
+    .avg-signal-link:hover,
+    .avg-signal-link:active,
+    .avg-signal-link:focus {
+        color: inherit;
+    }
+    .avg-signal-link:hover {
+        text-decoration: underline;
+    }
+    .avg-signal-bars {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        margin-left: 6px;
+        height: 14px;
+        vertical-align: middle;
+    }
+    .avg-signal-bars span {
+        display: inline-block;
+        width: 3px;
+        border-radius: 2px;
+        background: currentColor;
+    }
+    .avg-signal-bars span:nth-child(1) { height: 5px; }
+    .avg-signal-bars span:nth-child(2) { height: 8px; }
+    .avg-signal-bars span:nth-child(3) { height: 11px; }
+    .avg-signal-bars span:nth-child(4) { height: 14px; }
+    .uptime-pill {
+        display: inline-block;
+        margin-top: 2px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 12px;
+        line-height: 1.2;
+    }
+    .uptime-pill.ok {
+        background: #dff8ea;
+        color: #146b3a;
+    }
+    .uptime-pill.bad {
+        background: #ffdede;
+        color: #8f1d1d;
+    }
+    .temp-alert {
+        color: #ff4d5f;
+        font-weight: 800;
+        animation: temp-blink 1s steps(2, start) infinite;
+    }
+    .detail-live-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 20px;
+    }
+    .detail-live-row.loading .live-value,
+    .detail-live-row.loading .uptime-text,
+    .detail-live-row.loading .temp-text {
+        opacity: 0.45;
+    }
+    .detail-spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.18);
+        border-top-color: #7fb2ff;
+        border-radius: 50%;
+        display: none;
+        animation: spin 0.7s linear infinite;
+        flex: 0 0 auto;
+    }
+    .detail-live-row.loading .detail-spinner {
+        display: inline-block;
+    }
+    .status-pill.loading {
+        opacity: 0.85;
+    }
+    .status-pill.loading::after {
+        content: "";
+        width: 12px;
+        height: 12px;
+        margin-left: 8px;
+        border: 2px solid rgba(20, 95, 55, 0.18);
+        border-top-color: #145f37;
+        border-radius: 50%;
+        display: inline-block;
+        vertical-align: -2px;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes temp-blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.25; }
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    @media (max-width: 1050px) {
+        .view-layout { grid-template-columns: 1fr; }
+        .profile-add-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+        .profile-add-grid { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <h1 class="brand">{{ olt.name }}</h1>
+            <p class="subtle">
+                {% if selected_section == 'olt-details' %}
+                <span id="detailUptimePill" class="uptime-pill {% if banner_uptime and banner_uptime != '--' and banner_uptime_ok %}ok{% elif banner_uptime and banner_uptime != '--' %}bad{% endif %}">
+                    <span class="detail-live-row" id="detailUptimeRow">
+                        <span class="uptime-text" id="detailUptimeText">{% if banner_uptime and banner_uptime != '--' %}Uptime: {{ banner_uptime }}{% else %}Uptime: --{% endif %}</span>
+                        <span class="temp-text {% if temperature_alert %}temp-alert{% endif %}" id="detailTempText">{% if snmp_snapshot.temperature and snmp_snapshot.temperature != '--' %}| Temp: {{ snmp_snapshot.temperature }}{% endif %}</span>
+                        <span class="detail-spinner"></span>
+                    </span>
+                </span>
+                {% endif %}
+            </p>
+        </div>
+        <div class="topbar-actions">
+            {% if selected_section == 'history' %}
+            <a href="?section=olt-details" class="btn btn-secondary" id="backToOltSettingsBtn">Back</a>
+            {% else %}
+            <a href="{% url 'olt_settings_olt' %}" class="btn btn-secondary" id="backToOltSettingsBtn">Back</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <section class="panel">
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="view-layout">
+            <nav class="menu-card">
+                <a href="?section=olt-details" class="{% if selected_section == 'olt-details' %}active{% endif %}">Olt details</a>
+                <a href="?section=olt-cards" class="{% if selected_section == 'olt-cards' %}active{% endif %}">OLT cards</a>
+                <a href="?section=pon-ports" class="{% if selected_section == 'pon-ports' %}active{% endif %}">PON ports</a>
+                <a href="?section=uplink" class="{% if selected_section == 'uplink' %}active{% endif %}">Uplink</a>
+                <a href="?section=vlans" class="{% if selected_section == 'vlans' %}active{% endif %}">VLANs</a>
+                <a href="?section=profiles" class="{% if selected_section == 'profiles' %}active{% endif %}">Speed Profile</a>
+                <a href="?section=advanced" class="{% if selected_section == 'advanced' %}active{% endif %}">Advanced</a>
+            </nav>
+
+            <div class="content-card">
+                {% if selected_section == 'olt-details' %}
+                <div class="quick-actions">
+                    <a href="{% url 'olt_edit' olt.pk %}" class="btn btn-primary">Edit OLT settings</a>
+                    <a href="?section=history" class="btn btn-primary">See history</a>
+                </div>
+                {% endif %}
+                {% if selected_section == 'olt-details' %}
+                <section id="olt-details" data-refresh-url="{{ olt_details_refresh_url }}">
+                    <h3>Olt details</h3>
+                    <div class="kv">
+                        <div><small>Name</small>{{ olt.name }}</div>
+                        <div><small>OLT IP</small>{{ olt.ip_address }}</div>
+                        <div><small>TCP</small>{{ olt.port }}</div>
+                        <div><small>UDP</small>{{ olt.snmp_port }}</div>
+                        <div><small>Vendor</small>{{ olt.vendor }}</div>
+                        <div><small>Hardware</small><span class="detail-live-row" id="detailHardwareRow"><span class="live-value" id="detailHardwareValue">{{ olt.hardware_version|default:"Unknown" }}</span></span></div>
+                        <div><small>Software</small><span class="detail-live-row" id="detailSoftwareRow"><span class="live-value" id="detailSoftwareValue">{{ software_display|default:"Unknown" }}</span></span></div>
+                        <div><small>Uptime</small><span class="detail-live-row" id="detailGridUptimeRow"><span class="live-value" id="detailGridUptimeValue">{{ snmp_snapshot.uptime|default:"--" }}</span><span class="detail-spinner"></span></span></div>
+                    </div>
+                </section>
+                {% elif selected_section == 'cli' %}
+                <section id="cli-panel">
+                    <h3>CLI Panel</h3>
+                    {% csrf_token %}
+                    <input type="hidden" id="cliCsrfToken" value="{{ csrf_token }}">
+                    <div class="cli-toolbar">
+                        <button type="button" class="btn btn-success" id="cliConnectBtn">Connect</button>
+                        <button type="button" class="btn btn-secondary" id="cliDisconnectBtn">Disconnect</button>
+                    </div>
+                    <div class="cli-status" id="cliStatus">Disconnected</div>
+                    <div class="cli-terminal" id="cliTerminal" tabindex="0">$ Press Connect to open CLI session.
+</div>
+                </section>
+                {% elif selected_section == 'history' %}
+                <section id="history">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                        <h3 style="margin:0;">Login history</h3>
+                        <a href="?section=olt-details" class="btn btn-secondary">Back to Olt details</a>
+                    </div>
+                    {% if history_rows %}
+                    <div class="cards-table-wrap">
+                        <table class="cards-table">
+                            <thead>
+                                <tr>
+                                    <th>Action</th>
+                                    <th>OLT</th>
+                                    <th>ONU</th>
+                                    <th>User</th>
+                                    <th>IP address</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in history_rows %}
+                                <tr>
+                                    <td>{{ row.action|default:"-" }}</td>
+                                    <td>{{ row.olt.name }}</td>
+                                    <td>{% if row.onu %}{{ row.onu }}{% else %}-{% endif %}</td>
+                                    <td>{{ row.username|default:"Unknown" }}</td>
+                                    <td>{% if row.ip_address %}{{ row.ip_address }}{% else %}-{% endif %}</td>
+                                    <td>{{ row.logged_in_at|date:"Y-m-d h:i:s A" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="subtle">No history logs yet.</p>
+                    {% endif %}
+                </section>
+                {% elif selected_section == 'olt-cards' %}
+                <section id="olt-cards">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                        <h3 style="margin:0;">OLT cards</h3>
+                        <form method="post" action="{% url 'olt_refresh_ports' olt.pk %}" class="refresh-form" id="refreshPortsForm">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-primary refresh-btn" id="refreshPortsBtn">
+                                <span class="refresh-label">Refresh Ports</span>
+                            </button>
+                        </form>
+                    </div>
+                    {% if olt_cards %}
+                    <div class="cards-table-wrap">
+                        <table class="cards-table">
+                            <thead>
+                                <tr>
+                                    <th>Slot</th>
+                                    <th>Type</th>
+                                    <th>Real type</th>
+                                    <th>PON Ports</th>
+                                    <th>SW</th>
+                                    <th>Status</th>
+                                    <th>Role</th>
+                                    <th>Info updated</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for card in olt_cards %}
+                                <tr>
+                                    <td>{{ card.slot }}</td>
+                                    <td>{{ card.type|default:card.model_type|default:"-" }}</td>
+                                    <td>{{ card.real_type|default:card.model_type|default:"-" }}</td>
+                                    <td>{{ card.ports }}</td>
+                                    <td>{{ card.sw|default:"-" }}</td>
+                                    {% with status_l=card.status|lower %}
+                                    <td class="{% if 'normal' in status_l %}status-normal{% else %}status-failed{% endif %}">{{ card.status }}</td>
+                                    {% endwith %}
+                                    <td>{{ card.role }}</td>
+                                    <td>{{ card.info_updated|default:"-" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="subtle">No cards found yet.</p>
+                    {% endif %}
+                </section>
+                {% elif selected_section == 'pon-ports' %}
+                <section id="pon-ports">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                        <h3 style="margin:0;">PON ports</h3>
+                        <form method="post" action="{% url 'olt_refresh_pon_ports' olt.pk %}" class="refresh-form">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-primary refresh-btn">
+                                <span class="refresh-label">Refresh PON Ports</span>
+                            </button>
+                        </form>
+                    </div>
+                    {% if pon_port_groups %}
+                        {% for grp in pon_port_groups %}
+                        <div class="pon-slot-title">OLT slot {{ grp.slot }}, board type: {{ grp.board_type }}</div>
+                        <div class="cards-table-wrap">
+                            <table class="cards-table">
+                                <thead>
+                                      <tr>
+                                          <th>Port</th>
+                                          <th>Type</th>
+                                          <th>Admin state</th>
+                                          <th>Status</th>
+                                          <th>ONUs</th>
+                                          <th>SFP Tx</th>
+                                          <th>Average signal</th>
+                                      </tr>
+                                </thead>
+                                <tbody>
+                                    {% for port in grp.ports %}
+                                    <tr>
+                                        <td>{{ port.port }}</td>
+                                        <td>{{ port.type }}</td>
+                                        <td>{{ port.admin_state }}</td>
+                                        <td class="{% if 'down' in port.status|lower %}pon-status-down{% elif 'up' in port.status|lower %}pon-status-up{% endif %}">{{ port.status }}</td>
+                                          <td>
+                                              <div class="onus-box">
+                                                 <div>
+                                                     <a href="{% url 'configured_onus' %}?olt={{ olt.pk }}&board={{ grp.slot }}&port={{ port.port }}&status=online" class="onus-link onus-online" title="Show online ONUs on this PON port">Online:{{ port.onus_online|default:0 }}</a>
+                                                 </div>
+                                                 <div>
+                                                     <a href="{% url 'configured_onus' %}?olt={{ olt.pk }}&board={{ grp.slot }}&port={{ port.port }}&status=offline" class="onus-link onus-offline" title="Show offline ONUs on this PON port">Offline:{{ port.onus_offline|default:0 }}</a>
+                                                 </div>
+                                              </div>
+                                          </td>
+                                          <td>{% if port.sfp_tx %}{{ port.sfp_tx }}{% else %}-{% endif %}</td>
+                                          <td>
+                                              {% if port.average_signal %}
+                                              <a href="{% url 'configured_onus' %}?olt={{ olt.pk }}&board={{ grp.slot }}&port={{ port.port }}" class="avg-signal-link avg-signal-box avg-signal-{{ port.average_signal_bucket|default:'good' }}" title="Show ONUs on this PON port">
+                                                  <span class="avg-signal-value">{{ port.average_signal }}</span>
+                                                  <span class="avg-signal-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+                                            </a>
+                                            {% else %}
+                                            -
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p class="subtle">{{ pon_ports_status_display|default:"No PON ports found." }}</p>
+                    {% endif %}
+                </section>
+                {% elif selected_section == 'uplink' %}
+                <section id="uplink">
+                    <div class="section-head">
+                        <h3>Uplink</h3>
+                        <form method="post" action="{% url 'olt_refresh_uplink' olt.pk %}" class="refresh-form">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Ports</button>
+                        </form>
+                    </div>
+                    {% if uplink_data.rows %}
+                    <div class="cards-table-wrap">
+                        <table class="cards-table">
+                            <thead>
+                                <tr>
+                                    <th>Uplink port</th>
+                                    <th>Description</th>
+                                    <th>Admin state</th>
+                                    <th>Status</th>
+                                    <th>Speed</th>
+                                    <th>Negotiation</th>
+                                    <th>MTU</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in uplink_data.rows %}
+                                <tr>
+                                    <td>{{ row.port }}</td>
+                                    <td>{{ row.description }}</td>
+                                    <td>{{ row.admin_status }}</td>
+                                    <td class="{% if row.oper_status|upper == 'UP' %}status-normal{% else %}status-failed{% endif %}">{{ row.oper_status }}</td>
+                                    <td class="{% if row.speed|default:'-' != '-' %}status-normal{% endif %}">{{ row.speed|default:"-" }}</td>
+                                    <td>{{ row.negotiation }}</td>
+                                    <td>{{ row.mtu }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="subtle">{{ uplink_status_display|default:"No SNMP interface data found." }}</p>
+                    {% endif %}
+                </section>
+                {% elif selected_section == 'vlans' %}
+                <section id="vlans">
+                    <div class="section-head">
+                        <h3>VLANs</h3>
+                        <div class="vlan-actions">
+                            <form method="post" action="{% url 'olt_refresh_vlans' olt.pk %}" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh VLANs</button>
+                            </form>
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                id="toggleAddVlanBtn"
+                                aria-expanded="{% if vlan_add_form.is_bound or vlan_add_form.non_field_errors or vlan_transcript %}true{% else %}false{% endif %}"
+                                aria-controls="addVlanCard"
+                            >
+                                Add VLAN
+                            </button>
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                id="toggleAddBulkVlanBtn"
+                                aria-expanded="{% if vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors or vlan_bulk_transcript %}true{% else %}false{% endif %}"
+                                aria-controls="addBulkVlanCard"
+                            >
+                                Add Multiple VLANs
+                            </button>
+                        </div>
+                    </div>
+                    <p class="subtle">Total VLANs: {{ vlan_data.rows|length }}</p>
+                    {% if vlan_notice %}
+                    <p class="subtle" style="margin-top: -4px;">{{ vlan_notice }}</p>
+                    {% endif %}
+                    <div
+                        class="vlan-add-card"
+                        id="addVlanCard"
+                        {% if not vlan_add_form.is_bound and not vlan_add_form.non_field_errors and not vlan_transcript %}hidden{% endif %}
+                    >
+                        <h4>Create VLAN</h4>
+                        {% if vlan_add_form.non_field_errors %}
+                        <div class="profile-add-error">
+                            {{ vlan_add_form.non_field_errors }}
+                        </div>
+                        {% endif %}
+                        <form method="post" action="{% url 'olt_add_vlan' olt.pk %}">
+                            {% csrf_token %}
+                            <div class="vlan-add-grid">
+                                <div class="field-wrap">
+                                    <label for="{{ vlan_add_form.vlan_id.id_for_label }}">{{ vlan_add_form.vlan_id.label }}</label>
+                                    {{ vlan_add_form.vlan_id }}
+                                    {{ vlan_add_form.vlan_id.errors }}
+                                    <div class="field-live-error" id="vlanIdLiveError"></div>
+                                </div>
+                                <div class="field-wrap">
+                                    <label for="{{ vlan_add_form.description.id_for_label }}">{{ vlan_add_form.description.label }}</label>
+                                    {{ vlan_add_form.description }}
+                                    {{ vlan_add_form.description.errors }}
+                                    <div class="field-live-error" id="vlanDescriptionLiveError"></div>
+                                </div>
+                            </div>
+                            <div class="vlan-submit-row">
+                                <button type="submit" class="btn btn-primary vlan-add-submit">Create VLAN</button>
+                            </div>
+                        </form>
+                        {% if vlan_transcript and not vlan_add_form.errors %}
+                        <div class="vlan-cli-output" id="vlanCliOutputBox">
+                            <strong>Command Output</strong>
+                            <pre>{{ vlan_transcript }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div
+                        class="vlan-add-card"
+                        id="addBulkVlanCard"
+                        {% if not vlan_bulk_form.is_bound and not vlan_bulk_form.non_field_errors and not vlan_bulk_transcript %}hidden{% endif %}
+                    >
+                        <h4>Create Multiple VLANs</h4>
+                        {% if vlan_bulk_form.non_field_errors %}
+                        <div class="profile-add-error">
+                            {{ vlan_bulk_form.non_field_errors }}
+                        </div>
+                        {% endif %}
+                        <form method="post" action="{% url 'olt_add_vlan_bulk' olt.pk %}">
+                            {% csrf_token %}
+                            <div class="vlan-add-grid">
+                                <div class="field-wrap">
+                                    <label for="{{ vlan_bulk_form.vlan_range.id_for_label }}">{{ vlan_bulk_form.vlan_range.label }}</label>
+                                    {{ vlan_bulk_form.vlan_range }}
+                                    {{ vlan_bulk_form.vlan_range.errors }}
+                                    <div class="field-live-error" id="vlanRangeLiveError"></div>
+                                </div>
+                            </div>
+                            <div class="vlan-submit-row">
+                                <button type="submit" class="btn btn-primary vlan-bulk-add-submit">Create VLANs</button>
+                            </div>
+                        </form>
+                        {% if vlan_bulk_transcript and not vlan_bulk_form.errors %}
+                        <div class="vlan-cli-output" id="vlanBulkCliOutputBox">
+                            <strong>Command Output</strong>
+                            <pre>{{ vlan_bulk_transcript }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div
+                        class="vlan-list-wrap"
+                        id="vlanListWrap"
+                        {% if vlan_add_form.is_bound or vlan_add_form.non_field_errors or vlan_transcript or vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors or vlan_bulk_transcript %}hidden{% endif %}
+                    >
+                    {% if vlan_data.rows %}
+                    <div class="cards-table-wrap">
+                        <table class="cards-table">
+                            <thead>
+                                <tr>
+                                    <th>VLAN</th>
+                                    <th>ONUs</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in vlan_data.rows %}
+                                <tr>
+                                    <td>{{ row.vlan_id }}</td>
+                                    <td>{{ row.service_port_num|default:"-" }}</td>
+                                    <td>{{ row.description|default:"-" }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="subtle">{{ vlan_status_display|default:"No VLAN data found." }}</p>
+                    {% endif %}
+                    </div>
+                    {{ vlan_data.rows|json_script:"existingVlanData" }}
+                </section>
+                {% elif selected_section == 'profiles' %}
+                <section id="profiles">
+                    <div class="section-head">
+                        <h3>Speed Profile</h3>
+                        <div class="profile-actions">
+                            <form method="post" action="{% url 'olt_refresh_profiles' olt.pk %}" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Profiles</button>
+                            </form>
+                            <button
+                                type="button"
+                                class="btn btn-primary"
+                                id="toggleAddProfileBtn"
+                                aria-expanded="{% if dba_profile_form.is_bound or dba_profile_form.non_field_errors or dba_profile_transcript %}true{% else %}false{% endif %}"
+                                aria-controls="addProfileCard"
+                            >
+                                Add Profile
+                            </button>
+                        </div>
+                    </div>
+                    <p class="subtle">Total Profiles: {{ dba_profile_data.rows|length }}</p>
+                    {% if dba_profile_notice %}
+                    <p class="subtle" style="margin-top: -4px;">{{ dba_profile_notice }}</p>
+                    {% endif %}
+                    <div
+                        class="profile-add-card"
+                        id="addProfileCard"
+                        {% if not dba_profile_form.is_bound and not dba_profile_form.non_field_errors and not dba_profile_transcript %}hidden{% endif %}
+                    >
+                        <h4>Add Profile</h4>
+                        {% if dba_profile_form.non_field_errors %}
+                        <div class="profile-add-error">
+                            {{ dba_profile_form.non_field_errors }}
+                        </div>
+                        {% endif %}
+                        <form method="post" action="{% url 'olt_add_profile' olt.pk %}">
+                            {% csrf_token %}
+                            <div class="profile-add-grid">
+                                <div class="field-wrap">
+                                    <label for="{{ dba_profile_form.profile_id.id_for_label }}">{{ dba_profile_form.profile_id.label }}</label>
+                                    {{ dba_profile_form.profile_id }}
+                                    {{ dba_profile_form.profile_id.errors }}
+                                    <div class="field-live-error" id="profileIdLiveError"></div>
+                                </div>
+                                <div class="field-wrap">
+                                    <label for="{{ dba_profile_form.profile_name.id_for_label }}">{{ dba_profile_form.profile_name.label }}</label>
+                                    {{ dba_profile_form.profile_name }}
+                                    {{ dba_profile_form.profile_name.errors }}
+                                    <div class="field-live-error" id="profileNameLiveError"></div>
+                                </div>
+                                <div class="field-wrap">
+                                    <label for="{{ dba_profile_form.profile_type.id_for_label }}">{{ dba_profile_form.profile_type.label }}</label>
+                                    {{ dba_profile_form.profile_type }}
+                                    <div class="field-live-error" id="profileTypeLiveError"></div>
+                                </div>
+                                <div class="field-wrap">
+                                    <label for="{{ dba_profile_form.dba_speed.id_for_label }}">{{ dba_profile_form.dba_speed.label }}</label>
+                                    {{ dba_profile_form.dba_speed }}
+                                    {% if dba_profile_form.dba_speed.help_text %}
+                                    <small class="helptext">{{ dba_profile_form.dba_speed.help_text }}</small>
+                                    {% endif %}
+                                    {{ dba_profile_form.dba_speed.errors }}
+                                    <div class="field-live-error" id="profileSpeedLiveError"></div>
+                                </div>
+                            </div>
+                            <div class="profile-submit-row">
+                                <button type="submit" class="btn btn-primary profile-add-submit">Add Profile</button>
+                            </div>
+                        </form>
+                        {% if dba_profile_transcript and not dba_profile_form.errors %}
+                        <div class="profile-cli-output" id="profileCliOutputBox">
+                            <strong>Command Output</strong>
+                            <pre>{{ dba_profile_transcript }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div
+                        class="profile-list-wrap"
+                        id="profileListWrap"
+                        {% if dba_profile_form.is_bound or dba_profile_form.non_field_errors or dba_profile_transcript %}hidden{% endif %}
+                    >
+                    {% if dba_profile_config %}
+                    <div class="profile-config-box" id="profileConfigBox">
+                        {% if dba_profile_config.output %}
+                        <pre class="profile-config-output">{{ dba_profile_config.output }}</pre>
+                        {% elif dba_profile_config.transcript %}
+                        <pre class="profile-config-output">{{ dba_profile_config.transcript }}</pre>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% if dba_profile_data.rows %}
+                    <div class="cards-table-wrap">
+                        <table class="cards-table">
+                            <thead>
+                                <tr>
+                                    <th>Profile ID</th>
+                                    <th>Profile Name</th>
+                                    <th>Type</th>
+                                    <th>DBA Speed</th>
+                                    <th>Configuration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in dba_profile_data.rows %}
+                                <tr>
+                                    <td>{{ row.profile_id }}</td>
+                                    <td>{{ row.profile_name }}</td>
+                                    <td>{{ row.profile_type }}</td>
+                                    <td>{{ row.dba_speed }}</td>
+                                    <td>
+                                        <form method="post" action="{% url 'olt_profile_configuration' olt.pk %}" class="refresh-form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="profile_id" value="{{ row.profile_id }}">
+                                            <input type="hidden" name="profile_name" value="{{ row.profile_name }}">
+                                            <button type="submit" class="btn btn-primary profile-config-btn" data-loading-text="Loading...">Display_Config</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="subtle">{{ dba_profile_status_display|default:"No DBA profiles found." }}</p>
+                    {% endif %}
+                    </div>
+                    {{ dba_profile_data.rows|json_script:"existingDbaProfilesData" }}
+                </section>
+                {% else %}
+                <section id="advanced">
+                    <h3>Advanced</h3>
+                    <p class="subtle">Coming soon.</p>
+                </section>
+                {% endif %}
+            </div>
+
+            <aside class="snap-card">
+                <h3 class="snap-title">Device Snapshot</h3>
+                <span class="status-pill" id="snapshotStatusPill">
+                    {% if 'snmp' in snapshot_status_display|lower %}
+                        Live SNMP fetched
+                    {% else %}
+                        {{ snapshot_status_display }}
+                    {% endif %}
+                </span>
+                <div class="snap-box" style="margin-top: 10px;">
+                    <p><strong>Sys Name:</strong> <span id="snapshotSysName">{{ snapshot.sys_name }}</span></p>
+                    <p><strong>Model:</strong> <span id="snapshotModel">{{ snapshot.model }}</span></p>
+                    <p><strong>SW Version:</strong> <span id="snapshotSwVersion">{{ snapshot.sw_version }}</span></p>
+                </div>
+            </aside>
+        </div>
+    </section>
+</div>
+<script>
+(() => {
+    const refreshForms = document.querySelectorAll('form.refresh-form');
+    const openCliWindowBtn = document.getElementById('openCliWindowBtn');
+    const backToOltSettingsBtn = document.getElementById('backToOltSettingsBtn');
+    if (refreshForms.length) {
+        refreshForms.forEach((form) => {
+            form.addEventListener('submit', () => {
+                const button = form.querySelector('button[type="submit"]');
+                if (!button) return;
+                button.classList.add('loading');
+                button.disabled = true;
+                button.innerHTML = '<span class="refresh-spinner"></span><span>Refreshing...</span>';
+            });
+        });
+    }
+    const addProfileCard = document.getElementById('addProfileCard');
+    const toggleAddProfileBtn = document.getElementById('toggleAddProfileBtn');
+    const profileListWrap = document.getElementById('profileListWrap');
+    const addProfileForm = addProfileCard ? addProfileCard.querySelector('form[action$="add-profile/"]') : null;
+    if (addProfileCard && toggleAddProfileBtn) {
+        toggleAddProfileBtn.addEventListener('click', () => {
+            const isHidden = addProfileCard.hasAttribute('hidden');
+            if (isHidden) {
+                addProfileCard.removeAttribute('hidden');
+                if (profileListWrap) {
+                    profileListWrap.setAttribute('hidden', '');
+                }
+                toggleAddProfileBtn.setAttribute('aria-expanded', 'true');
+                const firstField = addProfileCard.querySelector('input, select');
+                if (firstField) {
+                    firstField.focus();
+                }
+            } else {
+                addProfileCard.setAttribute('hidden', '');
+                if (profileListWrap) {
+                    profileListWrap.removeAttribute('hidden');
+                }
+                toggleAddProfileBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+    if (addProfileForm) {
+        const existingProfilesNode = document.getElementById('existingDbaProfilesData');
+        const existingProfiles = existingProfilesNode ? JSON.parse(existingProfilesNode.textContent) : [];
+        const reservedIds = new Set(existingProfiles.map((row) => String(row.profile_id || '').trim()).filter(Boolean));
+        const reservedNames = new Set(existingProfiles.map((row) => String(row.profile_name || '').trim().toLowerCase()).filter(Boolean));
+        const profileIdInput = document.getElementById('{{ dba_profile_form.profile_id.id_for_label }}');
+        const profileNameInput = document.getElementById('{{ dba_profile_form.profile_name.id_for_label }}');
+        const profileTypeInput = document.getElementById('{{ dba_profile_form.profile_type.id_for_label }}');
+        const profileSpeedInput = document.getElementById('{{ dba_profile_form.dba_speed.id_for_label }}');
+        const submitButton = addProfileForm.querySelector('button[type="submit"]');
+        const profileCliOutputBox = document.getElementById('profileCliOutputBox');
+        const liveFields = [
+            [profileIdInput, document.getElementById('profileIdLiveError')],
+            [profileNameInput, document.getElementById('profileNameLiveError')],
+            [profileTypeInput, document.getElementById('profileTypeLiveError')],
+            [profileSpeedInput, document.getElementById('profileSpeedLiveError')],
+        ];
+
+        const setLiveError = (input, node, message) => {
+            if (!input || !node) return;
+            const hasError = !!message;
+            input.classList.toggle('field-invalid', hasError);
+            node.textContent = message || '';
+            node.classList.toggle('active', hasError);
+        };
+
+        const validateProfileId = () => {
+            const value = String(profileIdInput?.value || '').trim();
+            if (!value) return 'Profile ID is required.';
+            if (!/^\d+$/.test(value)) return 'Profile ID must be a number between 10 and 512.';
+            const num = Number(value);
+            if (num < 10 || num > 512) return 'Profile ID must be between 10 and 512.';
+            if (reservedIds.has(String(num))) return 'This profile ID is already in use on the OLT.';
+            return '';
+        };
+
+        const validateProfileName = () => {
+            const value = String(profileNameInput?.value || '').trim();
+            if (!value) return 'Profile name is required.';
+            if (value.length > 20) return 'Profile name must be 20 characters or fewer.';
+            if (value.includes('"')) return 'Double quotes are not allowed in the profile name.';
+            if (reservedNames.has(value.toLowerCase())) return 'This profile name is already in use on the OLT.';
+            return '';
+        };
+
+        const validateProfileType = () => {
+            const value = String(profileTypeInput?.value || '').trim().toLowerCase();
+            const allowed = new Set(['type1', 'type2', 'type3', 'type4', 'type5']);
+            if (!allowed.has(value)) return 'Select a valid profile type.';
+            return '';
+        };
+
+        const validateProfileSpeed = () => {
+            const value = String(profileSpeedInput?.value || '').trim();
+            if (!value) return 'DBA speed is required.';
+            if (!/^\d+$/.test(value)) return 'DBA speed must be a positive number.';
+            const num = Number(value);
+            if (num <= 0) return 'DBA speed must be a positive number.';
+            const converted = num * 1024;
+            if (converted < 128 || converted > 10000000) return 'DBA speed is out of allowed range after conversion.';
+            return '';
+        };
+
+        const runLiveValidation = () => {
+            const idError = validateProfileId();
+            const nameError = validateProfileName();
+            const typeError = validateProfileType();
+            const speedError = validateProfileSpeed();
+            setLiveError(profileIdInput, document.getElementById('profileIdLiveError'), idError);
+            setLiveError(profileNameInput, document.getElementById('profileNameLiveError'), nameError);
+            setLiveError(profileTypeInput, document.getElementById('profileTypeLiveError'), typeError);
+            setLiveError(profileSpeedInput, document.getElementById('profileSpeedLiveError'), speedError);
+            const isValid = !(idError || nameError || typeError || speedError);
+            if (submitButton) {
+                submitButton.disabled = !isValid;
+            }
+            return isValid;
+        };
+
+        liveFields.forEach(([input]) => {
+            if (!input) return;
+            const handleFieldInteraction = () => {
+                if (profileCliOutputBox) {
+                    profileCliOutputBox.style.display = 'none';
+                }
+                runLiveValidation();
+            };
+            input.addEventListener('input', handleFieldInteraction);
+            input.addEventListener('change', handleFieldInteraction);
+            input.addEventListener('blur', runLiveValidation);
+        });
+        addProfileForm.addEventListener('submit', (event) => {
+            if (!runLiveValidation()) {
+                event.preventDefault();
+            }
+        });
+        runLiveValidation();
+    }
+    const addVlanCard = document.getElementById('addVlanCard');
+    const toggleAddVlanBtn = document.getElementById('toggleAddVlanBtn');
+    const addBulkVlanCard = document.getElementById('addBulkVlanCard');
+    const toggleAddBulkVlanBtn = document.getElementById('toggleAddBulkVlanBtn');
+    const vlanListWrap = document.getElementById('vlanListWrap');
+    const setVlanLiveError = (input, node, message) => {
+        if (!input || !node) return;
+        const hasError = !!message;
+        input.classList.toggle('field-invalid', hasError);
+        node.textContent = message || '';
+        node.classList.toggle('active', hasError);
+    };
+    const addVlanForm = addVlanCard ? addVlanCard.querySelector('form[action$="add-vlan/"]') : null;
+    if (addVlanCard && toggleAddVlanBtn) {
+        toggleAddVlanBtn.addEventListener('click', () => {
+            const isHidden = addVlanCard.hasAttribute('hidden');
+            if (isHidden) {
+                addVlanCard.removeAttribute('hidden');
+                if (addBulkVlanCard) {
+                    addBulkVlanCard.setAttribute('hidden', '');
+                }
+                if (vlanListWrap) {
+                    vlanListWrap.setAttribute('hidden', '');
+                }
+                toggleAddVlanBtn.setAttribute('aria-expanded', 'true');
+                if (toggleAddBulkVlanBtn) {
+                    toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'false');
+                }
+                const firstField = addVlanCard.querySelector('input');
+                if (firstField) {
+                    firstField.focus();
+                }
+            } else {
+                addVlanCard.setAttribute('hidden', '');
+                if (vlanListWrap) {
+                    vlanListWrap.removeAttribute('hidden');
+                }
+                toggleAddVlanBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+    if (addBulkVlanCard && toggleAddBulkVlanBtn) {
+        toggleAddBulkVlanBtn.addEventListener('click', () => {
+            const isHidden = addBulkVlanCard.hasAttribute('hidden');
+            if (isHidden) {
+                addBulkVlanCard.removeAttribute('hidden');
+                if (addVlanCard) {
+                    addVlanCard.setAttribute('hidden', '');
+                }
+                if (vlanListWrap) {
+                    vlanListWrap.setAttribute('hidden', '');
+                }
+                toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'true');
+                if (toggleAddVlanBtn) {
+                    toggleAddVlanBtn.setAttribute('aria-expanded', 'false');
+                }
+                const firstField = addBulkVlanCard.querySelector('input');
+                if (firstField) {
+                    firstField.focus();
+                }
+            } else {
+                addBulkVlanCard.setAttribute('hidden', '');
+                if (vlanListWrap) {
+                    vlanListWrap.removeAttribute('hidden');
+                }
+                toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+    if (addVlanForm) {
+        const existingVlansNode = document.getElementById('existingVlanData');
+        const existingVlans = existingVlansNode ? JSON.parse(existingVlansNode.textContent) : [];
+        const reservedVlanIds = new Set(existingVlans.map((row) => String(row.vlan_id || '').trim()).filter(Boolean));
+        const vlanIdInput = document.getElementById('{{ vlan_add_form.vlan_id.id_for_label }}');
+        const vlanDescriptionInput = document.getElementById('{{ vlan_add_form.description.id_for_label }}');
+        const vlanSubmitButton = addVlanForm.querySelector('button[type="submit"]');
+        const vlanCliOutputBox = document.getElementById('vlanCliOutputBox');
+
+        const validateVlanId = () => {
+            const value = String(vlanIdInput?.value || '').trim();
+            if (!value) return 'VLAN ID is required.';
+            if (!/^\d+$/.test(value)) return 'VLAN ID must be a number between 1 and 4094.';
+            const num = Number(value);
+            if (num < 1 || num > 4094) return 'VLAN ID must be between 1 and 4094.';
+            if (reservedVlanIds.has(String(num))) return 'This VLAN already exists on the OLT.';
+            return '';
+        };
+
+        const validateVlanDescription = () => {
+            const value = String(vlanDescriptionInput?.value || '').trim();
+            if (value.length > 20) return 'Description must be 20 characters or fewer.';
+            if (value.includes('"')) return 'Double quotes are not allowed in the description.';
+            return '';
+        };
+
+        const runVlanLiveValidation = () => {
+            const idError = validateVlanId();
+            const descError = validateVlanDescription();
+            setVlanLiveError(vlanIdInput, document.getElementById('vlanIdLiveError'), idError);
+            setVlanLiveError(vlanDescriptionInput, document.getElementById('vlanDescriptionLiveError'), descError);
+            const isValid = !(idError || descError);
+            if (vlanSubmitButton) {
+                vlanSubmitButton.disabled = !isValid;
+            }
+            return isValid;
+        };
+
+        [vlanIdInput, vlanDescriptionInput].forEach((input) => {
+            if (!input) return;
+            const handleVlanFieldInteraction = () => {
+                if (vlanCliOutputBox) {
+                    vlanCliOutputBox.style.display = 'none';
+                }
+                runVlanLiveValidation();
+            };
+            input.addEventListener('input', handleVlanFieldInteraction);
+            input.addEventListener('change', handleVlanFieldInteraction);
+            input.addEventListener('blur', runVlanLiveValidation);
+        });
+
+        addVlanForm.addEventListener('submit', (event) => {
+            if (!runVlanLiveValidation()) {
+                event.preventDefault();
+            }
+        });
+        runVlanLiveValidation();
+    }
+    const addBulkVlanForm = addBulkVlanCard ? addBulkVlanCard.querySelector('form[action$="add-vlan-bulk/"]') : null;
+    if (addBulkVlanForm) {
+        const existingVlansNode = document.getElementById('existingVlanData');
+        const existingVlans = existingVlansNode ? JSON.parse(existingVlansNode.textContent) : [];
+        const reservedVlanIds = new Set(existingVlans.map((row) => Number(row.vlan_id)).filter((value) => Number.isFinite(value)));
+        const vlanRangeInput = document.getElementById('{{ vlan_bulk_form.vlan_range.id_for_label }}');
+        const vlanRangeErrorNode = document.getElementById('vlanRangeLiveError');
+        const bulkSubmitButton = addBulkVlanForm.querySelector('button[type="submit"]');
+        const vlanBulkCliOutputBox = document.getElementById('vlanBulkCliOutputBox');
+
+        const validateVlanRange = () => {
+            const value = String(vlanRangeInput?.value || '').trim();
+            if (!value) return 'VLAN range is required.';
+            const match = value.match(/^(\d+)\s*-\s*(\d+)$/);
+            if (!match) return 'Enter VLAN range like 150-160.';
+            const start = Number(match[1]);
+            const end = Number(match[2]);
+            if (start < 1 || end > 4094 || start >= end) return 'VLAN range must stay between 1 and 4094, and end must be greater than start.';
+            const count = (end - start) + 1;
+            if (count > 11) return 'You can add up to 11 VLANs at a time.';
+            const conflicts = [];
+            for (let vlanId = start; vlanId <= end; vlanId += 1) {
+                if (reservedVlanIds.has(vlanId)) {
+                    conflicts.push(vlanId);
+                }
+            }
+            if (conflicts.length) return `These VLANs already exist on the OLT: ${conflicts.slice(0, 6).join(', ')}`;
+            return '';
+        };
+
+        const runBulkVlanLiveValidation = () => {
+            const rangeError = validateVlanRange();
+            setVlanLiveError(vlanRangeInput, vlanRangeErrorNode, rangeError);
+            const isValid = !rangeError;
+            if (bulkSubmitButton) {
+                bulkSubmitButton.disabled = !isValid;
+            }
+            return isValid;
+        };
+
+        if (vlanRangeInput) {
+            const handleBulkFieldInteraction = () => {
+                if (vlanBulkCliOutputBox) {
+                    vlanBulkCliOutputBox.style.display = 'none';
+                }
+                runBulkVlanLiveValidation();
+            };
+            vlanRangeInput.addEventListener('input', handleBulkFieldInteraction);
+            vlanRangeInput.addEventListener('change', handleBulkFieldInteraction);
+            vlanRangeInput.addEventListener('blur', runBulkVlanLiveValidation);
+        }
+        addBulkVlanForm.addEventListener('submit', (event) => {
+            if (!runBulkVlanLiveValidation()) {
+                event.preventDefault();
+            }
+        });
+        runBulkVlanLiveValidation();
+    }
+    const detailsSection = document.getElementById('olt-details');
+    if (detailsSection) {
+        const refreshUrl = detailsSection.dataset.refreshUrl;
+        const liveRows = [
+            document.getElementById('detailGridUptimeRow'),
+            document.getElementById('detailUptimeRow'),
+        ].filter(Boolean);
+        const statusPill = document.getElementById('snapshotStatusPill');
+        const setLoading = (isLoading) => {
+            liveRows.forEach((row) => row.classList.toggle('loading', isLoading));
+            if (statusPill) {
+                statusPill.classList.toggle('loading', isLoading);
+            }
+        };
+        const uptimePill = document.getElementById('detailUptimePill');
+        const uptimeText = document.getElementById('detailUptimeText');
+        const tempText = document.getElementById('detailTempText');
+        const hardwareValue = document.getElementById('detailHardwareValue');
+        const softwareValue = document.getElementById('detailSoftwareValue');
+        const gridUptimeValue = document.getElementById('detailGridUptimeValue');
+        const snapshotSysName = document.getElementById('snapshotSysName');
+        const snapshotModel = document.getElementById('snapshotModel');
+        const snapshotSwVersion = document.getElementById('snapshotSwVersion');
+        const applySnapshot = (payload) => {
+            if (!payload) return;
+            const snapshot = payload.snapshot || {};
+            if (statusPill) {
+                const statusText = String(payload.snapshot_status_display || '');
+                statusPill.textContent = statusText.toLowerCase().includes('snmp') ? 'Live SNMP fetched' : (statusText || 'Device data unavailable');
+            }
+            if (hardwareValue) {
+                hardwareValue.textContent = snapshot.model || 'Unknown';
+            }
+            if (softwareValue) {
+                softwareValue.textContent = payload.software_display || snapshot.sw_version || 'Unknown';
+            }
+            if (gridUptimeValue) {
+                gridUptimeValue.textContent = payload.banner_uptime || '--';
+            }
+            if (snapshotSysName) {
+                snapshotSysName.textContent = snapshot.sys_name || '{{ olt.name|escapejs }}';
+            }
+            if (snapshotModel) {
+                snapshotModel.textContent = snapshot.model || 'Unknown';
+            }
+            if (snapshotSwVersion) {
+                snapshotSwVersion.textContent = snapshot.sw_version || 'Unknown';
+            }
+            if (uptimeText) {
+                uptimeText.textContent = `Uptime: ${payload.banner_uptime || '--'}`;
+            }
+            if (tempText) {
+                const tempValue = snapshot.temperature || '--';
+                tempText.textContent = tempValue !== '--' ? `| Temp: ${tempValue}` : '';
+                tempText.classList.toggle('temp-alert', !!payload.temperature_alert);
+            }
+            if (uptimePill) {
+                uptimePill.classList.remove('ok', 'bad');
+                const uptimeValue = payload.banner_uptime || '--';
+                if (uptimeValue !== '--') {
+                    uptimePill.classList.add(payload.banner_uptime_ok ? 'ok' : 'bad');
+                }
+            }
+        };
+        setLoading(true);
+        fetch(refreshUrl, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+        })
+            .then((response) => response.json())
+            .then((payload) => {
+                applySnapshot(payload);
+            })
+            .catch(() => {
+                if (statusPill) {
+                    statusPill.textContent = 'Saved device data';
+                }
+            })
+            .finally(() => {
+                setLoading(false);
+            });
+    }
+    if (openCliWindowBtn) {
+        openCliWindowBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            const baseUrl = openCliWindowBtn.getAttribute('href');
+            const url = `${baseUrl}?t=${Date.now()}`;
+            window.open(
+                url,
+                `_blank`,
+                'popup=yes,width=1200,height=760,left=120,top=60,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes,noopener'
+            );
+        });
+    }
+    const connectBtn = document.getElementById('cliConnectBtn');
+    const disconnectBtn = document.getElementById('cliDisconnectBtn');
+    const terminal = document.getElementById('cliTerminal');
+    const status = document.getElementById('cliStatus');
+    const csrfTokenInput = document.getElementById('cliCsrfToken');
+    if (!connectBtn || !disconnectBtn || !terminal || !status || !csrfTokenInput) return;
+
+    const csrfToken = csrfTokenInput.value;
+    const openUrl = "{% url 'olt_cli_open' olt.pk %}";
+    const runUrl = "{% url 'olt_cli_run' olt.pk %}";
+    const closeUrl = "{% url 'olt_cli_close' olt.pk %}";
+    let connected = false;
+    let currentLine = '';
+    let busy = false;
+
+    const appendOutput = (text) => {
+        if (!text) return;
+        terminal.textContent += text;
+        terminal.scrollTop = terminal.scrollHeight;
+    };
+
+    const postData = async (url, data = {}) => {
+        const body = new URLSearchParams(data);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRFToken': csrfToken,
+            },
+            body: body.toString(),
+        });
+        return response.json();
+    };
+
+    const sendInput = async (data) => {
+        if (!connected || busy) return;
+        busy = true;
+        try {
+            const payload = await postData(runUrl, { data });
+            if (payload.ok) {
+                appendOutput(payload.output || '');
+            } else {
+                appendOutput(`\n${payload.message || 'Command failed'}\n`);
+            }
+        } catch (error) {
+            appendOutput('\nRequest failed.\n');
+        } finally {
+            busy = false;
+        }
+    };
+
+    connectBtn.addEventListener('click', async () => {
+        status.textContent = 'Connecting...';
+        try {
+            const payload = await postData(openUrl);
+            if (!payload.ok) {
+                status.textContent = 'Disconnected';
+                appendOutput(`\n${payload.message || 'Connect failed'}\n`);
+                return;
+            }
+            connected = true;
+            currentLine = '';
+            status.textContent = 'Connected';
+            terminal.textContent = '';
+            appendOutput(payload.output || 'CLI connected.\n');
+            terminal.focus();
+        } catch (error) {
+            status.textContent = 'Connection error';
+            appendOutput('\nConnect request failed.\n');
+        }
+    });
+
+    disconnectBtn.addEventListener('click', async () => {
+        try {
+            await postData(closeUrl);
+        } catch (error) {
+            // Ignore close errors.
+        }
+        connected = false;
+        currentLine = '';
+        status.textContent = 'Disconnected';
+        appendOutput('\nSession closed.\n');
+    });
+
+    terminal.addEventListener('keydown', async (event) => {
+        if (!connected) return;
+        if (event.repeat && event.key === 'Enter') return;
+        if (
+            event.key === 'Tab' ||
+            event.key === 'Enter' ||
+            event.key === 'Backspace' ||
+            event.key.startsWith('Arrow')
+        ) {
+            event.preventDefault();
+        }
+
+        if (event.key === 'Enter') {
+            appendOutput('\n');
+            currentLine = '';
+            await sendInput('\r\n');
+            return;
+        }
+        if (event.key === 'Tab') {
+            await sendInput('\t');
+            return;
+        }
+        if (event.key === 'Backspace') {
+            if (currentLine.length > 0) {
+                currentLine = currentLine.slice(0, -1);
+                terminal.textContent = terminal.textContent.slice(0, -1);
+            }
+            await sendInput('\b');
+            return;
+        }
+        if (event.key === 'ArrowUp') {
+            await sendInput('\u001b[A');
+            return;
+        }
+        if (event.key === 'ArrowDown') {
+            await sendInput('\u001b[B');
+            return;
+        }
+        if (event.key === 'ArrowRight') {
+            await sendInput('\u001b[C');
+            return;
+        }
+        if (event.key === 'ArrowLeft') {
+            await sendInput('\u001b[D');
+            return;
+        }
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+            currentLine += event.key;
+            appendOutput(event.key);
+            await sendInput(event.key);
+        }
+    });
+
+    terminal.addEventListener('click', () => terminal.focus());
+})();
+</script>
+{% endblock %}
+

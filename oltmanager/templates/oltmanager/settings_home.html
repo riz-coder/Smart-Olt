@@ -1,0 +1,52 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block extra_css %}
+<style>
+    .coming-soon-panel {
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        text-align: center;
+    }
+    .coming-soon-card {
+        max-width: 520px;
+        padding: 28px 30px;
+        border-radius: 18px;
+        border: 1px solid #28436d;
+        background: linear-gradient(180deg, rgba(19, 33, 58, 0.96), rgba(13, 24, 43, 0.98));
+        box-shadow: 0 16px 38px rgba(3, 8, 18, 0.34);
+    }
+    .coming-soon-kicker {
+        margin: 0 0 8px;
+        color: #78b7ff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+    .coming-soon-title {
+        margin: 0;
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+    .coming-soon-copy {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel coming-soon-panel">
+        <div class="coming-soon-card">
+            <h1 class="coming-soon-title">Coming soon</h1>
+        </div>
+    </section>
+</div>
+{% endblock %}

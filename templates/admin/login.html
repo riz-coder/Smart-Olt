@@ -1,0 +1,50 @@
+{% extends "admin/login.html" %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    body.login {
+        background:
+            radial-gradient(circle at 10% 10%, rgba(47, 128, 255, 0.2) 0%, transparent 38%),
+            radial-gradient(circle at 90% 85%, rgba(27, 62, 130, 0.26) 0%, transparent 42%),
+            #0a1222;
+    }
+    .login #container {
+        border: 1px solid #223556;
+        border-radius: 16px;
+        box-shadow: 0 24px 56px rgba(3, 8, 18, 0.55);
+        overflow: hidden;
+        background: #111d35;
+    }
+    .login #header {
+        background: linear-gradient(120deg, #0d1b34 0%, #14294d 65%, #1c4f9d 100%);
+    }
+    .login #header h1,
+    .login #header a {
+        color: #f0f5ff;
+    }
+    .login #content {
+        background: #111d35;
+        color: #d8e5ff;
+    }
+    .login .form-row label {
+        color: #c9daff;
+    }
+    .login input[type=text],
+    .login input[type=password] {
+        background: #0d1a31;
+        border: 1px solid #324e78;
+        color: #eaf2ff;
+    }
+    .login #content {
+        padding-top: 20px;
+        padding-bottom: 22px;
+    }
+    .login .submit-row input {
+        width: 100%;
+        border-radius: 8px;
+        min-height: 40px;
+        font-weight: 700;
+    }
+</style>
+{% endblock %}

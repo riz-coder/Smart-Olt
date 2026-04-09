@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OLT Portal{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a1222;
+            --card: #111d35;
+            --text: #e8f0ff;
+            --muted: #9db0cf;
+            --line: #223556;
+            --primary: #2f80ff;
+            --primary-dark: #1f65d1;
+            --success-bg: #12372a;
+            --success-text: #87efac;
+            --error-bg: #3a1520;
+            --error-text: #ffb7c5;
+            --danger: #ff6b77;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Manrope", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 92% 8%, #1b3e82 0%, transparent 36%),
+                radial-gradient(circle at 8% 90%, #1d5a8a 0%, transparent 44%),
+                var(--bg);
+        }
+        body.authenticated {
+            padding-left: 244px;
+        }
+        .main-nav {
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 228px;
+            border-right: 1px solid #25406b;
+            background:
+                linear-gradient(120deg, rgba(20, 34, 58, 0.98), rgba(18, 42, 82, 0.94)),
+                repeating-linear-gradient(
+                    -35deg,
+                    rgba(255, 255, 255, 0.07) 0 1px,
+                    transparent 1px 40px
+                );
+            box-shadow: 0 10px 24px rgba(2, 8, 20, 0.45);
+            z-index: 40;
+        }
+        .nav-inner {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 18px 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 18px;
+        }
+        .nav-brand {
+            color: #f4f7ff;
+            text-decoration: none;
+            font-family: "Sora", "Manrope", sans-serif;
+            font-size: 30px;
+            font-weight: 800;
+            font-style: italic;
+            letter-spacing: -0.04em;
+            margin: 0;
+            padding: 8px 10px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            transform: skewX(-7deg);
+            text-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+        }
+        .nav-links {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 6px;
+            flex: 1;
+            flex-wrap: nowrap;
+        }
+        .nav-link {
+            color: #deebff;
+            text-decoration: none;
+            font-size: 16px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+        }
+        .nav-link:hover { background: rgba(255, 255, 255, 0.12); }
+        .nav-dropdown {
+            position: relative;
+        }
+        .nav-dropdown > summary {
+            list-style: none;
+        }
+        .nav-dropdown > summary::-webkit-details-marker { display: none; }
+        .nav-menu {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            min-width: 140px;
+            background: #122446;
+            border: 1px solid #2b4c80;
+            border-radius: 10px;
+            padding: 6px;
+            z-index: 30;
+            box-shadow: 0 10px 24px rgba(3, 9, 22, 0.45);
+        }
+        .nav-menu a {
+            display: block;
+            color: #deebff;
+            text-decoration: none;
+            padding: 8px 10px;
+            border-radius: 7px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .nav-menu a:hover { background: #1f3a67; }
+        .nav-logout {
+            margin: auto 0 0;
+        }
+        .nav-logout-btn {
+            color: #fff;
+            font-size: 16px;
+            width: 100%;
+            justify-content: flex-start;
+        }
+        .shell {
+            width: min(1360px, calc(100% - 28px));
+            margin: 20px 0 28px 16px;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(17, 29, 53, 0.9);
+            backdrop-filter: blur(3px);
+        }
+        .brand {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin: 0;
+        }
+        .subtle { color: var(--muted); margin: 4px 0 0; }
+        .topbar-actions { display: flex; gap: 10px; align-items: center; }
+        .panel {
+            margin-top: 16px;
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 10px 26px rgba(3, 8, 18, 0.45);
+        }
+        .messages { list-style: none; padding: 0; margin: 0 0 12px; }
+        .messages li {
+            margin: 8px 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            font-weight: 600;
+        }
+        .messages li.success {
+            background: var(--success-bg);
+            color: var(--success-text);
+            border-color: #21573f;
+        }
+        .messages li.error {
+            background: var(--error-bg);
+            color: var(--error-text);
+            border-color: #5a2430;
+        }
+        .messages li.warning {
+            background: #3a3214;
+            color: #ffe7a1;
+            border-color: #6e5a1f;
+        }
+        .btn {
+            appearance: none;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 1;
+            text-decoration: none;
+            padding: 11px 14px;
+            cursor: pointer;
+            transition: 0.18s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-success { background: #17b169; color: #fff; }
+        .btn-success:hover { background: #129258; }
+        .btn-secondary {
+            background: #162541;
+            border-color: var(--line);
+            color: #d7e5ff;
+        }
+        .btn-secondary:hover { border-color: #375b95; }
+        .btn-danger {
+            background: #2f1920;
+            border-color: #6f2f3b;
+            color: var(--danger);
+        }
+        .btn-danger:hover {
+            background: #43202b;
+            border-color: #8c4050;
+        }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid var(--line);
+            font-size: 14px;
+        }
+        th { color: #9cb5db; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+        td.actions { white-space: nowrap; }
+        .inline { display: inline; }
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        .form-grid p { margin: 0; }
+        .form-grid label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #c9daff;
+        }
+        .form-control {
+            width: 100%;
+            border: 1px solid #324e78;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font: inherit;
+            background: #0d1a31;
+            color: #e6efff;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: #4c8fff;
+            box-shadow: 0 0 0 3px rgba(47, 128, 255, 0.2);
+        }
+        .helptext { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+        .errorlist {
+            margin: 0 0 6px;
+            color: #9a2525;
+            font-size: 12px;
+            padding-left: 16px;
+        }
+        @media (max-width: 760px) {
+            body.authenticated { padding-left: 0; }
+            .main-nav {
+                position: static;
+                width: auto;
+                border-right: none;
+                border-bottom: 1px solid #25406b;
+            }
+            .shell { width: calc(100% - 22px); margin: 18px auto; }
+            .topbar { flex-direction: column; align-items: flex-start; }
+            .form-grid { grid-template-columns: 1fr; }
+            .nav-brand { font-size: 22px; }
+            .nav-link, .nav-logout-btn { font-size: 13px; }
+            .nav-inner {
+                width: calc(100% - 20px);
+                height: auto;
+                margin-left: 10px;
+                padding: 8px 0;
+                flex-direction: row;
+                align-items: center;
+                gap: 10px;
+            }
+            .nav-links {
+                flex-direction: row;
+                align-items: center;
+                gap: 2px;
+            }
+            .nav-logout { margin: 0; }
+            .nav-logout-btn { width: auto; justify-content: center; }
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body{% if user.is_authenticated %} class="authenticated"{% endif %}>
+    {% if user.is_authenticated %}
+    <header class="main-nav">
+        <div class="nav-inner">
+            <a href="{% url 'olt_list' %}" class="nav-brand" aria-label="Home">OptiVerse</a>
+            <nav class="nav-links">
+                <a href="{% url 'unconfigured_onus' %}" class="nav-link">Autofind</a>
+                <a href="{% url 'configured_onus' %}" class="nav-link">ONUs</a>
+                <a href="{% url 'olt_settings_olt' %}" class="nav-link">OLT</a>
+                <a href="{% url 'settings_home' %}" class="nav-link">Settings</a>
+            </nav>
+            <form method="post" action="{% url 'logout' %}" class="nav-logout">
+                {% csrf_token %}
+                <button type="submit" class="nav-link nav-logout-btn">Log out</button>
+            </form>
+        </div>
+    </header>
+    {% endif %}
+    {% block content %}{% endblock %}
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

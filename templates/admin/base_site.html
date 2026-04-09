@@ -1,0 +1,78 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}OLT Admin{% endblock %}
+
+{% block branding %}
+<div id="site-name">
+    <a href="{% url 'admin:index' %}" style="font-weight: 800; letter-spacing: 0.02em;">OLT Control Center</a>
+</div>
+{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --primary: #0d1b34;
+        --secondary: #14294d;
+        --accent: #2f80ff;
+    }
+    body, button, input, select, textarea {
+        font-family: "Manrope", sans-serif;
+    }
+    body {
+        background: #0a1222;
+        color: #e8f0ff;
+    }
+    #container {
+        background: transparent;
+    }
+    #header {
+        background: linear-gradient(120deg, var(--primary) 0%, var(--secondary) 70%, #1c4f9d 100%);
+        color: #fff;
+    }
+    #header a:link, #header a:visited {
+        color: #fff;
+    }
+    div.breadcrumbs {
+        background: #111d35;
+        color: #aec4e8;
+        border-bottom: 1px solid #223556;
+    }
+    #content, .dashboard #content {
+        background: #0f1a31;
+        border: 1px solid #223556;
+        border-radius: 12px;
+    }
+    .module {
+        background: #111d35;
+        border: 1px solid #223556;
+    }
+    .module h2, .module caption, .inline-group h2 {
+        background: #162746;
+        color: #d6e4ff;
+    }
+    .button, input[type=submit], input[type=button], .submit-row input, a.button {
+        background: #2f80ff;
+        border-radius: 8px;
+        border: 1px solid transparent;
+    }
+    .button.default, input[type=submit].default, .submit-row input.default {
+        background: #1f65d1;
+    }
+    .button:hover, input[type=submit]:hover, input[type=button]:hover, .submit-row input:hover, a.button:hover {
+        background: #1c5ab8;
+    }
+    a:link, a:visited {
+        color: #83b2ff;
+    }
+    #user-tools a, .breadcrumbs a {
+        color: #c5dcff;
+    }
+</style>
+{% endblock %}

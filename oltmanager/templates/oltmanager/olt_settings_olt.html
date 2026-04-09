@@ -1,0 +1,95 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - OLT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .btn-mini { padding: 9px 12px; font-size: 13px; }
+    .view-col { width: 84px; }
+    .id-col { width: 64px; }
+    .telnet-badge {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .telnet-badge.pass {
+        background: #dff8ea;
+        color: #146b3a;
+    }
+    .telnet-badge.fail {
+        background: #ffdede;
+        color: #8f1d1d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div class="topbar-actions">
+            <a href="{% url 'olt_add' %}" class="btn btn-primary">Add OLT</a>
+            <a href="{% url 'olt_export' %}" class="btn btn-success">Export OLTs list</a>
+        </div>
+    </header>
+
+    <section class="panel">
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if olts %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="view-col">View</th>
+                        <th class="id-col">ID</th>
+                        <th>Name</th>
+                        <th>OLT IP</th>
+                        <th>TCP</th>
+                        <th>UDP</th>
+                        <th>OLT hardware version</th>
+                        <th>OLT SW version</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for olt in olts %}
+                    <tr>
+                        <td><a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a></td>
+                        <td>{{ olt.id }}</td>
+                        <td>{{ olt.name }}</td>
+                        <td>{{ olt.ip_address }}</td>
+                        <td>{{ olt.port }}</td>
+                        <td>{{ olt.snmp_port }}</td>
+                        <td>{{ olt.hardware_version|default:"-" }}</td>
+                        <td>{{ olt.sw_version|default:"-" }}</td>
+                        <td class="actions">
+                            <form class="inline" method="post" action="{% url 'olt_telnet_connect' olt.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-secondary btn-mini">Telnet</button>
+                            </form>
+                            <a href="{% url 'olt_delete' olt.pk %}" class="btn btn-danger btn-mini">Delete</a>
+                            {% if telnet_pk == olt.pk and telnet_result %}
+                            <div class="telnet-badge {{ telnet_result }}">
+                                {% if telnet_result == 'pass' %}PASS{% else %}FAIL{% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="subtle">No OLT records found. Click "Add OLT".</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

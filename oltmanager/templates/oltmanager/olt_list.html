@@ -1,0 +1,1137 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}SM{% endblock %}
+
+  {% block extra_css %}
+  <style>
+    .shell {
+        width: min(1360px, calc(100% - 28px));
+    }
+    .dashboard-wrap {
+          display: grid;
+          gap: 18px;
+      }
+    .dashboard-top-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+        gap: 18px;
+        align-items: start;
+    }
+    .summary-hero {
+        position: relative;
+        overflow: hidden;
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background:
+            radial-gradient(circle at top left, rgba(76, 201, 240, 0.16), transparent 28%),
+            radial-gradient(circle at bottom right, rgba(34, 211, 238, 0.12), transparent 24%),
+            linear-gradient(135deg, rgba(18, 31, 56, 0.98), rgba(10, 21, 40, 0.96));
+        box-shadow: 0 24px 54px rgba(2, 8, 20, 0.32);
+        padding: 20px 22px;
+    }
+    .summary-hero::after {
+        content: "";
+        position: absolute;
+        inset: auto -80px -80px auto;
+        width: 220px;
+        height: 220px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        filter: blur(4px);
+    }
+    .summary-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 14px;
+    }
+    .summary-kicker {
+        margin: 0 0 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #79c7ff;
+    }
+    .summary-title {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #f4f8ff;
+    }
+    .summary-sub {
+        margin: 10px 0 0;
+        font-size: 14px;
+        color: #9eb3d3;
+    }
+    .summary-scope-row {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .summary-scope-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #d7e5fb;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .summary-scope-link {
+        color: #9fd0ff;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .summary-scope-link:hover {
+        color: #d7eeff;
+    }
+    .summary-stamp {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 13px;
+        font-weight: 600;
+        color: #c8d7f2;
+        white-space: nowrap;
+    }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: minmax(240px, 300px) 1fr;
+        gap: 18px;
+        align-items: center;
+    }
+    .donut-panel {
+        display: grid;
+        place-items: center;
+        gap: 14px;
+        padding: 16px 10px 12px;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .donut-chart {
+        --online: {{ dashboard_online_total|default:0 }};
+        --offline: {{ dashboard_offline_total|default:0 }};
+        --total: {{ dashboard_total_onus|default:0 }};
+        --online-angle: {% if dashboard_total_onus %}calc((var(--online) / var(--total)) * 360deg){% else %}0deg{% endif %};
+        position: relative;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background:
+            conic-gradient(
+                #35d07f 0deg,
+                #35d07f var(--online-angle),
+                #ff6b6b var(--online-angle),
+                #ff6b6b 360deg
+            );
+        box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+            0 20px 44px rgba(0, 0, 0, 0.24);
+    }
+    .donut-chart::before {
+        content: "";
+        position: absolute;
+        inset: 24px;
+        border-radius: 50%;
+        background: linear-gradient(180deg, #12213d, #0b162b);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+    .donut-center {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 0 24px;
+    }
+    .donut-total {
+        font-size: 44px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        color: #f8fbff;
+    }
+    .donut-label {
+        margin-top: 6px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #96aad0;
+    }
+    .donut-legend {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #d6e3f7;
+    }
+    .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+    }
+    .legend-dot.online { background: #35d07f; }
+    .legend-dot.offline { background: #ff6b6b; }
+    .summary-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(150px, 1fr));
+        gap: 12px;
+        align-content: start;
+    }
+    .metric-card {
+        padding: 16px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(8px);
+        min-height: 148px;
+    }
+    .metric-label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #8ea7cc;
+    }
+    .metric-value {
+        margin-top: 10px;
+        font-size: 32px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #f7fbff;
+        overflow-wrap: anywhere;
+    }
+    .metric-note {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: #b5c7e3;
+    }
+    .metric-card.online .metric-value { color: #45db87; }
+    .metric-card.offline .metric-value { color: #ff7979; }
+    .metric-card.total .metric-value { color: #7ac8ff; }
+    .metric-card.offline {
+        background: linear-gradient(180deg, rgba(255, 107, 107, 0.14), rgba(255, 122, 122, 0.08));
+        border-color: rgba(255, 135, 135, 0.2);
+        grid-column: span 2;
+        min-height: 0;
+    }
+    .metric-card.low-signal {
+        background: linear-gradient(180deg, rgba(255, 173, 43, 0.18), rgba(255, 145, 43, 0.12));
+        border-color: rgba(255, 183, 77, 0.25);
+        grid-column: span 2;
+        min-height: 0;
+    }
+    .metric-card.low-signal .metric-value { color: #ffbe4d; }
+    .status-breakdown,
+    .signal-breakdown {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .status-breakdown a,
+    .signal-breakdown a {
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .status-breakdown a {
+        color: #ffb0b0;
+    }
+    .signal-breakdown a {
+        color: #ffd28d;
+    }
+    .status-breakdown a:hover {
+        color: #ffe5e5;
+    }
+    .signal-breakdown a:hover {
+        color: #fff0d4;
+    }
+    .status-breakdown a,
+    .signal-breakdown a {
+        text-decoration: none;
+    }
+    @media (max-width: 1120px) {
+        .dashboard-top-grid {
+            grid-template-columns: 1fr;
+        }
+        .shell {
+            width: calc(100% - 24px);
+        }
+    }
+    @media (max-width: 980px) {
+        .summary-grid {
+            grid-template-columns: 1fr;
+        }
+        .summary-metrics {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 640px) {
+        .summary-metrics {
+            grid-template-columns: 1fr;
+        }
+        .metric-card.offline,
+        .metric-card.low-signal {
+            grid-column: span 1;
+        }
+    }
+    .olt-uptime-box {
+        width: 100%;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(18, 31, 56, 0.96), rgba(10, 21, 40, 0.96));
+        box-shadow: 0 16px 34px rgba(2, 8, 20, 0.24);
+        padding: 16px;
+    }
+    .olt-uptime-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .olt-uptime-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .olt-uptime-stamp {
+        font-size: 12px;
+        font-weight: 700;
+        color: #97aed1;
+    }
+    .olt-uptime-list {
+        display: grid;
+        gap: 8px;
+        max-height: 260px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .olt-uptime-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        padding: 9px 10px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        text-decoration: none;
+    }
+    .olt-uptime-item.alert {
+        border-color: rgba(255, 96, 96, 0.32);
+        background: linear-gradient(180deg, rgba(78, 21, 33, 0.36), rgba(31, 18, 38, 0.28));
+    }
+    .olt-uptime-item.selected {
+        border-color: rgba(112, 180, 255, 0.55);
+        box-shadow: inset 0 0 0 1px rgba(112, 180, 255, 0.18);
+        background: linear-gradient(180deg, rgba(23, 59, 97, 0.5), rgba(12, 27, 47, 0.45));
+    }
+    .olt-uptime-topline {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+    }
+    .olt-uptime-name {
+        color: #dbe7ff;
+        font-size: 13px;
+        font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .olt-uptime-pill {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+    .olt-uptime-pill.ok {
+        background: #dff8ea;
+        color: #146b3a;
+    }
+    .olt-uptime-pill.bad {
+        background: #ffdede;
+        color: #8f1d1d;
+    }
+    .olt-uptime-pill.unknown {
+        background: rgba(255,255,255,0.08);
+        color: #dbe7ff;
+    }
+    .olt-temp-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .olt-temp-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #8fa9cf;
+    }
+    .olt-temp-value {
+        font-size: 13px;
+        font-weight: 800;
+        color: #9fe0c3;
+    }
+    .olt-temp-value.alert {
+        color: #ff7f7f;
+    }
+    .olt-down-wrap {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .olt-down-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    .olt-down-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: #ffce8a;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .olt-down-count {
+        font-size: 11px;
+        font-weight: 700;
+        color: #a8bbda;
+    }
+    .olt-down-list {
+        display: grid;
+        gap: 6px;
+        max-height: 132px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .olt-down-item {
+        border: 1px solid rgba(255, 177, 91, 0.18);
+        background: rgba(255, 177, 91, 0.06);
+        border-radius: 10px;
+        padding: 8px 10px;
+    }
+    .olt-down-name {
+        display: block;
+        color: #f2f6ff;
+        font-size: 13px;
+        font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .olt-down-status {
+        display: block;
+        margin-top: 3px;
+        color: #f7c790;
+        font-size: 11px;
+        line-height: 1.35;
+    }
+    .status-graph-box {
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(18, 31, 56, 0.96), rgba(10, 21, 40, 0.96));
+        box-shadow: 0 16px 34px rgba(2, 8, 20, 0.24);
+        padding: 16px 18px 18px;
+    }
+    .status-graph-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+    .status-graph-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .status-graph-sub {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #99b1d4;
+    }
+    .status-graph-controls {
+        display: inline-flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .status-graph-btn {
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: #cfe0ff;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .status-graph-btn.active {
+        background: #2f80ff;
+        border-color: #2f80ff;
+        color: #fff;
+    }
+    .status-graph-canvas {
+        position: relative;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, rgba(7, 16, 29, 0.92), rgba(8, 18, 32, 0.96));
+        overflow: hidden;
+        min-height: 310px;
+        padding: 12px 14px 14px;
+    }
+    .status-graph-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+    }
+    .status-graph-range {
+        font-size: 12px;
+        font-weight: 700;
+        color: #9cb4d7;
+    }
+    .status-graph-latest {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        font-size: 12px;
+        color: #c2d3ef;
+    }
+    .status-graph-latest strong {
+        color: #f4f8ff;
+    }
+    .status-graph-svg {
+        width: 100%;
+        height: 230px;
+        display: block;
+    }
+    .status-graph-grid {
+        stroke: rgba(255, 255, 255, 0.08);
+        stroke-width: 1;
+    }
+    .status-graph-axis {
+        fill: #8ea8cf;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .status-graph-line-online {
+        fill: rgba(53, 208, 127, 0.18);
+        stroke: #35d07f;
+        stroke-width: 2.2;
+    }
+    .status-graph-line-offline {
+        fill: none;
+        stroke: #ff6b6b;
+        stroke-width: 1.8;
+    }
+    .status-graph-line-admin {
+        fill: none;
+        stroke: #7ac8ff;
+        stroke-width: 1.8;
+    }
+    .status-graph-line-power {
+        fill: none;
+        stroke: #ffb84d;
+        stroke-width: 1.8;
+    }
+    .status-graph-line-los {
+        fill: none;
+        stroke: #c084fc;
+        stroke-width: 1.8;
+    }
+    .status-graph-point-online { fill: #35d07f; }
+    .status-graph-point-offline { fill: #ff6b6b; }
+    .status-graph-point-admin { fill: #7ac8ff; }
+    .status-graph-point-power { fill: #ffb84d; }
+    .status-graph-point-los { fill: #c084fc; }
+    .status-graph-hover-point {
+        fill: transparent;
+        pointer-events: all;
+    }
+    .status-graph-legend {
+        margin-top: 12px;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+    .status-graph-legend .legend-item {
+        cursor: pointer;
+        user-select: none;
+        transition: opacity 0.14s ease, transform 0.14s ease;
+    }
+    .status-graph-legend .legend-item.is-muted {
+        opacity: 0.38;
+    }
+    .status-graph-legend .legend-item:hover {
+        transform: translateY(-1px);
+    }
+    .status-graph-empty {
+        display: grid;
+        place-items: center;
+        min-height: 210px;
+        color: #8ea8cf;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .status-graph-loading {
+        opacity: 0.7;
+        filter: blur(1.2px);
+        transition: opacity 0.2s ease, filter 0.2s ease;
+    }
+    .status-graph-tooltip {
+        position: absolute;
+        z-index: 4;
+        min-width: 150px;
+        max-width: 220px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(7, 16, 29, 0.96);
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.28);
+        color: #e9f1ff;
+        font-size: 12px;
+        line-height: 1.45;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity 0.14s ease, transform 0.14s ease;
+        white-space: normal;
+    }
+    .status-graph-tooltip.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .status-graph-tooltip strong {
+        display: block;
+        margin-bottom: 6px;
+        color: #ffffff;
+        font-size: 12px;
+    }
+    .status-graph-tooltip-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .status-graph-tooltip-line span:last-child {
+        font-weight: 700;
+        color: #ffffff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <div class="dashboard-top-grid">
+        <section class="summary-hero">
+            <div class="summary-head">
+                <div>
+                    <p class="summary-kicker">{{ dashboard_scope_kicker }}</p>
+                    <h2 class="summary-title">{{ dashboard_scope_title }}</h2>
+                    {% if dashboard_selected_olt %}
+                    <div class="summary-scope-row">
+                        <span class="summary-scope-chip">Focused OLT: {{ dashboard_selected_olt.name }}</span>
+                        <a href="{% url 'olt_list' %}" class="summary-scope-link">Back to all OLTs</a>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="summary-stamp">Updated {{ dashboard_validated_at|date:"H:i" }}</div>
+            </div>
+
+            <div class="summary-grid">
+                <div class="donut-panel">
+                    <div class="donut-chart">
+                        <div class="donut-center">
+                            <div>
+                                <div class="donut-total">{{ dashboard_total_onus|default:0 }}</div>
+                                <div class="donut-label">Total ONUs</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="donut-legend">
+                        <span class="legend-item"><span class="legend-dot online"></span>Online</span>
+                        <span class="legend-item"><span class="legend-dot offline"></span>Offline</span>
+                    </div>
+                </div>
+
+                  <div class="summary-metrics">
+                    <article class="metric-card total" data-dashboard-total-card>
+                          <div class="metric-label">Wait for Authorize</div>
+                          <div class="metric-value" data-dashboard-total>{{ dashboard_wait_for_authorize_total|default:0 }}</div>
+                          <div class="metric-note">Auto-discovered ONUs awaiting authorization</div>
+                      </article>
+                    <article class="metric-card online" data-dashboard-online-card>
+                         <div class="metric-label">Online</div>
+                        <div class="metric-value" data-dashboard-online>{{ dashboard_online_total|default:0 }}</div>
+                         <div class="metric-note">Currently reachable ONUs</div>
+                      </article>
+                      <article class="metric-card offline" data-dashboard-offline-card>
+                          <div class="metric-label">Offline</div>
+                          <div class="metric-value" data-dashboard-offline>{{ dashboard_offline_total|default:0 }}</div>
+                          <div class="metric-note">Currently unavailable ONUs</div>
+                          <div class="status-breakdown">
+                              <a href="{{ dashboard_admin_disabled_url }}" data-dashboard-admin-link>Admin Disabled: {{ dashboard_admin_disabled_total|default:0 }}</a>
+                              <a href="{{ dashboard_loss_of_signal_url }}" data-dashboard-los-link>LOS: {{ dashboard_loss_of_signal_total|default:0 }}</a>
+                              <a href="{{ dashboard_power_failure_url }}" data-dashboard-power-link>Power Failure: {{ dashboard_power_failure_total|default:0 }}</a>
+                          </div>
+                      </article>
+                      <article class="metric-card low-signal" data-dashboard-signal-card>
+                          <div class="metric-label">Low Signals</div>
+                          <div class="metric-value" data-dashboard-signal-total>{{ dashboard_signal_total|default:0 }}</div>
+                          <div class="metric-note">Signal quality alerts</div>
+                          <div class="signal-breakdown">
+                              <a href="{{ dashboard_warning_url }}" data-dashboard-warn-link>Warning: {{ dashboard_signal_warn_total|default:0 }}</a>
+                              <a href="{{ dashboard_critical_url }}" data-dashboard-bad-link>Critical: {{ dashboard_signal_bad_total|default:0 }}</a>
+                          </div>
+                      </article>
+                  </div>
+            </div>
+        </section>
+
+        <section class="olt-uptime-box" data-olt-uptime-url="{% url 'dashboard_olt_uptimes' %}" data-dashboard-base-url="{% url 'olt_list' %}" data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}">
+            <div class="olt-uptime-head">
+                <h3 class="olt-uptime-title">OLT Uptime</h3>
+                <span class="olt-uptime-stamp" data-olt-uptime-stamp>Loading...</span>
+            </div>
+            <div class="olt-uptime-list" data-olt-uptime-list>
+                {% for item in dashboard_olt_uptimes %}
+                <a href="{% url 'olt_list' %}?olt={{ item.id }}" class="olt-uptime-item{% if item.temperature_alert %} alert{% endif %}{% if item.selected %} selected{% endif %}">
+                    <div class="olt-uptime-topline">
+                        <span class="olt-uptime-name">{{ item.name }}</span>
+                        <span class="olt-uptime-pill unknown">{{ item.uptime }}</span>
+                    </div>
+                    <div class="olt-temp-line">
+                        <span class="olt-temp-label">Temperature</span>
+                        <span class="olt-temp-value{% if item.temperature_alert %} alert{% endif %}">{{ item.temperature|default:"--" }}</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            <div class="olt-down-wrap">
+                <div class="olt-down-head">
+                    <span class="olt-down-title">SNMP 161 Down</span>
+                    <span class="olt-down-count" data-olt-down-count>{{ dashboard_snmp_down_olts|length }}</span>
+                </div>
+                <div class="olt-down-list" data-olt-down-list>
+                    {% for item in dashboard_snmp_down_olts %}
+                    <div class="olt-down-item">
+                        <span class="olt-down-name">{{ item.name }}</span>
+                        <span class="olt-down-status">{{ item.status }}</span>
+                    </div>
+                    {% empty %}
+                    <div class="olt-down-item">
+                        <span class="olt-down-name">All OLTs reachable</span>
+                        <span class="olt-down-status">No SNMP timeout/no-response detected.</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <section
+        class="status-graph-box"
+        data-status-graph-url="{% url 'dashboard_status_graph' %}"
+        data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}"
+    >
+        <div class="status-graph-head">
+            <div>
+                <h3 class="status-graph-title">Network Status</h3>
+                <p class="status-graph-sub">Hourly, daily, weekly, monthly, and yearly history for the current dashboard scope.</p>
+            </div>
+            <div class="status-graph-controls">
+                <button type="button" class="status-graph-btn active" data-graph-range="1h">Hour</button>
+                <button type="button" class="status-graph-btn" data-graph-range="24h">Day</button>
+                <button type="button" class="status-graph-btn" data-graph-range="7d">Week</button>
+                <button type="button" class="status-graph-btn" data-graph-range="4w">Month</button>
+                <button type="button" class="status-graph-btn" data-graph-range="12m">Year</button>
+            </div>
+        </div>
+        <div class="status-graph-canvas" data-status-graph-canvas>
+            <div class="status-graph-meta">
+                <span class="status-graph-range" data-status-graph-range>{{ dashboard_graph.range_label }}</span>
+                <div class="status-graph-latest" data-status-graph-latest></div>
+            </div>
+            <div data-status-graph-inner></div>
+            <div class="status-graph-tooltip" data-status-graph-tooltip></div>
+            <div class="status-graph-legend">
+                <span class="legend-item" data-series-toggle="online"><span class="legend-dot online"></span>Online</span>
+                <span class="legend-item" data-series-toggle="offline"><span class="legend-dot offline"></span>Offline</span>
+                <span class="legend-item" data-series-toggle="admin_disabled"><span class="legend-dot" style="background:#7ac8ff;"></span>Admin Disabled</span>
+                <span class="legend-item" data-series-toggle="power_failure"><span class="legend-dot" style="background:#ffb84d;"></span>Power Failure</span>
+                <span class="legend-item" data-series-toggle="loss_of_signal"><span class="legend-dot" style="background:#c084fc;"></span>LOS</span>
+            </div>
+        </div>
+        {{ dashboard_graph|json_script:"dashboardStatusGraphData" }}
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (() => {
+      const panel = document.querySelector('[data-olt-uptime-url]');
+      if (!panel) return;
+    const url = panel.getAttribute('data-olt-uptime-url');
+    const baseUrl = panel.getAttribute('data-dashboard-base-url') || '';
+    const selectedOlt = panel.getAttribute('data-selected-olt') || '';
+    const list = panel.querySelector('[data-olt-uptime-list]');
+    const stamp = panel.querySelector('[data-olt-uptime-stamp]');
+      const downList = panel.querySelector('[data-olt-down-list]');
+      const downCount = panel.querySelector('[data-olt-down-count]');
+      const totalNode = document.querySelector('[data-dashboard-total]');
+      const onlineNode = document.querySelector('[data-dashboard-online]');
+      const offlineNode = document.querySelector('[data-dashboard-offline]');
+      const signalTotalNode = document.querySelector('[data-dashboard-signal-total]');
+      const adminLink = document.querySelector('[data-dashboard-admin-link]');
+      const losLink = document.querySelector('[data-dashboard-los-link]');
+      const powerLink = document.querySelector('[data-dashboard-power-link]');
+      const warnLink = document.querySelector('[data-dashboard-warn-link]');
+      const badLink = document.querySelector('[data-dashboard-bad-link]');
+      const root = document.documentElement;
+      if (!url || !list || !stamp || !baseUrl) return;
+
+    const renderRows = (rows) => {
+        list.innerHTML = (rows || []).map((row) => {
+            const cls = row.uptime === '--' ? 'unknown' : (row.uptime_ok ? 'ok' : 'bad');
+            const name = String(row.name || '');
+            const uptime = String(row.uptime || '--');
+            const temperature = String(row.temperature || '--');
+            const alertClass = row.temperature_alert ? ' alert' : '';
+            const selectedClass = String(row.id || '') === selectedOlt ? ' selected' : '';
+            const href = `${baseUrl}?olt=${encodeURIComponent(String(row.id || ''))}`;
+            return `
+                <a href="${href}" class="olt-uptime-item${alertClass}${selectedClass}">
+                    <div class="olt-uptime-topline">
+                        <span class="olt-uptime-name">${name}</span>
+                        <span class="olt-uptime-pill ${cls}">${uptime}</span>
+                    </div>
+                    <div class="olt-temp-line">
+                        <span class="olt-temp-label">Temperature</span>
+                        <span class="olt-temp-value${alertClass}">${temperature}</span>
+                    </div>
+                </a>
+            `;
+        }).join('');
+      };
+      const renderDownRows = (rows) => {
+          if (!downList) return;
+          const safeRows = rows || [];
+          if (downCount) {
+              downCount.textContent = String(safeRows.length);
+          }
+          if (!safeRows.length) {
+              downList.innerHTML = `
+                  <div class="olt-down-item">
+                      <span class="olt-down-name">All OLTs reachable</span>
+                      <span class="olt-down-status">No SNMP timeout/no-response detected.</span>
+                  </div>
+              `;
+              return;
+          }
+          downList.innerHTML = safeRows.map((row) => `
+              <div class="olt-down-item">
+                  <span class="olt-down-name">${String(row.name || '')}</span>
+                  <span class="olt-down-status">${String(row.status || 'SNMP no response on UDP 161')}</span>
+              </div>
+          `).join('');
+        };
+      const renderSummary = (summary) => {
+          const safe = summary || {};
+          if (totalNode) totalNode.textContent = String(safe.wait_for_authorize_total ?? totalNode.textContent ?? '0');
+          if (onlineNode) onlineNode.textContent = String(safe.online_total ?? onlineNode.textContent ?? '0');
+          if (offlineNode) offlineNode.textContent = String(safe.offline_total ?? offlineNode.textContent ?? '0');
+          if (signalTotalNode) signalTotalNode.textContent = String(safe.signal_total ?? signalTotalNode.textContent ?? '0');
+          if (adminLink) adminLink.textContent = `Admin Disabled: ${safe.admin_disabled_total ?? 0}`;
+          if (losLink) losLink.textContent = `LOS: ${safe.loss_of_signal_total ?? 0}`;
+          if (powerLink) powerLink.textContent = `Power Failure: ${safe.power_failure_total ?? 0}`;
+          if (warnLink) warnLink.textContent = `Warning: ${safe.signal_warn_total ?? 0}`;
+          if (badLink) badLink.textContent = `Critical: ${safe.signal_bad_total ?? 0}`;
+          if (root) {
+              root.style.setProperty('--online', String(safe.online_total ?? 0));
+              root.style.setProperty('--offline', String(safe.offline_total ?? 0));
+              root.style.setProperty('--total', String(safe.total_onus ?? 0));
+          }
+      };
+
+      const refresh = async () => {
+          try {
+            const queryUrl = selectedOlt ? `${url}?olt=${encodeURIComponent(selectedOlt)}` : url;
+            const response = await fetch(queryUrl, {
+                  headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                  credentials: 'same-origin',
+              });
+              if (!response.ok) return;
+              const payload = await response.json();
+                if (!payload.ok) return;
+                renderRows(payload.rows || []);
+                renderDownRows(payload.down_rows || []);
+                renderSummary(payload.summary || {});
+                const refreshedAt = payload.refreshed_at || 'Updated';
+                stamp.textContent = payload.updating ? `${refreshedAt} (Updating...)` : refreshedAt;
+        } catch (error) {
+            // Keep existing rendered values on transient network issues.
+        }
+    };
+
+    refresh();
+    window.setInterval(refresh, 900000);
+})();
+
+(() => {
+    const panel = document.querySelector('[data-status-graph-url]');
+    if (!panel) return;
+    const url = panel.getAttribute('data-status-graph-url');
+    const selectedOlt = panel.getAttribute('data-selected-olt') || '';
+    const inner = panel.querySelector('[data-status-graph-inner]');
+    const canvas = panel.querySelector('[data-status-graph-canvas]');
+    const tooltip = panel.querySelector('[data-status-graph-tooltip]');
+    const rangeLabel = panel.querySelector('[data-status-graph-range]');
+    const latest = panel.querySelector('[data-status-graph-latest]');
+    const buttons = Array.from(panel.querySelectorAll('[data-graph-range]'));
+    const legendItems = Array.from(panel.querySelectorAll('[data-series-toggle]'));
+    const initialNode = document.getElementById('dashboardStatusGraphData');
+    let activeRange = '24h';
+    let activeSeries = '';
+    let busy = false;
+
+    const setLatest = (row) => {
+        if (!latest) return;
+        const safe = row || {};
+        latest.innerHTML = `
+            <span><strong>Online:</strong> ${safe.online ?? 0}</span>
+            <span><strong>Offline:</strong> ${safe.offline ?? 0}</span>
+            <span><strong>Admin:</strong> ${safe.admin_disabled ?? 0}</span>
+            <span><strong>Power:</strong> ${safe.power_failure ?? 0}</span>
+            <span><strong>LOS:</strong> ${safe.loss_of_signal ?? 0}</span>
+        `;
+    };
+
+    const renderGraph = (payload) => {
+        if (!inner) return;
+        const points = Array.isArray(payload?.points) ? payload.points : [];
+        if (rangeLabel) {
+            rangeLabel.textContent = `${payload?.range_label || 'Hourly'} view`;
+        }
+        setLatest(payload?.latest || {});
+        if (!points.length) {
+            inner.innerHTML = '<div class="status-graph-empty">No history captured yet.</div>';
+            return;
+        }
+
+        const width = 900;
+        const height = 230;
+        const topPad = 12;
+        const bottomPad = 28;
+        const leftPad = 44;
+        const rightPad = 12;
+        const plotWidth = width - leftPad - rightPad;
+        const plotHeight = height - topPad - bottomPad;
+        const seriesKeys = ['online', 'offline', 'admin_disabled', 'power_failure', 'loss_of_signal'];
+        const maxValue = Math.max(1, ...points.flatMap((point) => seriesKeys.map((key) => Number(point[key] || 0))));
+        const singlePoint = points.length === 1;
+        const xStep = points.length > 1 ? plotWidth / (points.length - 1) : 0;
+        const yFor = (value) => topPad + plotHeight - ((Number(value || 0) / maxValue) * plotHeight);
+        const xFor = (index) => singlePoint ? (leftPad + (plotWidth / 2)) : (leftPad + (xStep * index));
+        const buildPolyline = (key) => points.map((point, index) => `${xFor(index)},${yFor(point[key])}`).join(' ');
+        const buildArea = (key) => {
+            const line = buildPolyline(key);
+            const lastX = xFor(points.length - 1);
+            const firstX = xFor(0);
+            return `${firstX},${height - bottomPad} ${line} ${lastX},${height - bottomPad}`;
+        };
+        const tooltipHtml = (point, key, label) => `
+            <strong>${point.label}</strong>
+            <div class="status-graph-tooltip-line"><span>${label}</span><span>${point[key] ?? 0}</span></div>
+        `;
+        const pointMarkup = (key, cssClass, label) => points.map((point, index) => {
+            const x = xFor(index);
+            const y = yFor(point[key]);
+            const safePayload = encodeURIComponent(JSON.stringify(point));
+            return `<circle class="${cssClass}" data-point="${safePayload}" data-series-key="${key}" data-series-label="${label}" cx="${x}" cy="${y}" r="4.5"></circle>`;
+        }).join('');
+        const hoverMarkup = () => points.map((point, index) => {
+            const x = xFor(index);
+            const primaryY = yFor(point.online);
+            const lowY = Math.max(
+                yFor(point.offline),
+                yFor(point.admin_disabled),
+                yFor(point.power_failure),
+                yFor(point.loss_of_signal)
+            );
+            const centerY = (primaryY + lowY) / 2;
+            const hoverHeight = Math.max(26, Math.abs(lowY - primaryY) + 24);
+            return `<rect class="status-graph-hover-point" x="${x - 18}" y="${centerY - (hoverHeight / 2)}" width="36" height="${hoverHeight}" rx="8" ry="8"></rect>`;
+        }).join('');
+        const singlePointLine = (key, cssClass) => {
+            if (!singlePoint) return '';
+            const x = xFor(0);
+            const y = yFor(points[0][key]);
+            return `<line class="${cssClass}" x1="${x - 28}" y1="${y}" x2="${x + 28}" y2="${y}"></line>`;
+        };
+        const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const value = Math.round(maxValue * (1 - ratio));
+            const y = topPad + (plotHeight * ratio);
+            return { value, y };
+        });
+        const xTicks = points.length <= 6 ? points : [points[0], points[Math.floor((points.length - 1) / 2)], points[points.length - 1]];
+        const xTickMarkup = xTicks.map((point) => {
+            const index = points.indexOf(point);
+            const x = xFor(index);
+            return `<text class="status-graph-axis" x="${x}" y="${height - 8}" text-anchor="${index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'}">${point.label}</text>`;
+        }).join('');
+        const yTickMarkup = yTicks.map((tick) => `
+            <g>
+                <line class="status-graph-grid" x1="${leftPad}" y1="${tick.y}" x2="${width - rightPad}" y2="${tick.y}"></line>
+                <text class="status-graph-axis" x="${leftPad - 8}" y="${tick.y + 4}" text-anchor="end">${tick.value}</text>
+            </g>
+        `).join('');
+
+        inner.innerHTML = `
+            <svg class="status-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+                ${yTickMarkup}
+                ${!activeSeries || activeSeries === 'online' ? `<polygon class="status-graph-line-online" points="${buildArea('online')}"></polygon>${singlePointLine('online', 'status-graph-line-online')}` : ''}
+                ${!activeSeries || activeSeries === 'offline' ? `<polyline class="status-graph-line-offline" points="${buildPolyline('offline')}"></polyline>${singlePointLine('offline', 'status-graph-line-offline')}` : ''}
+                ${!activeSeries || activeSeries === 'admin_disabled' ? `<polyline class="status-graph-line-admin" points="${buildPolyline('admin_disabled')}"></polyline>${singlePointLine('admin_disabled', 'status-graph-line-admin')}` : ''}
+                ${!activeSeries || activeSeries === 'power_failure' ? `<polyline class="status-graph-line-power" points="${buildPolyline('power_failure')}"></polyline>${singlePointLine('power_failure', 'status-graph-line-power')}` : ''}
+                ${!activeSeries || activeSeries === 'loss_of_signal' ? `<polyline class="status-graph-line-los" points="${buildPolyline('loss_of_signal')}"></polyline>${singlePointLine('loss_of_signal', 'status-graph-line-los')}` : ''}
+                ${hoverMarkup()}
+                ${!activeSeries || activeSeries === 'online' ? pointMarkup('online', 'status-graph-point-online', 'Online') : ''}
+                ${!activeSeries || activeSeries === 'offline' ? pointMarkup('offline', 'status-graph-point-offline', 'Offline') : ''}
+                ${!activeSeries || activeSeries === 'admin_disabled' ? pointMarkup('admin_disabled', 'status-graph-point-admin', 'Admin Disabled') : ''}
+                ${!activeSeries || activeSeries === 'power_failure' ? pointMarkup('power_failure', 'status-graph-point-power', 'Power Failure') : ''}
+                ${!activeSeries || activeSeries === 'loss_of_signal' ? pointMarkup('loss_of_signal', 'status-graph-point-los', 'Loss Of Signal') : ''}
+                ${xTickMarkup}
+            </svg>
+        `;
+
+        legendItems.forEach((item) => {
+            item.classList.toggle('is-muted', !!activeSeries && item.dataset.seriesToggle !== activeSeries);
+        });
+
+        if (canvas && tooltip) {
+            inner.querySelectorAll('[data-point]').forEach((node) => {
+                const showTooltip = (event) => {
+                    const payload = node.getAttribute('data-point');
+                    if (!payload) return;
+                    const point = JSON.parse(decodeURIComponent(payload));
+                    const seriesKey = node.getAttribute('data-series-key') || 'online';
+                    const seriesLabel = node.getAttribute('data-series-label') || 'Online';
+                    tooltip.innerHTML = tooltipHtml(point, seriesKey, seriesLabel);
+                    const canvasBox = canvas.getBoundingClientRect();
+                    const eventX = event.clientX - canvasBox.left;
+                    const eventY = event.clientY - canvasBox.top;
+                    tooltip.style.left = `${Math.min(eventX + 14, canvasBox.width - 190)}px`;
+                    tooltip.style.top = `${Math.max(8, eventY - 10)}px`;
+                    tooltip.classList.add('visible');
+                };
+                const moveTooltip = (event) => showTooltip(event);
+                const hideTooltip = () => tooltip.classList.remove('visible');
+                node.addEventListener('mouseenter', showTooltip);
+                node.addEventListener('mousemove', moveTooltip);
+                node.addEventListener('mouseleave', hideTooltip);
+            });
+        }
+    };
+
+    const setBusy = (value) => {
+        if (!panel) return;
+        panel.querySelector('[data-status-graph-canvas]')?.classList.toggle('status-graph-loading', value);
+    };
+
+    const refresh = async (rangeKey) => {
+        if (busy || !url) return;
+        busy = true;
+        setBusy(true);
+        try {
+            const query = new URLSearchParams({ range: rangeKey || activeRange });
+            if (selectedOlt) {
+                query.set('olt', selectedOlt);
+            }
+            const response = await fetch(`${url}?${query.toString()}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            if (!response.ok) return;
+            const payload = await response.json();
+            if (!payload.ok) return;
+            activeRange = payload.range_key || rangeKey || activeRange;
+            buttons.forEach((button) => button.classList.toggle('active', button.dataset.graphRange === activeRange));
+            renderGraph(payload);
+        } catch (error) {
+            // Keep last rendered graph on transient failure.
+        } finally {
+            busy = false;
+            setBusy(false);
+        }
+    };
+
+    buttons.forEach((button) => {
+        button.addEventListener('click', () => refresh(button.dataset.graphRange || '24h'));
+    });
+
+    legendItems.forEach((item) => {
+        item.addEventListener('click', () => {
+            const key = item.dataset.seriesToggle || '';
+            activeSeries = activeSeries === key ? '' : key;
+            if (initialNode) {
+                try {
+                    renderGraph(JSON.parse(initialNode.textContent));
+                } catch (error) {
+                    // Ignore broken inline payload.
+                }
+            } else {
+                refresh(activeRange);
+            }
+        });
+    });
+
+    if (initialNode) {
+        try {
+            renderGraph(JSON.parse(initialNode.textContent));
+        } catch (error) {
+            // Ignore broken inline payload.
+        }
+    }
+})();
+</script>
+{% endblock %}

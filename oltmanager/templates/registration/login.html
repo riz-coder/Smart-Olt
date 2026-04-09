@@ -1,0 +1,72 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Login | OLT Portal{% endblock %}
+
+{% block extra_css %}
+<style>
+    .login-shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+    }
+    .login-card {
+        width: min(460px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(17, 29, 53, 0.96) 0%, rgba(13, 24, 45, 0.96) 100%);
+        box-shadow: 0 24px 60px rgba(3, 8, 18, 0.55);
+        padding: 28px 24px;
+    }
+    .login-title {
+        text-align: center;
+        margin: 0 0 20px;
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        color: #f2f7ff;
+    }
+    .field { margin-bottom: 14px; }
+    .field label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #c9daff;
+    }
+    .auth-error {
+        padding: 10px 12px;
+        margin-bottom: 14px;
+        border-radius: 10px;
+        background: var(--error-bg);
+        border: 1px solid #ffd3d3;
+        color: var(--error-text);
+        font-weight: 600;
+        font-size: 13px;
+    }
+    .login-card .btn { width: 100%; margin-top: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-shell">
+    <div class="login-card">
+        <h1 class="login-title">OLT Operations Panel</h1>
+        {% if form.errors %}
+        <div class="auth-error">Invalid username or password.</div>
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            <div class="field">
+                <label for="id_username">Username</label>
+                <input type="text" name="username" id="id_username" class="form-control" required autofocus>
+            </div>
+            <div class="field">
+                <label for="id_password">Password</label>
+                <input type="password" name="password" id="id_password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

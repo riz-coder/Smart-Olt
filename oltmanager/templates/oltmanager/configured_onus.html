@@ -1,0 +1,529 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Configured ONUs{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-bar {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+    .search-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .search-group label {
+        color: #d8e6ff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .search-input,
+    .search-select {
+        min-width: 130px;
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.04);
+        color: #e8f0ff;
+        padding: 0 12px;
+        font: inherit;
+    }
+    .search-select option {
+        color: #111;
+        background: #fff;
+    }
+    .search-input {
+        min-width: 240px;
+    }
+    .filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(255,255,255,0.03);
+        width: fit-content;
+    }
+    .filter-label {
+        color: #d8e6ff;
+        font-weight: 700;
+        font-size: 14px;
+    }
+    .filter-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        display: inline-block;
+        border: 2px solid transparent;
+    }
+    .filter-dot.good { background: #33d06f; }
+    .filter-dot.bad { background: #ff6b77; }
+    .filter-icon {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 900;
+        color: #fff;
+        line-height: 1;
+        letter-spacing: 0.02em;
+    }
+    .filter-icon.admin-disabled {
+        background: #ffb347;
+        color: #1f1400;
+    }
+    .filter-icon.power-failure {
+        background: #ff6b77;
+    }
+    .filter-icon.loss-of-signal {
+        background: #ff9a1f;
+    }
+    .filter-bars {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 14px;
+    }
+    .filter-bars i {
+        display: inline-block;
+        width: 3px;
+        border-radius: 2px 2px 0 0;
+    }
+    .filter-bars i:nth-child(1) { height: 4px; }
+    .filter-bars i:nth-child(2) { height: 7px; }
+    .filter-bars i:nth-child(3) { height: 10px; }
+    .filter-bars i:nth-child(4) { height: 13px; }
+    .filter-bars.good i {
+        background: linear-gradient(180deg, #6ff0a0, #23c85d);
+    }
+    .filter-bars.warn i {
+        background: linear-gradient(180deg, #ffd977, #ff9a1f);
+    }
+    .filter-bars.bad i {
+        background: linear-gradient(180deg, #ff9aa2, #ff4d5f);
+    }
+    .filter-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        text-decoration: none;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--line);
+    }
+    .filter-link.active {
+        background: rgba(255,255,255,0.09);
+        border-color: #4a6ea6;
+    }
+    .status-dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        display: inline-block;
+        box-shadow: 0 0 0 3px rgba(255,255,255,0.06);
+    }
+    .status-dot.good {
+        background: #33d06f;
+        box-shadow: 0 0 0 3px rgba(51,208,111,0.16);
+    }
+    .status-dot.bad {
+        background: #ff6b77;
+        box-shadow: 0 0 0 3px rgba(255,107,119,0.16);
+    }
+    .status-dot.warn {
+        background: #ffb347;
+        box-shadow: 0 0 0 3px rgba(255,179,71,0.16);
+    }
+    .btn-mini {
+        padding: 9px 16px;
+        min-width: 80px;
+    }
+    .signal-cell {
+        width: 60px;
+        text-align: center;
+    }
+    .signal-cell .filter-bars {
+        justify-content: center;
+    }
+    .signal-stack {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        transition: opacity 0.2s ease, filter 0.2s ease, transform 0.2s ease;
+    }
+    .signal-topline {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+    .signal-value {
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+        color: #cfe1ff;
+        white-space: nowrap;
+    }
+    .signal-cell.is-refreshing {
+        transition: opacity 0.2s ease, filter 0.2s ease;
+    }
+    .signal-cell.is-refreshing .signal-stack,
+    .signal-cell.is-refreshing .signal-placeholder {
+        opacity: 1;
+        filter: saturate(0.92);
+        transform: none;
+    }
+    .signal-cell .signal-placeholder {
+        color: #9db0cf;
+        transition: opacity 0.2s ease, filter 0.2s ease, transform 0.2s ease;
+    }
+    .signal-spinner {
+        display: none;
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(255,255,255,0.18);
+        border-top-color: #7bb6ff;
+        border-radius: 999px;
+        animation: signal-spin .7s linear infinite;
+        flex: 0 0 auto;
+    }
+    .signal-cell.is-refreshing .signal-spinner {
+        display: inline-block;
+    }
+    @keyframes signal-spin {
+        to { transform: rotate(360deg); }
+    }
+    .name-cell {
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .onu-cell {
+        white-space: normal;
+        word-break: break-word;
+        max-width: 220px;
+    }
+    .pager-bar {
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .pager {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.03);
+    }
+    .pager a,
+    .pager span {
+        min-width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 10px;
+        text-decoration: none;
+        color: #d8e6ff;
+        border-right: 1px solid var(--line);
+        font-weight: 700;
+        font-size: 14px;
+    }
+    .pager a:last-child,
+    .pager span:last-child {
+        border-right: none;
+    }
+    .pager .current {
+        background: rgba(255,255,255,0.08);
+        color: #fff;
+    }
+    .pager-summary {
+        color: #d8e6ff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel">
+        <form method="get" class="search-bar">
+            <div class="search-group">
+                <label>Search</label>
+                <input type="text" name="q" value="{{ configured_onu_search_query }}" class="search-input" placeholder="SN, name, ONU path">
+            </div>
+            <div class="search-group">
+                <label>OLT</label>
+                <select name="olt" class="search-select">
+                    <option value="">Any</option>
+                    {% for item in configured_onu_filter_olts %}
+                    <option value="{{ item.id }}" {% if configured_onu_olt_filter == item.id %}selected{% endif %}>{{ item.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="search-group">
+                <label>Board</label>
+                <select name="board" class="search-select">
+                    <option value="">Any</option>
+                    {% for item in configured_onu_filter_boards %}
+                    <option value="{{ item }}" {% if configured_onu_board_filter == item %}selected{% endif %}>{{ item }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="search-group">
+                <label>Port</label>
+                <select name="port" class="search-select">
+                    <option value="">Any</option>
+                    {% for item in configured_onu_filter_ports %}
+                    <option value="{{ item }}" {% if configured_onu_port_filter == item %}selected{% endif %}>{{ item }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <input type="hidden" name="status" value="{{ configured_onu_status_filter }}">
+            <input type="hidden" name="signal" value="{{ configured_onu_signal_filter }}">
+            <input type="hidden" name="sort" value="{{ configured_onu_sort_filter }}">
+            <button type="submit" class="btn btn-primary btn-mini">Apply</button>
+            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_status_filter or configured_onu_signal_filter %}
+            <a href="{% url 'configured_onus' %}" class="btn btn-secondary btn-mini">Clear</a>
+            {% endif %}
+        </form>
+        <div class="filter-bar">
+            <span class="filter-label">Status</span>
+            <a href="{% url 'configured_onus' %}?status=online{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_status_filter == 'online' %}active{% endif %}" title="Online">
+                <span class="filter-dot good"></span>
+            </a>
+            <a href="{% url 'configured_onus' %}?status=offline{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_status_filter == 'offline' %}active{% endif %}" title="Offline">
+                <span class="filter-dot bad"></span>
+            </a>
+            <a href="{% url 'configured_onus' %}?status=admin_disabled{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_status_filter == 'admin_disabled' %}active{% endif %}" title="Admin Disabled">
+                <span class="filter-icon admin-disabled">AD</span>
+            </a>
+            <a href="{% url 'configured_onus' %}?status=power_failure{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_status_filter == 'power_failure' %}active{% endif %}" title="Power Failure">
+                <span class="filter-icon power-failure">PF</span>
+            </a>
+            <a href="{% url 'configured_onus' %}?status=loss_of_signal{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_status_filter == 'loss_of_signal' %}active{% endif %}" title="Loss Of Signal">
+                <span class="filter-icon loss-of-signal">LOS</span>
+            </a>
+            <span class="filter-label" style="margin-left: 8px;">Signal</span>
+            <a href="{% url 'configured_onus' %}?signal=good{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_signal_filter == 'good' %}active{% endif %}">
+                <span class="filter-bars good"><i></i><i></i><i></i><i></i></span>
+            </a>
+            <a href="{% url 'configured_onus' %}?signal=warn{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_signal_filter == 'warn' %}active{% endif %}">
+                <span class="filter-bars warn"><i></i><i></i><i></i><i></i></span>
+            </a>
+            <a href="{% url 'configured_onus' %}?signal=bad{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_signal_filter == 'bad' %}active{% endif %}">
+                <span class="filter-bars bad"><i></i><i></i><i></i><i></i></span>
+            </a>
+            {% if configured_onu_status_filter or configured_onu_signal_filter %}
+            <a href="{% url 'configured_onus' %}{% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter %}?{% endif %}{% if configured_onu_search_query %}q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_search_query and configured_onu_olt_filter %}&{% endif %}{% if configured_onu_olt_filter %}olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_olt_filter and configured_onu_board_filter %}&{% endif %}{% if configured_onu_board_filter %}board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_board_filter and configured_onu_port_filter %}&{% endif %}{% if configured_onu_port_filter %}port={{ configured_onu_port_filter }}{% endif %}" class="btn btn-secondary btn-mini">Clear</a>
+            {% endif %}
+        </div>
+        {% if configured_onu_rows %}
+        <div class="pager-bar">
+            {% if configured_onu_page and configured_onu_page.paginator.num_pages > 1 %}
+            <div class="pager">
+                {% for page_num in configured_onu_page.paginator.page_range %}
+                    {% if page_num == configured_onu_page.number %}
+                    <span class="current">{{ page_num }}</span>
+                    {% elif page_num <= 6 or page_num == configured_onu_page.paginator.num_pages or page_num == configured_onu_page.number|add:'-1' or page_num == configured_onu_page.number|add:'1' %}
+                    <a href="?page={{ page_num }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if configured_onu_page.has_next %}
+                <a href="?page={{ configured_onu_page.next_page_number }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}">&gt;</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end;">
+                <div class="pager-summary">{{ configured_onu_start }}-{{ configured_onu_end }} ONUs of {{ configured_onu_total }} displayed</div>
+                {% if configured_onu_last_sync_display %}
+                <div class="pager-summary">Last auto ONU sync: {{ configured_onu_last_sync_display }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>View</th>
+                        <th>Name</th>
+                        <th>SN / MAC</th>
+                        <th>ONU</th>
+                        <th><a href="{% url 'configured_onus' %}?sort=signal{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" style="color:inherit;text-decoration:none;">Signal{% if configured_onu_sort_filter == 'signal' %} ↑{% endif %}</a></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in configured_onu_rows %}
+                    <tr data-onu-row data-olt-id="{{ row.olt_id }}" data-slot="{{ row.slot }}" data-port="{{ row.port }}" data-ont-id="{{ row.ont_id }}" data-signal-bucket="{{ row.signal_class|default:'' }}" data-signal-visible="{% if row.signal_class %}1{% else %}0{% endif %}">
+                        <td><span class="status-dot {{ row.status_class }}" data-status-dot title="{{ row.status_label }}"></span></td>
+                        <td>
+                            <a href="{% url 'configured_onu_detail' row.olt_id row.slot row.port row.ont_id %}" class="btn btn-primary btn-mini">View</a>
+                        </td>
+                        <td class="name-cell">{{ row.display_name }}</td>
+                        <td>{{ row.sn }}</td>
+                        <td class="onu-cell">{{ row.onu_label }}</td>
+                        <td class="signal-cell" data-signal-cell>
+                            {% if row.signal_class %}
+                            <span class="signal-stack">
+                                <span class="signal-topline">
+                                    <span class="signal-value">{{ row.onu_rx|default:"--" }}</span>
+                                    <span class="signal-spinner" aria-hidden="true"></span>
+                                </span>
+                                <span class="filter-bars {{ row.signal_class }}" data-signal-bars title="{% if row.signal_class == 'good' %}Good signal{% elif row.signal_class == 'warn' %}Warning signal{% else %}Critical signal{% endif %}"><i></i><i></i><i></i><i></i></span>
+                            </span>
+                            {% else %}
+                            <span class="signal-topline">
+                                <span class="signal-placeholder" data-signal-placeholder>-</span>
+                                <span class="signal-spinner" aria-hidden="true"></span>
+                            </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="subtle">No configured ONU records found from the current OLTs.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script>
+  (() => {
+      const refreshUrl = "{{ configured_onu_signal_refresh_url|default:''|escapejs }}";
+      const sortFilter = "{{ configured_onu_sort_filter|default:''|escapejs }}";
+      if (!refreshUrl) return;
+
+      const rows = Array.from(document.querySelectorAll('[data-onu-row]'));
+      const tbody = document.querySelector('.table-wrap tbody');
+      if (!rows.length) return;
+
+    const csrftoken = document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
+
+    const barsMarkup = (bucket, onuRx) => `
+        <span class="signal-stack">
+            <span class="signal-topline">
+                <span class="signal-value">${onuRx || '--'}</span>
+                <span class="signal-spinner" aria-hidden="true"></span>
+            </span>
+            <span class="filter-bars ${bucket}" data-signal-bars title="${bucket === 'good' ? 'Good signal' : bucket === 'warn' ? 'Warning signal' : 'Critical signal'}"><i></i><i></i><i></i><i></i></span>
+        </span>
+    `;
+
+    const payloadItems = () => rows.map((row) => ({
+        olt_id: parseInt(row.dataset.oltId || '0', 10),
+        slot: parseInt(row.dataset.slot || '0', 10),
+        port: parseInt(row.dataset.port || '0', 10),
+        ont_id: parseInt(row.dataset.ontId || '0', 10),
+    })).filter((item) => item.olt_id);
+
+      const updateRow = (row, item) => {
+          const signalCell = row.querySelector('[data-signal-cell]');
+          if (!signalCell || !item) return;
+        const statusDot = row.querySelector('[data-status-dot]');
+        const bucket = String(item.signal_class || '').trim();
+        const onuRx = String(item.onu_rx || '--').trim() || '--';
+        if (bucket) {
+            signalCell.innerHTML = barsMarkup(bucket, onuRx);
+        } else {
+            signalCell.innerHTML = '<span class="signal-topline"><span class="signal-placeholder" data-signal-placeholder>-</span><span class="signal-spinner" aria-hidden="true"></span></span>';
+        }
+          if (statusDot) {
+            statusDot.classList.remove('good', 'bad', 'warn');
+            if (item.status_class) {
+                statusDot.classList.add(String(item.status_class).trim());
+            }
+            statusDot.title = String(item.status_label || '').trim();
+          }
+          row.dataset.signalBucket = bucket;
+          row.dataset.signalVisible = bucket ? '1' : '0';
+          signalCell.classList.remove('is-refreshing');
+      };
+
+      const reorderRowsForSignalSort = () => {
+          if (sortFilter !== 'signal' || !tbody) return;
+          const bucketRank = { good: 3, warn: 2, bad: 1 };
+          const ordered = [...rows].sort((a, b) => {
+              const aVisible = parseInt(a.dataset.signalVisible || '0', 10);
+              const bVisible = parseInt(b.dataset.signalVisible || '0', 10);
+              if (aVisible !== bVisible) return bVisible - aVisible;
+              const aRank = bucketRank[a.dataset.signalBucket || ''] || 0;
+              const bRank = bucketRank[b.dataset.signalBucket || ''] || 0;
+              if (aRank !== bRank) return bRank - aRank;
+              const aOlt = parseInt(a.dataset.oltId || '0', 10);
+              const bOlt = parseInt(b.dataset.oltId || '0', 10);
+              if (aOlt !== bOlt) return aOlt - bOlt;
+              const aSlot = parseInt(a.dataset.slot || '0', 10);
+              const bSlot = parseInt(b.dataset.slot || '0', 10);
+              if (aSlot !== bSlot) return aSlot - bSlot;
+              const aPort = parseInt(a.dataset.port || '0', 10);
+              const bPort = parseInt(b.dataset.port || '0', 10);
+              if (aPort !== bPort) return aPort - bPort;
+              const aOnt = parseInt(a.dataset.ontId || '0', 10);
+              const bOnt = parseInt(b.dataset.ontId || '0', 10);
+              return aOnt - bOnt;
+          });
+          ordered.forEach((row) => tbody.appendChild(row));
+      };
+
+    const refreshSignals = async () => {
+        const onus = payloadItems();
+        if (!onus.length) return;
+
+        rows.forEach((row) => {
+            row.querySelector('[data-signal-cell]')?.classList.add('is-refreshing');
+        });
+
+        try {
+            const response = await fetch(refreshUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    ...(csrftoken ? { 'X-CSRFToken': csrftoken } : {}),
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ onus }),
+            });
+            if (!response.ok) throw new Error('refresh failed');
+            const payload = await response.json();
+            if (!payload.ok) throw new Error('refresh failed');
+
+              rows.forEach((row) => {
+                  const key = `${row.dataset.oltId}:${row.dataset.slot}:${row.dataset.port}:${row.dataset.ontId}`;
+                  updateRow(row, payload.items?.[key]);
+              });
+              reorderRowsForSignalSort();
+          } catch (error) {
+            rows.forEach((row) => {
+                row.querySelector('[data-signal-cell]')?.classList.remove('is-refreshing');
+            });
+        }
+    };
+
+      refreshSignals();
+    window.setInterval(refreshSignals, 60000);
+})();
+</script>
+{% endblock %}

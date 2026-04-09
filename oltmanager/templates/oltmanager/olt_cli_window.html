@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telnet {{ olt.name }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            height: 100vh;
+            background: #000;
+            color: #a7fca7;
+            font-family: Consolas, "Courier New", monospace;
+        }
+        .cli-output {
+            height: 100vh;
+            margin: 0;
+            padding: 10px 12px;
+            overflow: auto;
+            white-space: pre-wrap;
+            line-height: 1.35;
+            font-size: 14px;
+            outline: none;
+        }
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            color: #a7fca7;
+            animation: blink 1s steps(1) infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    {% csrf_token %}
+    <input type="hidden" id="cliCsrfToken" value="{{ csrf_token }}">
+
+    <pre class="cli-output" id="cliOutput" tabindex="0">Connecting...
+</pre>
+
+<script>
+(() => {
+    const output = document.getElementById('cliOutput');
+    const csrf = document.getElementById('cliCsrfToken').value;
+    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsScheme}://${window.location.host}/ws/olt/{{ olt.pk }}/cli/`;
+    const openUrl = "{% url 'olt_cli_open' olt.pk %}";
+    const runUrl = "{% url 'olt_cli_run' olt.pk %}";
+    const closeUrl = "{% url 'olt_cli_close' olt.pk %}";
+
+    let connected = false;
+    let socket = null;
+    let mode = 'ws';
+    let wsEverConnected = false;
+    let httpConnectInProgress = false;
+    let inputQueue = Promise.resolve();
+    let terminalBuffer = '';
+
+    const escapeHtml = (text) =>
+        String(text)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;');
+
+    const renderBuffer = () => {
+        output.innerHTML = `${escapeHtml(terminalBuffer)}<span class="cursor">_</span>`;
+        output.scrollTop = output.scrollHeight;
+    };
+
+    const removeOneFromCurrentLine = () => {
+        const lastNewline = terminalBuffer.lastIndexOf('\n');
+        const floor = lastNewline >= 0 ? lastNewline + 1 : 0;
+        if (terminalBuffer.length > floor) {
+            terminalBuffer = terminalBuffer.slice(0, -1);
+        }
+    };
+
+    const applyChunk = (text) => {
+        if (!text) return;
+        let chunk = String(text);
+        chunk = chunk
+            .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // ANSI CSI
+            .replace(/\x1b[@-_]/g, '') // single escape
+            .replace(/\x07/g, ''); // bell
+
+        for (let i = 0; i < chunk.length; i += 1) {
+            const ch = chunk[i];
+            if (ch === '\b' || ch === '\u007f') {
+                removeOneFromCurrentLine();
+                continue;
+            }
+            if (ch === '\r') {
+                continue;
+            }
+            terminalBuffer += ch;
+        }
+
+        if (terminalBuffer.length > 200000) {
+            terminalBuffer = terminalBuffer.slice(-150000);
+        }
+
+        renderBuffer();
+    };
+
+    const post = async (url, data = {}) => {
+        const body = new URLSearchParams(data);
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-CSRFToken': csrf,
+            },
+            body: body.toString(),
+        });
+        return res.json();
+    };
+
+    const connectHttp = async () => {
+        if (httpConnectInProgress) return;
+        httpConnectInProgress = true;
+        mode = 'http';
+        output.textContent = '';
+        terminalBuffer = '';
+        applyChunk('Connecting (HTTP fallback)...\r\n');
+        try {
+            const result = await post(openUrl);
+            if (!result.ok) {
+                connected = false;
+                applyChunk(`\r\n${result.message || 'Connect failed.'}\r\n`);
+                return;
+            }
+            connected = true;
+            output.textContent = '';
+            terminalBuffer = '';
+            applyChunk(result.output || 'CLI connected.\r\n');
+            output.focus();
+        } catch {
+            connected = false;
+            applyChunk('\r\nConnection error.\r\n');
+        } finally {
+            httpConnectInProgress = false;
+        }
+    };
+
+    const fallbackToHttp = async () => {
+        if (mode === 'http') return;
+        await connectHttp();
+    };
+
+    const connectWs = async () => {
+        output.textContent = '';
+        terminalBuffer = '';
+        applyChunk('Connecting...\r\n');
+        mode = 'ws';
+        socket = new WebSocket(wsUrl);
+
+        const wsTimeout = setTimeout(() => {
+            if (!wsEverConnected && socket && socket.readyState !== WebSocket.OPEN) {
+                try { socket.close(); } catch {}
+                fallbackToHttp();
+            }
+        }, 2500);
+
+        socket.onopen = () => {
+            clearTimeout(wsTimeout);
+            connected = true;
+            wsEverConnected = true;
+            output.textContent = '';
+            terminalBuffer = '';
+            output.focus();
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(event.data || '{}');
+                if (payload.type === 'output') {
+                    applyChunk(payload.data || '');
+                }
+            } catch {
+                applyChunk(event.data || '');
+            }
+        };
+
+        socket.onerror = () => {
+            if (!wsEverConnected) {
+                fallbackToHttp();
+            } else {
+                applyChunk('\r\nConnection error.\r\n');
+            }
+        };
+
+        socket.onclose = () => {
+            clearTimeout(wsTimeout);
+            connected = false;
+            if (!wsEverConnected) {
+                fallbackToHttp();
+            } else {
+                applyChunk('\r\nSession closed.\r\n');
+            }
+        };
+    };
+
+    const connect = async () => {
+        wsEverConnected = false;
+        await connectWs();
+    };
+
+    const disconnect = async () => {
+        if (mode === 'http') {
+            try { await post(closeUrl); } catch {}
+            connected = false;
+            return;
+        }
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+            socket.close();
+        }
+        connected = false;
+    };
+
+    const sendInputHttp = async (data) => {
+        if (!connected) return;
+        try {
+            const result = await post(runUrl, { data });
+            if (!result.ok) {
+                applyChunk(`\r\n${result.message || 'Command failed.'}\r\n`);
+                return;
+            }
+            applyChunk(result.output || '');
+        } catch {
+            applyChunk('\r\nRequest failed.\r\n');
+        }
+    };
+
+    const sendInput = (data) => {
+        if (!connected) return;
+        if (mode === 'http') {
+            inputQueue = inputQueue.then(() => sendInputHttp(data));
+            return;
+        }
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'input', data }));
+    };
+
+    const onKeyDown = (event) => {
+        if (!connected) return;
+        if (event.repeat && event.key === 'Enter') return;
+        if (
+            event.key === 'Tab' ||
+            event.key === 'Enter' ||
+            event.key === 'Backspace' ||
+            event.key.startsWith('Arrow')
+        ) {
+            event.preventDefault();
+        }
+
+        if (event.key === 'Enter') {
+            sendInput('\r\n');
+            return;
+        }
+        if (event.key === 'Tab') {
+            sendInput('\t');
+            return;
+        }
+        if (event.key === 'Backspace') {
+            removeOneFromCurrentLine();
+            renderBuffer();
+            // Send DEL for line-edit on most OLT CLIs.
+            sendInput('\u007f');
+            return;
+        }
+        if (event.key === 'ArrowUp') {
+            sendInput('\u001b[A');
+            return;
+        }
+        if (event.key === 'ArrowDown') {
+            sendInput('\u001b[B');
+            return;
+        }
+        if (event.key === 'ArrowRight') {
+            sendInput('\u001b[C');
+            return;
+        }
+        if (event.key === 'ArrowLeft') {
+            sendInput('\u001b[D');
+            return;
+        }
+        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            event.preventDefault();
+            sendInput(event.key);
+        }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    output.addEventListener('click', () => output.focus());
+
+    window.addEventListener('beforeunload', () => { disconnect(); });
+    connect();
+})();
+</script>
+</body>
+</html>
