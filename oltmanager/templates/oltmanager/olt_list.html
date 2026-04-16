@@ -105,6 +105,40 @@
         color: #c8d7f2;
         white-space: nowrap;
     }
+    .mini-refresh-btn {
+        border: 1px solid rgba(90, 153, 255, 0.34);
+        background: rgba(62, 120, 255, 0.16);
+        color: #d7e6ff;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+    }
+    .mini-refresh-btn:hover {
+        background: rgba(62, 120, 255, 0.24);
+        border-color: rgba(110, 172, 255, 0.48);
+        transform: translateY(-1px);
+    }
+    .mini-refresh-btn[disabled] {
+        cursor: wait;
+        opacity: 0.72;
+        transform: none;
+    }
+    .summary-stamp-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+    .panel-head-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
     .summary-grid {
         display: grid;
         grid-template-columns: minmax(240px, 300px) 1fr;
@@ -656,8 +690,57 @@
         font-weight: 700;
         color: #ffffff;
     }
-</style>
-{% endblock %}
+    .snmp-toast-stack {
+        position: fixed;
+        right: 18px;
+        top: 88px;
+        z-index: 1200;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+    }
+    .snmp-toast {
+        min-width: 280px;
+        max-width: 360px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 152, 83, 0.34);
+        background: linear-gradient(180deg, rgba(56, 24, 16, 0.96), rgba(36, 15, 10, 0.96));
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+        color: #ffe6d6;
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 0.22s ease, transform 0.22s ease;
+    }
+    .snmp-toast.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .snmp-toast-title {
+        display: block;
+        font-size: 12px;
+        font-weight: 800;
+        color: #ffd1b1;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .snmp-toast-name {
+        display: block;
+        font-size: 15px;
+        font-weight: 800;
+        color: #fff4ea;
+        margin-bottom: 4px;
+    }
+    .snmp-toast-text {
+        display: block;
+        font-size: 12px;
+        line-height: 1.45;
+        color: #ffdccc;
+    }
+  </style>
+  {% endblock %}
 
 {% block content %}
 <div class="shell">
@@ -674,7 +757,13 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="summary-stamp">Updated {{ dashboard_validated_at|date:"H:i" }}</div>
+                <div class="summary-stamp-row">
+                    <div class="summary-stamp">
+                        Last dashboard update:
+                        {{ dashboard_last_sample_display }}
+                    </div>
+                    <button type="button" class="mini-refresh-btn" data-dashboard-refresh-trigger="summary">Update</button>
+                </div>
             </div>
 
             <div class="summary-grid">
@@ -694,10 +783,14 @@
                 </div>
 
                   <div class="summary-metrics">
-                    <article class="metric-card total" data-dashboard-total-card>
+                      <article class="metric-card total" data-dashboard-total-card>
                           <div class="metric-label">Wait for Authorize</div>
                           <div class="metric-value" data-dashboard-total>{{ dashboard_wait_for_authorize_total|default:0 }}</div>
                           <div class="metric-note">Auto-discovered ONUs awaiting authorization</div>
+                          <div class="signal-breakdown">
+                              <span data-dashboard-resync-link>Resync: {{ dashboard_wait_for_authorize_resync_total|default:0 }}</span>
+                              <span data-dashboard-new-link>New: {{ dashboard_wait_for_authorize_new_total|default:0 }}</span>
+                          </div>
                       </article>
                     <article class="metric-card online" data-dashboard-online-card>
                          <div class="metric-label">Online</div>
@@ -729,7 +822,10 @@
 
         <section class="olt-uptime-box" data-olt-uptime-url="{% url 'dashboard_olt_uptimes' %}" data-dashboard-base-url="{% url 'olt_list' %}" data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}">
             <div class="olt-uptime-head">
-                <h3 class="olt-uptime-title">OLT Uptime</h3>
+                <div class="panel-head-actions">
+                    <h3 class="olt-uptime-title">OLT Uptime</h3>
+                    <button type="button" class="mini-refresh-btn" data-dashboard-refresh-trigger="uptime">Update</button>
+                </div>
                 <span class="olt-uptime-stamp" data-olt-uptime-stamp>Loading...</span>
             </div>
             <div class="olt-uptime-list" data-olt-uptime-list>
@@ -748,7 +844,10 @@
             </div>
             <div class="olt-down-wrap">
                 <div class="olt-down-head">
-                    <span class="olt-down-title">SNMP 161 Down</span>
+                    <div class="panel-head-actions">
+                        <span class="olt-down-title">SNMP 161 Down</span>
+                        <button type="button" class="mini-refresh-btn" data-dashboard-refresh-trigger="snmp-down">Update</button>
+                    </div>
                     <span class="olt-down-count" data-olt-down-count>{{ dashboard_snmp_down_olts|length }}</span>
                 </div>
                 <div class="olt-down-list" data-olt-down-list>
@@ -803,8 +902,9 @@
         </div>
         {{ dashboard_graph|json_script:"dashboardStatusGraphData" }}
     </section>
-</div>
-{% endblock %}
+  </div>
+  <div class="snmp-toast-stack" data-snmp-toast-stack></div>
+  {% endblock %}
 
 {% block extra_js %}
 <script>
@@ -825,12 +925,36 @@
       const adminLink = document.querySelector('[data-dashboard-admin-link]');
       const losLink = document.querySelector('[data-dashboard-los-link]');
       const powerLink = document.querySelector('[data-dashboard-power-link]');
+      const resyncNode = document.querySelector('[data-dashboard-resync-link]');
+      const newNode = document.querySelector('[data-dashboard-new-link]');
       const warnLink = document.querySelector('[data-dashboard-warn-link]');
       const badLink = document.querySelector('[data-dashboard-bad-link]');
+      const toastStack = document.querySelector('[data-snmp-toast-stack]');
       const root = document.documentElement;
       if (!url || !list || !stamp || !baseUrl) return;
+      let knownDownNames = new Set(
+          Array.from((downList || document.createElement('div')).querySelectorAll('.olt-down-name'))
+              .map((node) => String(node.textContent || '').trim())
+              .filter((name) => name && name !== 'All OLTs reachable')
+      );
 
-    const renderRows = (rows) => {
+      const showSnmpToast = (row) => {
+          if (!toastStack || !row) return;
+          const item = document.createElement('div');
+          item.className = 'snmp-toast';
+          item.innerHTML = `
+              <span class="snmp-toast-title">SNMP Down</span>
+              <span class="snmp-toast-name">${String(row.name || 'Unknown OLT')}</span>
+              <span class="snmp-toast-text">${String(row.status || 'SNMP timeout/no response detected.')}</span>
+          `;
+          toastStack.appendChild(item);
+          requestAnimationFrame(() => item.classList.add('visible'));
+          window.setTimeout(() => {
+              item.classList.remove('visible');
+              window.setTimeout(() => item.remove(), 260);
+          }, 6000);
+      };
+      const renderRows = (rows) => {
         list.innerHTML = (rows || []).map((row) => {
             const cls = row.uptime === '--' ? 'unknown' : (row.uptime_ok ? 'ok' : 'bad');
             const name = String(row.name || '');
@@ -854,11 +978,24 @@
         }).join('');
       };
       const renderDownRows = (rows) => {
-          if (!downList) return;
-          const safeRows = rows || [];
-          if (downCount) {
-              downCount.textContent = String(safeRows.length);
-          }
+            if (!downList) return;
+            const safeRows = rows || [];
+            const nextNames = new Set(
+                safeRows
+                    .map((row) => String(row.name || '').trim())
+                    .filter((name) => !!name)
+            );
+            safeRows.forEach((row) => {
+                const name = String(row.name || '').trim();
+                if (!name) return;
+                if (!knownDownNames.has(name)) {
+                    showSnmpToast(row);
+                }
+            });
+            knownDownNames = nextNames;
+            if (downCount) {
+                downCount.textContent = String(safeRows.length);
+            }
           if (!safeRows.length) {
               downList.innerHTML = `
                   <div class="olt-down-item">
@@ -884,6 +1021,8 @@
           if (adminLink) adminLink.textContent = `Admin Disabled: ${safe.admin_disabled_total ?? 0}`;
           if (losLink) losLink.textContent = `LOS: ${safe.loss_of_signal_total ?? 0}`;
           if (powerLink) powerLink.textContent = `Power Failure: ${safe.power_failure_total ?? 0}`;
+          if (resyncNode) resyncNode.textContent = `Resync: ${safe.wait_for_authorize_resync_total ?? 0}`;
+          if (newNode) newNode.textContent = `New: ${safe.wait_for_authorize_new_total ?? 0}`;
           if (warnLink) warnLink.textContent = `Warning: ${safe.signal_warn_total ?? 0}`;
           if (badLink) badLink.textContent = `Critical: ${safe.signal_bad_total ?? 0}`;
           if (root) {
@@ -893,29 +1032,52 @@
           }
       };
 
-      const refresh = async () => {
-          try {
-            const queryUrl = selectedOlt ? `${url}?olt=${encodeURIComponent(selectedOlt)}` : url;
-            const response = await fetch(queryUrl, {
-                  headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                  credentials: 'same-origin',
-              });
-              if (!response.ok) return;
+      const refresh = async (force = false, triggerButton = null) => {
+          if (triggerButton) {
+              triggerButton.disabled = true;
+              triggerButton.textContent = 'Updating';
+          }
+            try {
+              const params = new URLSearchParams();
+              if (selectedOlt) {
+                  params.set('olt', selectedOlt);
+              }
+              if (force) {
+                  params.set('force', '1');
+              }
+              const queryUrl = params.toString() ? `${url}?${params.toString()}` : url;
+              const response = await fetch(queryUrl, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) return;
               const payload = await response.json();
                 if (!payload.ok) return;
                 renderRows(payload.rows || []);
                 renderDownRows(payload.down_rows || []);
                 renderSummary(payload.summary || {});
-                const refreshedAt = payload.refreshed_at || 'Updated';
-                stamp.textContent = payload.updating ? `${refreshedAt} (Updating...)` : refreshedAt;
-        } catch (error) {
-            // Keep existing rendered values on transient network issues.
-        }
-    };
+                const dashboardUpdated = payload.dashboard_last_updated || payload.refreshed_at || 'Updated';
+                  stamp.textContent = payload.updating
+                     ? `Last dashboard update: ${dashboardUpdated} (Updating...)`
+                     : `Last dashboard update: ${dashboardUpdated}`;
+          } catch (error) {
+              // Keep existing rendered values on transient network issues.
+          } finally {
+              if (triggerButton) {
+                  triggerButton.disabled = false;
+                  triggerButton.textContent = 'Update';
+              }
+          }
+      };
 
-    refresh();
-    window.setInterval(refresh, 900000);
-})();
+      document.querySelectorAll('[data-dashboard-refresh-trigger]').forEach((button) => {
+          button.addEventListener('click', () => refresh(true, button));
+      });
+
+        refresh();
+        window.setTimeout(refresh, 1500);
+        window.setInterval(refresh, 15000);
+    })();
 
 (() => {
     const panel = document.querySelector('[data-status-graph-url]');

@@ -8,6 +8,7 @@ class OLT(models.Model):
     port = models.IntegerField(default=23, help_text='Telnet port')
     snmp_port = models.IntegerField(default=161, help_text='SNMP UDP port')
     snmp_community = models.CharField(max_length=100, default='public')
+    snmp_write_community = models.CharField(max_length=100, blank=True, default='')
     username = models.CharField(max_length=50)
     password = models.CharField(max_length=100)  # We'll encrypt later
     vendor = models.CharField(max_length=20, default='Huawei')  # GPON/EPON
@@ -31,6 +32,8 @@ class OLT(models.Model):
     dba_profile_status = models.CharField(max_length=300, blank=True, default='')
     dba_profile_refreshed_at = models.DateTimeField(blank=True, null=True)
     autofind_onu_count = models.PositiveIntegerField(default=0)
+    autofind_new_count = models.PositiveIntegerField(default=0)
+    autofind_resync_count = models.PositiveIntegerField(default=0)
     autofind_status = models.CharField(max_length=300, blank=True, default='')
     autofind_refreshed_at = models.DateTimeField(blank=True, null=True)
     dashboard_uptime = models.CharField(max_length=120, blank=True, default='')

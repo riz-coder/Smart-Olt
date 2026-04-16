@@ -149,6 +149,52 @@
         font-weight: 800;
         color: #f4f8ff;
     }
+    .autofind-summary {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+        color: #dbe7ff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .autofind-summary span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .category-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 70px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .category-chip.new {
+        background: rgba(53, 208, 127, 0.12);
+        border-color: rgba(53, 208, 127, 0.24);
+        color: #84efae;
+    }
+    .category-chip.resync {
+        background: rgba(255, 184, 77, 0.14);
+        border-color: rgba(255, 184, 77, 0.24);
+        color: #ffd18a;
+    }
+    .btn-mini {
+        min-height: 32px;
+        padding: 6px 10px;
+        font-size: 12px;
+        line-height: 1;
+        border-radius: 8px;
+        white-space: nowrap;
+    }
 </style>
 {% endblock %}
 
@@ -186,8 +232,10 @@
             </div>
             <button type="submit" class="btn btn-primary">Refresh</button>
         </form>
-        <div class="muted-cell" style="margin-bottom: 14px; font-weight: 700;">
-            Total ONUs: {{ unconfigured_total }}
+        <div class="autofind-summary">
+            <span>Total ONUs: {{ unconfigured_total }}</span>
+            <span>Resync: {{ unconfigured_resync_total|default:0 }}</span>
+            <span>New: {{ unconfigured_new_total|default:0 }}</span>
         </div>
 
         {% for group in unconfigured_groups %}
@@ -202,8 +250,10 @@
                             <th>Board</th>
                             <th>Port</th>
                             <th>SN</th>
+                            <th>Category</th>
                             <th>Type</th>
                             <th>Autofind time</th>
+                            <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -214,12 +264,20 @@
                             <td>{% if row.board is not None %}{{ row.board }}{% else %}-{% endif %}</td>
                             <td>{% if row.port is not None %}{{ row.port }}{% else %}-{% endif %}</td>
                             <td><span class="sn-pill">{{ row.sn|default:"-" }}</span></td>
+                            <td><span class="category-chip {{ row.category|default:'new' }}">{{ row.category_label|default:"New" }}</span></td>
                             <td>{{ row.type|default:"-" }}</td>
                             <td>{{ row.autofind_time|default:"-" }}</td>
+                            <td>
+                                {% if row.existing_onu_url %}
+                                <a href="{{ row.existing_onu_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-mini">View ONU</a>
+                                {% else %}
+                                <span class="muted-cell">-</span>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="7" class="muted-cell">No autofind ONUs found for this OLT.</td>
+                            <td colspan="9" class="muted-cell">No autofind ONUs found for this OLT.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -231,7 +289,7 @@
             <table>
                 <tbody>
                     <tr>
-                        <td colspan="7" class="muted-cell">
+                        <td colspan="9" class="muted-cell">
                             {% if unconfigured_selected_olts %}
                                 No autofind ONUs found for selected OLTs.
                             {% else %}

@@ -384,7 +384,7 @@
                             {% if row.signal_class %}
                             <span class="signal-stack">
                                 <span class="signal-topline">
-                                    <span class="signal-value">{{ row.onu_rx|default:"--" }}</span>
+                                    <span class="signal-value">{{ row.olt_rx|default:"--" }}</span>
                                     <span class="signal-spinner" aria-hidden="true"></span>
                                 </span>
                                 <span class="filter-bars {{ row.signal_class }}" data-signal-bars title="{% if row.signal_class == 'good' %}Good signal{% elif row.signal_class == 'warn' %}Warning signal{% else %}Critical signal{% endif %}"><i></i><i></i><i></i><i></i></span>
@@ -421,10 +421,10 @@
 
     const csrftoken = document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
 
-    const barsMarkup = (bucket, onuRx) => `
+      const barsMarkup = (bucket, oltRx) => `
         <span class="signal-stack">
             <span class="signal-topline">
-                <span class="signal-value">${onuRx || '--'}</span>
+                <span class="signal-value">${oltRx || '--'}</span>
                 <span class="signal-spinner" aria-hidden="true"></span>
             </span>
             <span class="filter-bars ${bucket}" data-signal-bars title="${bucket === 'good' ? 'Good signal' : bucket === 'warn' ? 'Warning signal' : 'Critical signal'}"><i></i><i></i><i></i><i></i></span>
@@ -443,9 +443,9 @@
           if (!signalCell || !item) return;
         const statusDot = row.querySelector('[data-status-dot]');
         const bucket = String(item.signal_class || '').trim();
-        const onuRx = String(item.onu_rx || '--').trim() || '--';
+        const oltRx = String(item.olt_rx || '--').trim() || '--';
         if (bucket) {
-            signalCell.innerHTML = barsMarkup(bucket, onuRx);
+            signalCell.innerHTML = barsMarkup(bucket, oltRx);
         } else {
             signalCell.innerHTML = '<span class="signal-topline"><span class="signal-placeholder" data-signal-placeholder>-</span><span class="signal-spinner" aria-hidden="true"></span></span>';
         }

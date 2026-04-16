@@ -407,6 +407,12 @@
     .avg-signal-link.avg-signal-bad:hover,
     .avg-signal-link.avg-signal-bad:active,
     .avg-signal-link.avg-signal-bad:focus { color: #ff5f5f; }
+    .avg-signal-neutral,
+    .avg-signal-link.avg-signal-neutral,
+    .avg-signal-link.avg-signal-neutral:visited,
+    .avg-signal-link.avg-signal-neutral:hover,
+    .avg-signal-link.avg-signal-neutral:active,
+    .avg-signal-link.avg-signal-neutral:focus { color: #cfe1ff; }
     .avg-signal-link {
         color: inherit;
         text-decoration: none;
@@ -577,6 +583,8 @@
                         <div><small>OLT IP</small>{{ olt.ip_address }}</div>
                         <div><small>TCP</small>{{ olt.port }}</div>
                         <div><small>UDP</small>{{ olt.snmp_port }}</div>
+                        <div><small>SNMP Read</small>{{ olt.snmp_community|default:"-" }}</div>
+                        <div><small>SNMP Write</small>{{ olt.snmp_write_community|default:"-" }}</div>
                         <div><small>Vendor</small>{{ olt.vendor }}</div>
                         <div><small>Hardware</small><span class="detail-live-row" id="detailHardwareRow"><span class="live-value" id="detailHardwareValue">{{ olt.hardware_version|default:"Unknown" }}</span></span></div>
                         <div><small>Software</small><span class="detail-live-row" id="detailSoftwareRow"><span class="live-value" id="detailSoftwareValue">{{ software_display|default:"Unknown" }}</span></span></div>
@@ -639,7 +647,7 @@
                         <h3 style="margin:0;">OLT cards</h3>
                         <form method="post" action="{% url 'olt_refresh_ports' olt.pk %}" class="refresh-form" id="refreshPortsForm">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-primary refresh-btn" id="refreshPortsBtn">
+                            <button type="submit" class="btn btn-primary refresh-btn" id="refreshPortsBtn" data-loading-text="Refreshing...">
                                 <span class="refresh-label">Refresh Ports</span>
                             </button>
                         </form>
@@ -682,20 +690,22 @@
                     {% endif %}
                 </section>
                 {% elif selected_section == 'pon-ports' %}
-                <section id="pon-ports">
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-                        <h3 style="margin:0;">PON ports</h3>
-                        <form method="post" action="{% url 'olt_refresh_pon_ports' olt.pk %}" class="refresh-form">
+                <section id="pon-ports" data-pon-ports-section data-refresh-url="{{ pon_ports_refresh_data_url|default:'' }}">
+                      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                          <h3 style="margin:0;">PON ports</h3>
+                          <form method="post" action="{% url 'olt_refresh_pon_ports' olt.pk %}" class="refresh-form">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-primary refresh-btn">
+                            <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">
                                 <span class="refresh-label">Refresh PON Ports</span>
                             </button>
                         </form>
-                    </div>
-                    {% if pon_port_groups %}
-                        {% for grp in pon_port_groups %}
-                        <div class="pon-slot-title">OLT slot {{ grp.slot }}, board type: {{ grp.board_type }}</div>
-                        <div class="cards-table-wrap">
+                      </div>
+                      <p class="subtle" data-pon-ports-status style="margin:8px 0 12px;">{{ pon_ports_status_display|default:"No PON ports found." }}</p>
+                      {% if pon_port_groups %}
+                      <div data-pon-ports-groups>
+                          {% for grp in pon_port_groups %}
+                          <div class="pon-slot-title">OLT slot {{ grp.slot }}, board type: {{ grp.board_type }}</div>
+                          <div class="cards-table-wrap">
                             <table class="cards-table">
                                 <thead>
                                       <tr>
@@ -728,10 +738,10 @@
                                           <td>{% if port.sfp_tx %}{{ port.sfp_tx }}{% else %}-{% endif %}</td>
                                           <td>
                                               {% if port.average_signal %}
-                                              <a href="{% url 'configured_onus' %}?olt={{ olt.pk }}&board={{ grp.slot }}&port={{ port.port }}" class="avg-signal-link avg-signal-box avg-signal-{{ port.average_signal_bucket|default:'good' }}" title="Show ONUs on this PON port">
+                                              <a href="{% url 'configured_onus' %}?olt={{ olt.pk }}&board={{ grp.slot }}&port={{ port.port }}" class="avg-signal-link avg-signal-box avg-signal-{{ port.average_signal_bucket|default:'neutral' }}" title="Show ONUs on this PON port">
                                                   <span class="avg-signal-value">{{ port.average_signal }}</span>
                                                   <span class="avg-signal-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
-                                            </a>
+                                              </a>
                                             {% else %}
                                             -
                                             {% endif %}
@@ -740,11 +750,12 @@
                                     {% endfor %}
                                 </tbody>
                             </table>
-                        </div>
-                        {% endfor %}
-                    {% else %}
-                    <p class="subtle">{{ pon_ports_status_display|default:"No PON ports found." }}</p>
-                    {% endif %}
+                          </div>
+                          {% endfor %}
+                      </div>
+                      {% else %}
+                      <div data-pon-ports-groups></div>
+                      {% endif %}
                 </section>
                 {% elif selected_section == 'uplink' %}
                 <section id="uplink">
@@ -752,7 +763,7 @@
                         <h3>Uplink</h3>
                         <form method="post" action="{% url 'olt_refresh_uplink' olt.pk %}" class="refresh-form">
                             {% csrf_token %}
-                            <button type="submit" class="btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Ports</button>
+                            <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Ports</button>
                         </form>
                     </div>
                     {% if uplink_data.rows %}
@@ -904,6 +915,7 @@
                                     <th>VLAN</th>
                                     <th>ONUs</th>
                                     <th>Description</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -912,6 +924,13 @@
                                     <td>{{ row.vlan_id }}</td>
                                     <td>{{ row.service_port_num|default:"-" }}</td>
                                     <td>{{ row.description|default:"-" }}</td>
+                                    <td>
+                                        <form method="post" action="{% url 'olt_delete_vlan' olt.pk %}" class="refresh-form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="vlan_id" value="{{ row.vlan_id }}">
+                                            <button type="submit" class="btn btn-primary btn-mini" data-loading-text="Deleting...">Delete</button>
+                                        </form>
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -1084,12 +1103,15 @@
     const backToOltSettingsBtn = document.getElementById('backToOltSettingsBtn');
     if (refreshForms.length) {
         refreshForms.forEach((form) => {
-            form.addEventListener('submit', () => {
+            form.addEventListener('submit', (event) => {
                 const button = form.querySelector('button[type="submit"]');
                 if (!button) return;
+                event.preventDefault();
+                const loadingText = button.getAttribute('data-loading-text') || 'Refreshing...';
                 button.classList.add('loading');
                 button.disabled = true;
-                button.innerHTML = '<span class="refresh-spinner"></span><span>Refreshing...</span>';
+                button.innerHTML = `<span class="refresh-spinner"></span><span>${loadingText}</span>`;
+                window.setTimeout(() => form.submit(), 20);
             });
         });
     }
@@ -1635,7 +1657,106 @@
         }
     });
 
-    terminal.addEventListener('click', () => terminal.focus());
+terminal.addEventListener('click', () => terminal.focus());
+})();
+
+(() => {
+    const section = document.querySelector('[data-pon-ports-section]');
+    if (!section) return;
+    const refreshUrl = section.getAttribute('data-refresh-url') || '';
+    const groupsNode = section.querySelector('[data-pon-ports-groups]');
+    const statusNode = section.querySelector('[data-pon-ports-status]');
+    if (!refreshUrl || !groupsNode || !statusNode) return;
+
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const buildAverageSignalMarkup = (oltPk, slot, port, avgValue, bucket) => {
+        if (!avgValue) return '-';
+        const safeBucket = bucket || 'neutral';
+        return `
+          <a href="/configured/?olt=${oltPk}&board=${slot}&port=${port}" class="avg-signal-link avg-signal-box avg-signal-${safeBucket}" title="Show ONUs on this PON port">
+              <span class="avg-signal-value">${escapeHtml(avgValue)}</span>
+              <span class="avg-signal-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+          </a>
+        `;
+    };
+
+    const renderGroups = (groups) => {
+        const oltPk = "{{ olt.pk }}";
+        const safeGroups = groups || [];
+        if (!safeGroups.length) {
+            groupsNode.innerHTML = '';
+            return;
+        }
+        groupsNode.innerHTML = safeGroups.map((grp) => `
+            <div class="pon-slot-title">OLT slot ${escapeHtml(grp.slot)}, board type: ${escapeHtml(grp.board_type || '-')}</div>
+            <div class="cards-table-wrap">
+                <table class="cards-table">
+                    <thead>
+                        <tr>
+                            <th>Port</th>
+                            <th>Type</th>
+                            <th>Admin state</th>
+                            <th>Status</th>
+                            <th>ONUs</th>
+                            <th>SFP Tx</th>
+                            <th>Average signal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${(grp.ports || []).map((port) => `
+                            <tr>
+                                <td>${escapeHtml(port.port)}</td>
+                                <td>${escapeHtml(port.type || '-')}</td>
+                                <td>${escapeHtml(port.admin_state || '-')}</td>
+                                <td class="${String(port.status || '').toLowerCase().includes('down') ? 'pon-status-down' : String(port.status || '').toLowerCase().includes('up') ? 'pon-status-up' : ''}">${escapeHtml(port.status || '-')}</td>
+                                <td>
+                                    <div class="onus-box">
+                                        <div>
+                                            <strong>${escapeHtml(port.online_count ?? 0)}</strong>
+                                            <span>Online</span>
+                                        </div>
+                                        <div>
+                                            <strong>${escapeHtml(port.offline_count ?? 0)}</strong>
+                                            <span>Offline</span>
+                                        </div>
+                                        <div>
+                                            <strong>${escapeHtml(port.total_count ?? 0)}</strong>
+                                            <span>Total</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>${port.sfp_tx ? escapeHtml(port.sfp_tx) : '-'}</td>
+                                <td>${buildAverageSignalMarkup(oltPk, grp.slot, port.port, port.average_signal, port.average_signal_bucket)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `).join('');
+    };
+
+    const refreshPonPorts = async () => {
+        try {
+            const response = await fetch(refreshUrl, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+            });
+            const payload = await response.json();
+            if (!payload.ok) return;
+            renderGroups(payload.groups || []);
+            statusNode.textContent = payload.status || 'PON ports updated.';
+        } catch (error) {
+            // Preserve current values on transient failure.
+        }
+    };
+
+    window.setInterval(refreshPonPorts, 120000);
 })();
 </script>
 {% endblock %}

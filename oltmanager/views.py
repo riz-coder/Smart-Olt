@@ -27,18 +27,22 @@ from .forms import DBAProfileAddForm, OLTForm, VLANAddForm, VLANBulkAddForm
 from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUTrapEvent
 from .services import get_olt_adapter
 from .utils import (
+    _dashboard_status_counts_from_queryset,
     add_dba_profile,
     add_vlan,
     add_vlan_range,
     build_dba_profile_row,
+    delete_vlan_netconf,
     close_telnet_session,
     fetch_configured_onus_snapshot,
     fetch_dba_profile_snapshot,
     fetch_dba_profile_configuration,
     fetch_single_dba_profile,
     fetch_ont_optical_subset,
+    fetch_ont_optical_subset_meta,
     fetch_single_ont_optical_info,
     fetch_single_ont_runtime_snapshot,
+    fetch_single_ont_capability_snapshot,
     fetch_snmp_snapshot,
     fetch_telnet_version_snapshot,
     fetch_ont_autofind_snapshot,
@@ -47,6 +51,7 @@ from .utils import (
     fetch_vlan_snapshot,
     fetch_single_vlan,
     push_snmp_config_over_telnet,
+    refresh_saved_pon_counts_from_inventory,
     save_dba_profile_snapshot,
     save_pon_ports_snapshot,
     save_uplink_snapshot,
@@ -73,6 +78,8 @@ _VLAN_REFRESH_LOCK = threading.Lock()
 _VLAN_REFRESHING = set()
 _DBA_PROFILE_REFRESH_LOCK = threading.Lock()
 _DBA_PROFILE_REFRESHING = set()
+_AUTOFIND_REFRESH_GUARD = threading.Lock()
+_AUTOFIND_REFRESH_THREAD = None
 _CONFIGURED_ONU_CACHE_LOCK = threading.Lock()
 _CONFIGURED_ONU_CACHE = {}
 _CONFIGURED_ONU_SYNC_LOCK = threading.Lock()
@@ -721,6 +728,10 @@ def _normalize_serial_search_token(value):
     }))
 
 
+def _normalize_onu_serial_token(value):
+    return _normalize_search_token(value)
+
+
 def _configured_onu_matches_search(record, query):
     raw_query = str(query or "").strip()
     if not raw_query:
@@ -990,7 +1001,11 @@ def _record_olt_login(olt, user, action, details='', request=None, onu=''):
 
 
 def _sync_snmp_after_save(olt):
-    pushed_ok, push_status = push_snmp_config_over_telnet(olt, olt.snmp_community)
+    pushed_ok, push_status = push_snmp_config_over_telnet(
+        olt,
+        olt.snmp_community,
+        olt.snmp_write_community,
+    )
     if not pushed_ok:
         olt.snmp_last_status = (push_status or 'SNMP push failed.')[:300]
         olt.snmp_last_synced_at = timezone.now()
@@ -1014,6 +1029,83 @@ def _sync_snmp_after_save(olt):
 
     olt.save(update_fields=update_fields)
     return True, status_text
+
+
+def _fetch_snmp_only_after_save(olt):
+    snapshot = fetch_snmp_snapshot(olt)
+    status_text = str(snapshot.get('status', '') or 'SNMP fetched')
+    update_fields = ['snmp_last_status', 'snmp_last_synced_at']
+    olt.snmp_last_status = status_text[:300]
+    olt.snmp_last_synced_at = timezone.now()
+
+    model = (snapshot.get('model') or '').strip()
+    sw_version = (snapshot.get('sw_version') or '').strip()
+    if model and model.lower() != 'unknown' and model != (olt.hardware_version or ''):
+        olt.hardware_version = model
+        update_fields.append('hardware_version')
+    if sw_version and sw_version.lower() != 'unknown' and sw_version != (olt.sw_version or ''):
+        olt.sw_version = sw_version
+        update_fields.append('sw_version')
+
+    olt.save(update_fields=update_fields)
+    lowered = status_text.lower()
+    failed_tokens = (
+        "unavailable",
+        "not installed",
+        "timeout",
+        "no response",
+        "status error",
+        "failed",
+    )
+    return not any(token in lowered for token in failed_tokens), status_text
+
+
+def _autofind_counts_need_refresh(selected_olt_id=None):
+    now = timezone.now()
+    qs = OLT.objects.all().only("id", "autofind_onu_count", "autofind_status", "autofind_refreshed_at")
+    if selected_olt_id:
+        qs = qs.filter(pk=selected_olt_id)
+    rows = list(qs)
+    if not rows:
+        return False
+    for olt in rows:
+        status_text = str(getattr(olt, "autofind_status", "") or "").lower()
+        refreshed_at = getattr(olt, "autofind_refreshed_at", None)
+        stale = not refreshed_at or (now - refreshed_at).total_seconds() >= 900
+        failed = any(token in status_text for token in ("timeout", "unavailable", "connection closed", "login failed", "error"))
+        if stale or failed:
+            return True
+    return False
+
+
+def _refresh_autofind_counts_worker(selected_olt_id=None):
+    try:
+        qs = OLT.objects.all().only("id")
+        if selected_olt_id:
+            qs = qs.filter(pk=selected_olt_id)
+        for olt in qs:
+            try:
+                sync_olt_autofind_count(olt)
+            except Exception:
+                continue
+    finally:
+        global _AUTOFIND_REFRESH_THREAD
+        with _AUTOFIND_REFRESH_GUARD:
+            _AUTOFIND_REFRESH_THREAD = None
+
+
+def _schedule_autofind_counts_refresh(selected_olt_id=None):
+    global _AUTOFIND_REFRESH_THREAD
+    with _AUTOFIND_REFRESH_GUARD:
+        if _AUTOFIND_REFRESH_THREAD and _AUTOFIND_REFRESH_THREAD.is_alive():
+            return
+        _AUTOFIND_REFRESH_THREAD = threading.Thread(
+            target=_refresh_autofind_counts_worker,
+            args=(selected_olt_id,),
+            name="autofind-count-refresh",
+            daemon=True,
+        )
+        _AUTOFIND_REFRESH_THREAD.start()
 
 
 
@@ -1062,13 +1154,13 @@ def _parse_dbm_value(text):
         return None
 
 
-def _classify_onu_signal(onu_rx_text):
-    onu_rx = _parse_dbm_value(onu_rx_text)
-    if onu_rx is None:
+def _classify_onu_signal(olt_rx_text):
+    olt_rx = _parse_dbm_value(olt_rx_text)
+    if olt_rx is None:
         return ""
-    if -27.0 <= onu_rx <= -8.0:
+    if -27.0 <= olt_rx <= -8.0:
         return "good"
-    if (-30.0 <= onu_rx < -27.0) or (-8.0 < onu_rx <= -6.0):
+    if (-30.0 <= olt_rx < -27.0) or (-8.0 < olt_rx <= -6.0):
         return "warn"
     return "bad"
 
@@ -1232,9 +1324,18 @@ def _collect_dashboard_snmp_down_olts():
         "snmp timeout",
     )
     try:
-        query = OLT.objects.only("id", "name", "snmp_last_status").order_by("name")
+        query = OLT.objects.only("id", "name", "snmp_last_status", "snmp_last_synced_at").order_by("name")
         for olt in query:
             status = str(getattr(olt, "snmp_last_status", "") or "").strip()
+            synced_at = getattr(olt, "snmp_last_synced_at", None)
+            if not synced_at:
+                continue
+            try:
+                age_seconds = (timezone.now() - synced_at).total_seconds()
+            except Exception:
+                continue
+            if age_seconds > 1800:
+                continue
             lowered = status.lower()
             if not any(token in lowered for token in down_tokens):
                 continue
@@ -1429,7 +1530,7 @@ def _build_dashboard_status_graph(olt_id=None, range_key="24h"):
 
 
 def _signal_payload_from_values(onu_rx, olt_rx):
-    signal_class = _classify_onu_signal(onu_rx)
+    signal_class = _classify_onu_signal(olt_rx)
     return {
         "onu_rx": onu_rx or "--",
         "olt_rx": olt_rx or "--",
@@ -1438,8 +1539,8 @@ def _signal_payload_from_values(onu_rx, olt_rx):
     }
 
 
-def _signal_bucket_for_value(onu_rx):
-    return _classify_onu_signal(onu_rx) or ""
+def _signal_bucket_for_value(olt_rx):
+    return _classify_onu_signal(olt_rx) or ""
 
 
 def _recent_onu_signal_visibilities(olt, slot, port, ont_id, minutes=15, limit=8):
@@ -1554,6 +1655,36 @@ def _format_status_age_text(dt):
     return f"({local_dt.strftime('%d %b %Y %I:%M %p')})"
 
 
+def _format_relative_time_text(dt):
+    if not dt:
+        return ""
+    try:
+        local_dt = timezone.localtime(dt, ZoneInfo("Asia/Karachi"))
+    except Exception:
+        local_dt = timezone.localtime(dt)
+    now = timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi"))
+    delta = now - local_dt
+    total_seconds = max(0, int(delta.total_seconds()))
+    if total_seconds < 60:
+        return "just now"
+
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    parts = []
+    if days:
+        parts.append(f"{days} day{'s' if days != 1 else ''}")
+    if hours:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+
+    if not parts:
+        return "just now"
+    return f"{' '.join(parts)} ago"
+
+
 def _format_onu_distance_text(distance_value):
     text = str(distance_value or "").strip()
     if not text or text in {"-", "--"}:
@@ -1606,6 +1737,26 @@ def _status_age_text_from_onu_runtime(status_value, runtime_snapshot):
         if up_time:
             return _format_status_age_text(up_time)
     return ""
+
+
+def _status_since_datetime_from_onu_runtime(status_value, runtime_snapshot):
+    runtime_snapshot = runtime_snapshot or {}
+    now = timezone.now()
+    normalized = _normalize_configured_status(status_value)
+
+    if normalized == "online":
+        up_time = _parse_onu_runtime_datetime(runtime_snapshot.get("last_up_time"))
+        if up_time:
+            return up_time
+        seconds = _parse_ont_duration_to_seconds(runtime_snapshot.get("online_duration"))
+        if seconds is not None:
+            return now - timezone.timedelta(seconds=seconds)
+        return None
+
+    down_time = _parse_onu_runtime_datetime(runtime_snapshot.get("last_down_time"))
+    if down_time:
+        return down_time
+    return None
 
 
 def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
@@ -1700,26 +1851,45 @@ def olt_list(request):
     onu_qs = ConfiguredONU.objects.all()
     if olt_filter:
         try:
-            selected_olt = OLT.objects.only("id", "name", "autofind_onu_count").filter(pk=int(olt_filter)).first()
+            selected_olt = OLT.objects.only("id", "name", "autofind_onu_count", "autofind_new_count", "autofind_resync_count").filter(pk=int(olt_filter)).first()
         except (TypeError, ValueError):
             selected_olt = None
         if selected_olt:
             onu_qs = onu_qs.filter(olt_id=selected_olt.pk)
+    if _autofind_counts_need_refresh(selected_olt.pk if selected_olt else None):
+        _schedule_autofind_counts_refresh(selected_olt.pk if selected_olt else None)
 
-    total_online = onu_qs.filter(derived_status="online").count()
-    total_all = onu_qs.count()
+    dashboard_counts = _dashboard_status_counts_from_queryset(onu_qs)
+    total_all = int(dashboard_counts.get("total_onus") or 0)
+    total_online = int(dashboard_counts.get("online_onus") or 0)
     total_offline = max(0, total_all - total_online)
     if selected_olt:
         total_wait_for_authorize = int(getattr(selected_olt, "autofind_onu_count", 0) or 0)
+        total_wait_for_authorize_new = int(getattr(selected_olt, "autofind_new_count", 0) or 0)
+        total_wait_for_authorize_resync = int(getattr(selected_olt, "autofind_resync_count", 0) or 0)
     else:
         total_wait_for_authorize = sum(
             OLT.objects.values_list("autofind_onu_count", flat=True)
         )
-    total_admin_disabled = onu_qs.filter(derived_status="admin_disabled").count()
-    total_loss_of_signal = onu_qs.filter(derived_status="loss_of_signal").count()
-    total_power_failure = onu_qs.filter(derived_status="power_failure").count()
-    total_signal_warn = onu_qs.filter(signal_bucket="warn").count()
-    total_signal_bad = onu_qs.filter(signal_bucket="bad").count()
+        total_wait_for_authorize_new = sum(
+            OLT.objects.values_list("autofind_new_count", flat=True)
+        )
+        total_wait_for_authorize_resync = sum(
+            OLT.objects.values_list("autofind_resync_count", flat=True)
+        )
+    total_admin_disabled = int(dashboard_counts.get("admin_disabled") or 0)
+    total_loss_of_signal = int(dashboard_counts.get("loss_of_signal") or 0)
+    total_power_failure = int(dashboard_counts.get("power_failure") or 0)
+    total_signal_warn = int(dashboard_counts.get("signal_warn") or 0)
+    total_signal_bad = int(dashboard_counts.get("signal_bad") or 0)
+    latest_dashboard_sample_at = (
+        DashboardStatusSample.objects.order_by("-sampled_at").values_list("sampled_at", flat=True).first()
+    )
+    dashboard_last_sample_display = (
+        timezone.localtime(latest_dashboard_sample_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+        if latest_dashboard_sample_at
+        else timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+    )
 
     configured_signal_base = reverse('configured_onus')
     warning_params = {'signal': 'warning'}
@@ -1737,6 +1907,8 @@ def olt_list(request):
     context = {
         'dashboard_total_onus': total_all,
         'dashboard_wait_for_authorize_total': total_wait_for_authorize,
+        'dashboard_wait_for_authorize_new_total': total_wait_for_authorize_new,
+        'dashboard_wait_for_authorize_resync_total': total_wait_for_authorize_resync,
         'dashboard_online_total': total_online,
         'dashboard_offline_total': total_offline,
         'dashboard_admin_disabled_total': total_admin_disabled,
@@ -1746,6 +1918,8 @@ def olt_list(request):
         'dashboard_signal_bad_total': total_signal_bad,
         'dashboard_signal_total': total_signal_warn + total_signal_bad,
         'dashboard_validated_at': timezone.localtime(),
+        'dashboard_last_sample_at': latest_dashboard_sample_at,
+        'dashboard_last_sample_display': dashboard_last_sample_display,
         'dashboard_olt_uptimes': _collect_dashboard_olt_uptimes(selected_olt.pk if selected_olt else None),
         'dashboard_snmp_down_olts': _collect_dashboard_snmp_down_olts(),
         'dashboard_selected_olt': selected_olt,
@@ -1786,29 +1960,62 @@ def dashboard_status_graph(request):
 
 @login_required
 def dashboard_olt_uptimes(request):
+    force_refresh = str(request.GET.get("force") or "").strip().lower() in {"1", "true", "yes", "refresh"}
     _schedule_dashboard_snapshot_refreshes()
-    rows = _collect_dashboard_olt_uptimes()
-    down_rows = _collect_dashboard_snmp_down_olts()
     selected_olt_filter = (request.GET.get("olt") or "").strip()
     onu_qs = ConfiguredONU.objects.all()
     selected_olt_id = None
     if selected_olt_filter.isdigit():
         selected_olt_id = int(selected_olt_filter)
         onu_qs = onu_qs.filter(olt_id=selected_olt_id)
-    total_all = onu_qs.count()
-    total_online = onu_qs.filter(derived_status="online").count()
+    if force_refresh:
+        refresh_qs = OLT.objects.all()
+        if selected_olt_id:
+            refresh_qs = refresh_qs.filter(pk=selected_olt_id)
+        for olt in refresh_qs:
+            try:
+                _fetch_snmp_only_after_save(olt)
+            except Exception:
+                pass
+            _schedule_snapshot_refresh(olt.pk)
+        try:
+            record_dashboard_status_samples(force=True)
+        except OperationalError:
+            pass
+    rows = _collect_dashboard_olt_uptimes()
+    down_rows = _collect_dashboard_snmp_down_olts()
+    if _autofind_counts_need_refresh(selected_olt_id):
+        _schedule_autofind_counts_refresh(selected_olt_id)
+    dashboard_counts = _dashboard_status_counts_from_queryset(onu_qs)
+    total_all = int(dashboard_counts.get("total_onus") or 0)
+    total_online = int(dashboard_counts.get("online_onus") or 0)
     total_offline = max(0, total_all - total_online)
-    total_admin_disabled = onu_qs.filter(derived_status="admin_disabled").count()
-    total_loss_of_signal = onu_qs.filter(derived_status="loss_of_signal").count()
-    total_power_failure = onu_qs.filter(derived_status="power_failure").count()
-    total_signal_warn = onu_qs.filter(signal_bucket="warn").count()
-    total_signal_bad = onu_qs.filter(signal_bucket="bad").count()
+    total_admin_disabled = int(dashboard_counts.get("admin_disabled") or 0)
+    total_loss_of_signal = int(dashboard_counts.get("loss_of_signal") or 0)
+    total_power_failure = int(dashboard_counts.get("power_failure") or 0)
+    total_signal_warn = int(dashboard_counts.get("signal_warn") or 0)
+    total_signal_bad = int(dashboard_counts.get("signal_bad") or 0)
+    latest_dashboard_sample_at = (
+        DashboardStatusSample.objects.order_by("-sampled_at").values_list("sampled_at", flat=True).first()
+    )
     if selected_olt_id:
-        selected = OLT.objects.filter(pk=selected_olt_id).only("autofind_onu_count").first()
+        selected = OLT.objects.filter(pk=selected_olt_id).only("autofind_onu_count", "autofind_new_count", "autofind_resync_count").first()
         total_wait_for_authorize = int(getattr(selected, "autofind_onu_count", 0) or 0)
+        total_wait_for_authorize_new = int(getattr(selected, "autofind_new_count", 0) or 0)
+        total_wait_for_authorize_resync = int(getattr(selected, "autofind_resync_count", 0) or 0)
     else:
         total_wait_for_authorize = sum(OLT.objects.values_list("autofind_onu_count", flat=True))
+        total_wait_for_authorize_new = sum(OLT.objects.values_list("autofind_new_count", flat=True))
+        total_wait_for_authorize_resync = sum(OLT.objects.values_list("autofind_resync_count", flat=True))
+    latest_dashboard_sample_at = (
+        DashboardStatusSample.objects.order_by("-sampled_at").values_list("sampled_at", flat=True).first()
+    )
     refreshed_at = timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+    dashboard_last_updated = (
+        timezone.localtime(latest_dashboard_sample_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+        if latest_dashboard_sample_at
+        else refreshed_at
+    )
     with _SNAPSHOT_CACHE_LOCK:
         updating = bool(_SNAPSHOT_REFRESHING)
     return JsonResponse({
@@ -1818,6 +2025,8 @@ def dashboard_olt_uptimes(request):
         "summary": {
             "total_onus": total_all,
             "wait_for_authorize_total": total_wait_for_authorize,
+            "wait_for_authorize_new_total": total_wait_for_authorize_new,
+            "wait_for_authorize_resync_total": total_wait_for_authorize_resync,
             "online_total": total_online,
             "offline_total": total_offline,
             "admin_disabled_total": total_admin_disabled,
@@ -1828,6 +2037,7 @@ def dashboard_olt_uptimes(request):
             "signal_total": total_signal_warn + total_signal_bad,
         },
         "refreshed_at": refreshed_at,
+        "dashboard_last_updated": dashboard_last_updated,
         "updating": updating,
     })
 
@@ -1894,7 +2104,7 @@ def configured_onus(request):
         ]
     if sort_filter == "signal":
         def _signal_sort_key(record):
-            bucket = (getattr(record, "signal_bucket", "") or "").strip() or _classify_onu_signal(getattr(record, "onu_rx", ""))
+            bucket = (getattr(record, "signal_bucket", "") or "").strip() or _classify_onu_signal(getattr(record, "olt_rx", ""))
             has_signal = 1 if bucket else 0
             bucket_rank = {"good": 3, "warn": 2, "bad": 1}.get(bucket, 0)
             return (
@@ -1926,7 +2136,7 @@ def configured_onus(request):
         enriched["status_label"] = _configured_status_label(row.get("derived_status"), run_state=row.get("run_state"))
         enriched["status_class"] = _configured_status_class(row.get("derived_status"), run_state=row.get("run_state"))
         enriched["onu_label"] = f"{record.olt.name} gpon-onu_{row.get('fsp')}:{row.get('ont_id')}"
-        enriched["signal_class"] = (row.get("signal_bucket") or "").strip() or _classify_onu_signal(row.get("onu_rx"))
+        enriched["signal_class"] = (row.get("signal_bucket") or "").strip() or _classify_onu_signal(row.get("olt_rx"))
         rows.append(enriched)
 
     available_olts = [{"id": str(olt.pk), "name": olt.name} for olt in OLT.objects.all().order_by('id')]
@@ -1971,8 +2181,21 @@ def unconfigured_onus(request):
     search_query = (request.GET.get("q") or "").strip().lower()
 
     all_olts = list(OLT.objects.only("id", "name", "ip_address").order_by("name"))
+    existing_onus = list(
+        ConfiguredONU.objects.select_related("olt")
+        .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
+        .exclude(sn="")
+    )
+    existing_by_serial = {}
+    for record in existing_onus:
+        token = _normalize_onu_serial_token(record.sn)
+        if token and token not in existing_by_serial:
+            existing_by_serial[token] = record
+
     grouped_rows = []
     statuses = []
+    total_new = 0
+    total_resync = 0
     if selected_olts:
         selected_map = {str(olt.id): olt for olt in all_olts if str(olt.id) in set(selected_olts)}
         for index, olt_id in enumerate(selected_olts, start=1):
@@ -1986,6 +2209,28 @@ def unconfigured_onus(request):
                 item = dict(row)
                 item["olt_id"] = olt.id
                 item["olt_name"] = olt.name
+                serial_token = _normalize_onu_serial_token(item.get("sn"))
+                existing_record = existing_by_serial.get(serial_token)
+                category = "resync" if existing_record else "new"
+                item["category"] = category
+                item["category_label"] = "Resync" if existing_record else "New"
+                item["existing_onu_url"] = (
+                    reverse(
+                        "configured_onu_detail",
+                        kwargs={
+                            "olt_pk": existing_record.olt_id,
+                            "slot": int(existing_record.slot or 0),
+                            "port": int(existing_record.port or 0),
+                            "ont_id": int(existing_record.ont_id or 0),
+                        },
+                    )
+                    if existing_record
+                    else ""
+                )
+                if existing_record:
+                    total_resync += 1
+                else:
+                    total_new += 1
                 if search_query:
                     haystack = " ".join([
                         str(item.get("olt_name") or ""),
@@ -1993,6 +2238,7 @@ def unconfigured_onus(request):
                         str(item.get("board") or ""),
                         str(item.get("port") or ""),
                         str(item.get("sn") or ""),
+                        str(item.get("category_label") or ""),
                         str(item.get("type") or ""),
                         str(item.get("autofind_time") or ""),
                     ]).lower()
@@ -2016,6 +2262,8 @@ def unconfigured_onus(request):
         "unconfigured_search_query": request.GET.get("q", "").strip(),
         "unconfigured_status": " | ".join(statuses),
         "unconfigured_total": total_rows,
+        "unconfigured_new_total": total_new,
+        "unconfigured_resync_total": total_resync,
     }
     return render(request, "oltmanager/unconfigured_onus.html", context)
 
@@ -2202,21 +2450,39 @@ def configured_onu_signals_refresh(request):
         olt = OLT.objects.filter(pk=olt_id).first()
         if not olt:
             continue
-        optical_map = fetch_ont_optical_subset(olt, sorted(onu_keys))
+        optical_bundle = fetch_ont_optical_subset_meta(olt, sorted(onu_keys))
+        optical_map = optical_bundle.get("items") or {}
+        fetch_ok = bool(optical_bundle.get("ok"))
+        successful_ports = {tuple(item) for item in (optical_bundle.get("successful_ports") or set())}
         db_updates = []
         samples = []
         for slot, port, ont_id in onu_keys:
-            signal = optical_map.get((slot, port, ont_id), {"onu_rx": "--", "olt_rx": "--", "tx_power": "--"})
-            payload_row = _signal_payload_from_values(signal.get("onu_rx"), signal.get("olt_rx"))
-            key = f"{olt_id}:{slot}:{port}:{ont_id}"
-            response_items[key] = dict(payload_row)
-
             record = ConfiguredONU.objects.filter(
                 olt=olt,
                 slot=slot,
                 port=port,
                 ont_id=ont_id,
             ).first()
+            key = f"{olt_id}:{slot}:{port}:{ont_id}"
+            port_fetch_ok = (int(slot), int(port)) in successful_ports
+            if not port_fetch_ok and record is not None:
+                response_items[key] = _signal_payload_from_values(record.onu_rx, record.olt_rx)
+                response_items[key]["status_value"] = _normalize_configured_status(record.derived_status, run_state=record.run_state)
+                response_items[key]["status_label"] = _configured_status_label(record.derived_status, run_state=record.run_state)
+                response_items[key]["status_class"] = _configured_status_class(record.derived_status, run_state=record.run_state)
+                response_items[key]["status_age_text"] = _format_status_age_text(
+                    record.status_first_seen_at or record.status_updated_at
+                )
+                if detail_refresh and len(onu_keys) == 1:
+                    response_items[key]["signal_distance_text"] = _format_onu_distance_text(
+                        getattr(record, "ont_distance_m", "") if hasattr(record, "ont_distance_m") else ""
+                    )
+                continue
+
+            signal = optical_map.get((slot, port, ont_id), {"onu_rx": "--", "olt_rx": "--", "tx_power": "--"})
+            payload_row = _signal_payload_from_values(signal.get("onu_rx"), signal.get("olt_rx"))
+            response_items[key] = dict(payload_row)
+
             if record:
                 now = timezone.now()
                 record.onu_rx = payload_row["onu_rx"] if payload_row["onu_rx"] != "--" else ""
@@ -2245,6 +2511,14 @@ def configured_onu_signals_refresh(request):
                             response_items[key]["status_value"],
                             runtime_snapshot,
                         ) or _format_status_age_text(record.status_first_seen_at or record.status_updated_at)
+                        since_dt = _status_since_datetime_from_onu_runtime(
+                            response_items[key]["status_value"],
+                            runtime_snapshot,
+                        )
+                        response_items[key]["status_since_label"] = (
+                            "Online Since" if _normalize_configured_status(response_items[key]["status_value"]) == "online" else "Status Since"
+                        )
+                        response_items[key]["status_since_text"] = _format_relative_time_text(since_dt)
                         response_items[key]["signal_distance_text"] = _format_onu_distance_text(
                             runtime_snapshot.get("ont_distance_m")
                         )
@@ -2265,7 +2539,11 @@ def configured_onu_signals_refresh(request):
                 ["onu_rx", "olt_rx", "tx_power", "signal_bucket", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"],
                 batch_size=200,
             )
-        if samples:
+            try:
+                record_dashboard_status_samples(force=True)
+            except OperationalError:
+                pass
+        if samples and fetch_ok:
             ONUOpticalSample.objects.bulk_create(samples, batch_size=200)
 
     return JsonResponse({"ok": True, "items": response_items})
@@ -2320,6 +2598,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     selected_onu["sn"] = _format_onu_serial_display(selected_onu.get("sn"))
     selected_onu["onu_label"] = f"gpon-onu_0/{slot}/{port}:{ont_id}"
     runtime_snapshot = fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id)
+    capability_snapshot = fetch_single_ont_capability_snapshot(olt, slot, port, ont_id)
     trap_status = _active_trap_status_for_onu(olt, slot, port, ont_id)
     effective_status = trap_status or _normalize_configured_status(
         selected_onu.get("derived_status"),
@@ -2340,13 +2619,25 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
 
         if update_fields:
             record.save(update_fields=update_fields)
+            try:
+                record_dashboard_status_samples(force=True)
+            except OperationalError:
+                pass
 
     selected_onu["status_value"] = effective_status
     selected_onu["status_text"] = _configured_status_label(effective_status, run_state=runtime_snapshot.get("run_state") or selected_onu.get("run_state"))
     selected_onu["status_class"] = _configured_status_class(effective_status, run_state=runtime_snapshot.get("run_state") or selected_onu.get("run_state"))
-    selected_onu["onu_type"] = (runtime_snapshot.get("ont_equipment_id") or "").strip() or "-"
+    selected_onu["onu_type"] = (
+        (capability_snapshot.get("equipment_id") or "").strip()
+        or (runtime_snapshot.get("ont_equipment_id") or "").strip()
+        or "-"
+    )
     selected_onu["attached_vlans"] = (runtime_snapshot.get("attached_vlans") or "").strip() or "-"
     selected_onu["onu_mode"] = (runtime_snapshot.get("onu_mode") or "").strip() or "-"
+    selected_onu["uplink_pon_ports"] = (capability_snapshot.get("uplink_pon_ports") or "").strip() or "-"
+    selected_onu["pots_ports"] = (capability_snapshot.get("pots_ports") or "").strip() or "-"
+    selected_onu["eth_ports"] = (capability_snapshot.get("eth_ports") or "").strip() or "-"
+    selected_onu["catv_uni_ports"] = (capability_snapshot.get("catv_uni_ports") or "").strip() or "-"
     selected_onu["last_down_cause"] = (runtime_snapshot.get("last_down_cause") or "").strip()
     selected_onu["battery_state"] = (runtime_snapshot.get("battery_state") or "").strip()
     selected_onu["ont_distance_m"] = (runtime_snapshot.get("ont_distance_m") or "").strip()
@@ -2356,6 +2647,9 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     ) or _format_status_age_text(
         selected_onu.get("status_first_seen_at") or selected_onu.get("status_updated_at")
     )
+    status_since_dt = _status_since_datetime_from_onu_runtime(effective_status, runtime_snapshot)
+    selected_onu["status_since_label"] = "Online Since" if _normalize_configured_status(effective_status) == "online" else "Status Since"
+    selected_onu["status_since_text"] = _format_relative_time_text(status_since_dt)
     if all(str(selected_onu.get(key, "")).strip() in {"", "--"} for key in ("onu_rx", "olt_rx")):
         live_signal = fetch_single_ont_optical_info(olt, slot, port, ont_id)
         if live_signal:
@@ -2363,7 +2657,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             selected_onu["tx_power"] = live_signal.get("tx_power", "--")
             selected_onu["olt_rx"] = live_signal.get("olt_rx", "--")
     selected_onu["signal_distance_text"] = _format_onu_distance_text(selected_onu.get("ont_distance_m"))
-    selected_onu["signal_class"] = _classify_onu_signal(selected_onu.get("onu_rx"))
+    selected_onu["signal_class"] = _classify_onu_signal(selected_onu.get("olt_rx"))
     signal_visible = any(str(selected_onu.get(key, "")).strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
     signal_history = _get_onu_signal_history(olt, slot, port, ont_id, hours=24)
 
@@ -2421,13 +2715,21 @@ def olt_add(request):
         form = OLTForm(request.POST)
         if form.is_valid():
             olt = form.save()
-            snmp_ok, snmp_status = _sync_snmp_after_save(olt)
+            snmp_mode = form.cleaned_data.get('snmp_mode') or 'manual'
+            if snmp_mode == 'generate':
+                snmp_ok, snmp_status = _sync_snmp_after_save(olt)
+                success_text = 'OLT added and SNMP generated/pushed successfully.'
+                failure_text = f"OLT added, but SNMP generate/push failed: {snmp_status}"
+            else:
+                snmp_ok, snmp_status = _fetch_snmp_only_after_save(olt)
+                success_text = 'OLT added and SNMP fetched successfully.'
+                failure_text = f"OLT added, but SNMP fetch failed: {snmp_status}"
             _schedule_device_snapshots_refresh(olt.pk)
             _schedule_configured_onu_inventory_refresh(olt.pk)
             if snmp_ok:
-                messages.success(request, 'OLT added and SNMP synced successfully.')
+                messages.success(request, success_text)
             else:
-                messages.warning(request, f"OLT added, but SNMP sync failed: {snmp_status}")
+                messages.warning(request, failure_text)
             return redirect('olt_settings_olt')
     else:
         form = OLTForm()
@@ -2451,13 +2753,21 @@ def olt_edit(request, pk):
         form = OLTForm(request.POST, instance=olt)
         if form.is_valid():
             olt = form.save()
-            snmp_ok, snmp_status = _sync_snmp_after_save(olt)
+            snmp_mode = form.cleaned_data.get('snmp_mode') or 'manual'
+            if snmp_mode == 'generate':
+                snmp_ok, snmp_status = _sync_snmp_after_save(olt)
+                success_text = 'OLT settings updated and SNMP generated/pushed successfully.'
+                failure_text = f"OLT settings updated, but SNMP generate/push failed: {snmp_status}"
+            else:
+                snmp_ok, snmp_status = _fetch_snmp_only_after_save(olt)
+                success_text = 'OLT settings updated and SNMP fetched successfully.'
+                failure_text = f"OLT settings updated, but SNMP fetch failed: {snmp_status}"
             _schedule_device_snapshots_refresh(olt.pk)
             _schedule_configured_onu_inventory_refresh(olt.pk)
             if snmp_ok:
-                messages.success(request, 'OLT settings updated and SNMP synced successfully.')
+                messages.success(request, success_text)
             else:
-                messages.warning(request, f"OLT settings updated, but SNMP sync failed: {snmp_status}")
+                messages.warning(request, failure_text)
             return redirect('olt_view', pk=pk)
     else:
         form = OLTForm(instance=olt)
@@ -2687,6 +2997,7 @@ def olt_view(request, pk):
         'pon_port_groups': pon_port_groups,
         'pon_ports_status': pon_ports_status,
         'pon_ports_status_display': pon_ports_status_display,
+        'pon_ports_refresh_data_url': reverse('olt_pon_ports_refresh_data', kwargs={'pk': olt.pk}),
         'snmp_snapshot': snmp_snapshot,
         'uplink_data': uplink_data,
         'uplink_status_display': uplink_status_display,
@@ -2873,6 +3184,36 @@ def olt_refresh_pon_ports(request, pk):
 
 
 @login_required
+def olt_pon_ports_refresh_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    refreshed = False
+    try:
+        refreshed = refresh_saved_pon_counts_from_inventory(olt)
+    except OperationalError:
+        refreshed = False
+
+    groups = list(getattr(olt, "pon_ports_cache", []) or [])
+    status_text = _clean_ui_status(
+        getattr(olt, "pon_ports_status", ""),
+        "No PON ports found.",
+        has_data=bool(groups),
+    )
+    refreshed_at = getattr(olt, "pon_ports_refreshed_at", None)
+    refreshed_display = (
+        timezone.localtime(refreshed_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+        if refreshed_at
+        else ""
+    )
+    return JsonResponse({
+        "ok": True,
+        "groups": groups,
+        "status": status_text,
+        "refreshed": refreshed,
+        "refreshed_at": refreshed_display,
+    })
+
+
+@login_required
 @require_POST
 def olt_refresh_uplink(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
@@ -3053,6 +3394,63 @@ def olt_add_vlan_bulk(request, pk):
             if not _store_vlan_bulk_form_state(request, olt.pk, form, transcript=error_transcript):
                 return _render_olt_vlans_response(request, pk, bulk_form=form, bulk_transcript=error_transcript, notice=f"Not created: {error_message}")
             return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+    finally:
+        live_lock.release()
+
+    return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+
+@login_required
+@require_POST
+def olt_delete_vlan(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    vlan_id_raw = request.POST.get("vlan_id")
+    try:
+        vlan_id = int(vlan_id_raw)
+    except (TypeError, ValueError):
+        messages.warning(request, "Invalid VLAN ID.")
+        return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+    live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
+    if live_lock is None:
+        messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
+        return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+    try:
+        delete_result = delete_vlan_netconf(olt, vlan_id)
+        if not delete_result.get("ok"):
+            error_message = delete_result.get("message") or "VLAN delete failed."
+            _store_vlan_notice(request, olt.pk, f"Not deleted: {error_message}")
+            messages.warning(request, f"Not deleted: {error_message}")
+            return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+        verify_result = fetch_single_vlan(olt, vlan_id)
+        vlan_still_present = bool(verify_result.get("ok"))
+        if vlan_still_present:
+            failure_text = f"VLAN {vlan_id} is still present on the OLT."
+            _store_vlan_notice(request, olt.pk, failure_text)
+            messages.warning(request, failure_text)
+            return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+        current_rows = list(getattr(olt, "vlan_cache", []) or [])
+        remaining_rows = [
+            row for row in current_rows
+            if int(row.get("vlan_id", -1) or -1) != vlan_id
+        ]
+        save_vlan_snapshot(olt, {
+            "rows": remaining_rows,
+            "status": f"VLANs fetched: {len(remaining_rows)}",
+        })
+        _record_olt_login(
+            olt,
+            request.user,
+            "delete_vlan",
+            f"VLAN deleted via NETCONF: id={vlan_id}",
+            request=request,
+        )
+        success_text = f"VLAN {vlan_id} deleted successfully."
+        _store_vlan_notice(request, olt.pk, success_text)
+        messages.success(request, success_text)
     finally:
         live_lock.release()
 

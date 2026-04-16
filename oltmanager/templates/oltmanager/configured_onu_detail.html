@@ -52,9 +52,130 @@
         border: 1px solid rgba(255,255,255,0.08);
         background: rgba(8, 15, 30, 0.35);
     }
+    .detail-topbar-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+        gap: 14px;
+        align-items: start;
+        width: 100%;
+    }
     .detail-topbar-meta {
         display: grid;
         gap: 6px;
+    }
+    .detail-topbar-ports {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(8, 15, 30, 0.35);
+    }
+    .detail-topbar-ports-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px 12px;
+        align-items: start;
+    }
+    .detail-topbar-ports-grid strong {
+        color: #d9e6ff;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    .detail-topbar-ports-grid span {
+        color: #f1f6ff;
+        font-weight: 700;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .port-kind {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .port-icon {
+        position: relative;
+        display: inline-block;
+        flex: 0 0 auto;
+    }
+    .port-icon-uplink {
+        width: 14px;
+        height: 10px;
+        border: 1.5px solid #7ce6ff;
+        border-radius: 3px;
+        box-shadow: inset 0 0 0 1px rgba(124, 230, 255, 0.18);
+    }
+    .port-icon-uplink::before,
+    .port-icon-uplink::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 7px;
+        height: 2px;
+        background: linear-gradient(90deg, #7ce6ff, #3eb8d8);
+        transform: translateY(-50%);
+        border-radius: 2px;
+    }
+    .port-icon-uplink::before {
+        left: -6px;
+    }
+    .port-icon-uplink::after {
+        right: -6px;
+    }
+    .port-icon-rj11 {
+        width: 14px;
+        height: 10px;
+        border: 1.5px solid #8cf0b5;
+        border-radius: 3px 3px 2px 2px;
+        box-shadow: inset 0 -2px 0 rgba(140, 240, 181, 0.2);
+    }
+    .port-icon-rj11::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        right: 2px;
+        top: 2px;
+        height: 2px;
+        background: rgba(140, 240, 181, 0.9);
+        border-radius: 2px;
+    }
+    .port-icon-rj45 {
+        width: 15px;
+        height: 11px;
+        border: 1.5px solid #ffcf73;
+        border-radius: 3px;
+        box-shadow: inset 0 -3px 0 rgba(255, 207, 115, 0.18);
+    }
+    .port-icon-rj45::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        right: 2px;
+        top: 2px;
+        height: 3px;
+        background: repeating-linear-gradient(
+            90deg,
+            rgba(255, 207, 115, 0.95) 0 1px,
+            transparent 1px 3px
+        );
+    }
+    .port-icon-catv {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: radial-gradient(circle at center, #d9e1f0 0 2px, #8c97aa 2px 4px, #f3f6fb 4px 6px, #9aa7b8 6px 100%);
+        box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+    }
+    .port-icon-catv::after {
+        content: "";
+        position: absolute;
+        right: -4px;
+        top: 5px;
+        width: 5px;
+        height: 2px;
+        background: #c5cedd;
+        border-radius: 2px;
     }
     .detail-topbar-label {
         color: #d9e6ff;
@@ -82,6 +203,12 @@
         display: grid;
         gap: 18px;
         align-content: start;
+    }
+    .snapshot-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        align-items: start;
     }
     .detail-row {
         display: grid;
@@ -272,6 +399,22 @@
         font-weight: 700;
         white-space: nowrap;
     }
+    .status-since-line {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+    .status-since-line.good {
+        color: #39d06f;
+    }
+    .status-since-line.bad {
+        color: #ff7f89;
+    }
+    .status-since-line.warn {
+        color: #ffbf5a;
+    }
     .distance-pin {
         position: relative;
         width: 11px;
@@ -387,7 +530,13 @@
             min-width: 0;
             max-width: none;
         }
+        .detail-topbar-grid {
+            grid-template-columns: 1fr;
+        }
         .onu-view {
+            grid-template-columns: 1fr;
+        }
+        .snapshot-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -403,31 +552,56 @@
                     <h1 class="brand">ONU Detail</h1>
                     <p class="subtle">{{ olt.name }} | {{ fsp }} | ONT {{ ont_id }}</p>
                 </div>
-                <div class="detail-topbar-live">
-                    <div class="detail-topbar-meta">
-                        <span class="detail-topbar-label">Status</span>
-                        <span class="inline-state">
-                            <span class="status-dot {{ onu.status_class }}"></span>
-                            <span class="state-{{ onu.status_class }}" data-detail-status-text>{{ onu.status_text }}{% if onu.status_age_text %} {{ onu.status_age_text }}{% endif %}</span>
-                        </span>
+                <div class="detail-topbar-grid">
+                    <div class="detail-topbar-live">
+                        <div class="detail-topbar-meta">
+                            <span class="detail-topbar-label">Status</span>
+                            <span class="inline-state">
+                                <span class="status-dot {{ onu.status_class }}"></span>
+                                <span class="state-{{ onu.status_class }}" data-detail-status-text>{{ onu.status_text }}{% if onu.status_age_text %} {{ onu.status_age_text }}{% endif %}</span>
+                            </span>
+                        </div>
+                        {% if onu.status_since_text %}
+                        <div class="detail-topbar-meta">
+                            <span class="detail-topbar-label" data-detail-status-since-label>{{ onu.status_since_label }}</span>
+                            <span class="status-since-line {{ onu.status_class }}" data-detail-status-since-line>
+                                <span data-detail-status-since-text>{{ onu.status_since_text }}</span>
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% if onu_signal_visible %}
+                        <div class="detail-topbar-meta">
+                            <span class="detail-topbar-label">ONU/OLT Rx signal</span>
+                            <span class="signal-line {{ onu.signal_class|default:'' }}" data-detail-signal-line>
+                                <span class="signal-spinner" aria-hidden="true"></span>
+                                <span data-detail-signal-text>{{ onu.onu_rx|default:"--" }} / {{ onu.olt_rx|default:"--" }}</span>
+                                <span class="signal-bars"><i></i><i></i><i></i><i></i></span>
+                            </span>
+                        </div>
+                        <div class="detail-topbar-meta">
+                            <span class="detail-topbar-label">ONU Distance</span>
+                            <span class="distance-line">
+                                <span class="distance-pin" aria-hidden="true"></span>
+                                <span data-detail-distance-text>{{ onu.signal_distance_text|default:"-" }}</span>
+                            </span>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% if onu_signal_visible %}
-                    <div class="detail-topbar-meta">
-                        <span class="detail-topbar-label">ONU/OLT Rx signal</span>
-                        <span class="signal-line {{ onu.signal_class|default:'' }}" data-detail-signal-line>
-                            <span class="signal-spinner" aria-hidden="true"></span>
-                            <span data-detail-signal-text>{{ onu.onu_rx|default:"--" }} / {{ onu.olt_rx|default:"--" }}</span>
-                            <span class="signal-bars"><i></i><i></i><i></i><i></i></span>
-                        </span>
+                    <div class="detail-topbar-ports">
+                        <div class="detail-topbar-meta" style="margin-bottom:10px;">
+                            <span class="detail-topbar-label">ONU Ports</span>
+                        </div>
+                        <div class="detail-topbar-ports-grid">
+                            <strong><span class="port-kind"><span class="port-icon port-icon-uplink" aria-hidden="true"></span>Uplink PON</span></strong>
+                            <span>{{ onu.uplink_pon_ports|default:"-" }}</span>
+                            <strong><span class="port-kind"><span class="port-icon port-icon-rj11" aria-hidden="true"></span>POTS</span></strong>
+                            <span>{{ onu.pots_ports|default:"-" }}</span>
+                            <strong><span class="port-kind"><span class="port-icon port-icon-rj45" aria-hidden="true"></span>ETH</span></strong>
+                            <span>{{ onu.eth_ports|default:"-" }}</span>
+                            <strong><span class="port-kind"><span class="port-icon port-icon-catv" aria-hidden="true"></span>CATV UNI</span></strong>
+                            <span>{{ onu.catv_uni_ports|default:"-" }}</span>
+                        </div>
                     </div>
-                    <div class="detail-topbar-meta">
-                        <span class="detail-topbar-label">ONU Distance</span>
-                        <span class="distance-line">
-                            <span class="distance-pin" aria-hidden="true"></span>
-                            <span data-detail-distance-text>{{ onu.signal_distance_text|default:"-" }}</span>
-                        </span>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
         </div>
@@ -505,6 +679,7 @@
             </div>
 
             <div class="snapshot-stack">
+                <div class="snapshot-grid">
                 <div class="snapshot-card">
                     <div class="snapshot-meta">
                         <strong>Attached VLANs</strong>
@@ -512,6 +687,7 @@
                         <strong>ONU Mode</strong>
                         <span>{{ onu.onu_mode|default:"-" }}</span>
                     </div>
+                </div>
                 </div>
                 <div class="signal-history">
                     <div class="signal-history-head">
@@ -544,6 +720,8 @@
     const distanceTextNode = document.querySelector('[data-detail-distance-text]');
     const card = document.querySelector('[data-detail-signal-card]');
     const statusTextNode = document.querySelector('[data-detail-status-text]');
+    const statusSinceLabelNode = document.querySelector('[data-detail-status-since-label]');
+    const statusSinceTextNode = document.querySelector('[data-detail-status-since-text]');
     const statusDotNode = document.querySelector('.inline-state .status-dot');
     const chartNode = document.querySelector('[data-signal-chart]');
     const chartEmptyNode = document.querySelector('[data-signal-chart-empty]');
@@ -709,6 +887,12 @@
             }
             if (distanceTextNode) {
                 distanceTextNode.textContent = signal.signal_distance_text || distanceTextNode.textContent || '-';
+            }
+            if (statusSinceLabelNode && signal.status_since_label) {
+                statusSinceLabelNode.textContent = signal.status_since_label;
+            }
+            if (statusSinceTextNode && signal.status_since_text) {
+                statusSinceTextNode.textContent = signal.status_since_text;
             }
             pushHistoryPoint(new Date(), parseDbm(signal.olt_rx));
             renderChart();

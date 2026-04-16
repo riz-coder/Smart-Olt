@@ -11,7 +11,7 @@ _ONU_INVENTORY_SYNC_THREAD = None
 _ONU_INVENTORY_SYNC_GUARD = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
 _RUNTIME_SYNC_CURSOR = {}
-RUNTIME_SYNC_BATCH_SIZE = 150
+RUNTIME_SYNC_BATCH_SIZE = 400
 
 
 def _sleep_until_next_sync_boundary():
@@ -41,17 +41,17 @@ def _onu_inventory_sync_loop():
                     cursor_pk = _RUNTIME_SYNC_CURSOR.get(olt.id) or 0
                     runtime_result = sync_runtime_statuses_for_olt(
                         olt,
-                        only_non_online=False,
+                        only_non_online=True,
                         limit=RUNTIME_SYNC_BATCH_SIZE,
                         start_pk=cursor_pk,
                     )
                     _RUNTIME_SYNC_CURSOR[olt.id] = runtime_result.get("last_pk") or 0
-                    reconcile_offline_onus_with_signal(olt=olt, limit=250)
+                    reconcile_offline_onus_with_signal(olt=olt, limit=500)
                 except Exception:
                     close_old_connections()
                     continue
             try:
-                record_dashboard_status_samples()
+                record_dashboard_status_samples(force=True)
             except Exception:
                 pass
         except Exception:
