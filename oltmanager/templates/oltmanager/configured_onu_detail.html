@@ -210,6 +210,65 @@
         gap: 18px;
         align-items: start;
     }
+    .running-config-card {
+        display: grid;
+        gap: 12px;
+        min-width: 0;
+    }
+    .running-config-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .running-config-head h3 {
+        margin: 0;
+    }
+    .running-config-status {
+        margin-top: 4px;
+        color: #93a8c7;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .running-config-status:empty {
+        display: none;
+        margin-top: 0;
+    }
+    .running-config-status.error {
+        color: #ff7b86;
+    }
+    .running-config-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .running-config-panel[hidden] {
+        display: none;
+    }
+    .btn-pappu {
+        min-width: 140px;
+    }
+    .running-config-panel {
+        min-width: 0;
+    }
+    .running-config-output {
+        margin: 0;
+        min-height: 200px;
+        max-height: 380px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 12px;
+        border: 1px solid rgba(122, 200, 255, 0.14);
+        background: rgba(8, 15, 30, 0.55);
+        color: #eef5ff;
+        padding: 14px 16px;
+        font-size: 12px;
+        line-height: 1.65;
+    }
+    .running-config-placeholder {
+        color: #9cb0cf;
+    }
     .detail-row {
         display: grid;
         grid-template-columns: 120px 22px 1fr;
@@ -610,7 +669,7 @@
         </div>
     </header>
 
-    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
+    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
@@ -676,6 +735,34 @@
                         <button type="button" class="btn btn-secondary btn-mini" data-contact-edit-close>Cancel</button>
                     </div>
                 </form>
+                <div class="snapshot-card running-config-card running-config-top">
+                    <div class="running-config-head">
+                        <div>
+                            <h3>Running Config</h3>
+                            <div class="running-config-status" data-running-config-status></div>
+                        </div>
+                    </div>
+                    <div class="running-config-actions">
+                        <button type="button" class="btn btn-primary btn-pappu" data-get-status-button>Mac-address</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-running-config-button>Show running-config</button>
+                    </div>
+                    <div class="running-config-panel" data-running-config-panel hidden>
+                        <pre class="running-config-output running-config-placeholder" data-running-config-output>Press Mac-address or Show running-config to fetch ONU details.</pre>
+                    </div>
+                </div>
+                <div class="snapshot-card running-config-card">
+                    <div class="running-config-head">
+                        <div>
+                            <h3>ONU Actions</h3>
+                            <div class="running-config-status" data-onu-action-status></div>
+                        </div>
+                    </div>
+                    <div class="running-config-actions">
+                        <button type="button" class="btn btn-primary btn-pappu" data-onu-disable-button>{% if onu.status_value == 'admin_disabled' %}Enable ONU{% else %}Disable ONU{% endif %}</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-onu-restart-button>Restart ONU</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-onu-reset-button>Reset ONU</button>
+                    </div>
+                </div>
             </div>
 
             <div class="snapshot-stack">
@@ -683,7 +770,7 @@
                 <div class="snapshot-card">
                     <div class="snapshot-meta">
                         <strong>Attached VLANs</strong>
-                        <span>{{ onu.attached_vlans|default:"-" }}</span>
+                        <span data-detail-attached-vlans>{{ onu.attached_vlans|default:"-" }}</span>
                         <strong>ONU Mode</strong>
                         <span>{{ onu.onu_mode|default:"-" }}</span>
                     </div>
@@ -727,11 +814,27 @@
     const chartEmptyNode = document.querySelector('[data-signal-chart-empty]');
     const currentNode = document.querySelector('[data-signal-current]');
     const maximumNode = document.querySelector('[data-signal-maximum]');
+    const attachedVlansNode = document.querySelector('[data-detail-attached-vlans]');
+    const runningConfigButton = document.querySelector('[data-running-config-button]');
+    const getStatusButton = document.querySelector('[data-get-status-button]');
+    const onuDisableButton = document.querySelector('[data-onu-disable-button]');
+    const onuRestartButton = document.querySelector('[data-onu-restart-button]');
+    const onuResetButton = document.querySelector('[data-onu-reset-button]');
+    const onuActionStatus = document.querySelector('[data-onu-action-status]');
+    const runningConfigOutput = document.querySelector('[data-running-config-output]');
+    const runningConfigStatus = document.querySelector('[data-running-config-status]');
+    const runningConfigPanel = document.querySelector('[data-running-config-panel]');
     const contactEditOpenButtons = Array.from(document.querySelectorAll('[data-contact-edit-open]'));
     const contactEditForm = document.querySelector('[data-contact-edit-form]');
     const contactEditClose = document.querySelector('[data-contact-edit-close]');
     if (!panel || !chartNode || !chartEmptyNode || !currentNode || !maximumNode) return;
     const refreshUrl = panel.getAttribute('data-signal-refresh-url');
+    const macAddressUrl = panel.getAttribute('data-mac-address-url');
+    const runningConfigUrl = panel.getAttribute('data-running-config-url');
+    const onuDisableUrl = panel.getAttribute('data-onu-disable-url');
+    const onuEnableUrl = panel.getAttribute('data-onu-enable-url');
+    const onuRestartUrl = panel.getAttribute('data-onu-restart-url');
+    const onuResetUrl = panel.getAttribute('data-onu-reset-url');
     const history = [];
     const payload = {
         detail: true,
@@ -758,6 +861,89 @@
     const formatTime = (date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const formatDbm = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} dBm` : '--');
+
+    const setRunningConfigState = (statusText, outputText, isError = false) => {
+        if (runningConfigPanel) {
+            runningConfigPanel.hidden = false;
+        }
+        if (runningConfigStatus) {
+            runningConfigStatus.textContent = isError ? (statusText || '') : '';
+            runningConfigStatus.classList.toggle('error', Boolean(isError && statusText));
+        }
+        if (runningConfigOutput && typeof outputText === 'string') {
+            runningConfigOutput.textContent = outputText;
+            runningConfigOutput.classList.toggle('running-config-placeholder', !outputText || outputText.startsWith('Press '));
+        }
+    };
+
+    const setOnuActionState = (statusText, isError = false) => {
+        if (!onuActionStatus) return;
+        onuActionStatus.textContent = statusText || '';
+        onuActionStatus.classList.toggle('error', Boolean(isError && statusText));
+    };
+
+    const applyImmediateStatus = (statusValue, statusLabel, statusClass) => {
+        if (statusTextNode && statusLabel) {
+            statusTextNode.textContent = statusLabel;
+            statusTextNode.className = `state-${statusClass || 'bad'}`;
+        }
+        if (statusDotNode) {
+            statusDotNode.className = `status-dot ${statusClass || 'bad'}`;
+        }
+        if (card) {
+            card.classList.remove('good', 'warn', 'bad');
+            card.classList.add(statusClass || 'bad');
+        }
+        if (statusValue === 'admin_disabled') {
+            if (onuDisableButton) {
+                onuDisableButton.textContent = 'Enable ONU';
+            }
+        } else if (onuDisableButton) {
+            onuDisableButton.textContent = 'Disable ONU';
+        }
+    };
+
+    const bindOnuAction = (button, getUrl) => {
+        if (!button || !getUrl) return;
+        button.addEventListener('click', async () => {
+            const url = typeof getUrl === 'function' ? getUrl() : getUrl;
+            if (!url) return;
+            button.disabled = true;
+            const originalText = button.textContent;
+            button.textContent = 'Sending...';
+            setOnuActionState(`${originalText} command sending...`, false);
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                });
+                const data = await response.json();
+                let shortMessage = data.message || '';
+                if (response.ok && data.ok) {
+                    const actionName = String(data.action || '').trim().toLowerCase();
+                    if (actionName === 'disable') shortMessage = 'ONU Disabled';
+                    else if (actionName === 'enable') shortMessage = 'ONU Enabled';
+                    else if (actionName === 'restart') shortMessage = 'ONU Restarted';
+                    else if (actionName === 'reset') shortMessage = 'ONU Reset';
+                }
+                setOnuActionState(shortMessage, !response.ok || !data.ok);
+                if (response.ok && data.ok) {
+                    applyImmediateStatus(data.status_value, data.status_label, data.status_class);
+                }
+            } catch (error) {
+                setOnuActionState('SNMP action failed.', true);
+            } finally {
+                button.disabled = false;
+                if (button === onuDisableButton) {
+                    button.textContent = (statusTextNode && /admin disabled/i.test(statusTextNode.textContent || '')) ? 'Enable ONU' : 'Disable ONU';
+                } else {
+                    button.textContent = originalText;
+                }
+            }
+        });
+    };
 
     const pushHistoryPoint = (timeValue, value) => {
         if (typeof value !== 'number' || !Number.isFinite(value)) return;
@@ -886,7 +1072,12 @@
                 textNode.textContent = `${signal.onu_rx || '--'} / ${signal.olt_rx || '--'}`;
             }
             if (distanceTextNode) {
-                distanceTextNode.textContent = signal.signal_distance_text || distanceTextNode.textContent || '-';
+                if (signal.signal_distance_text) {
+                    distanceTextNode.textContent = signal.signal_distance_text;
+                }
+            }
+            if (attachedVlansNode && signal.attached_vlans_text) {
+                attachedVlansNode.textContent = signal.attached_vlans_text;
             }
             if (statusSinceLabelNode && signal.status_since_label) {
                 statusSinceLabelNode.textContent = signal.status_since_label;
@@ -910,7 +1101,68 @@
         }
     };
 
+    window.setTimeout(refreshSignal, 250);
     window.setInterval(refreshSignal, 15000);
+
+    if (getStatusButton && macAddressUrl) {
+        getStatusButton.addEventListener('click', async () => {
+            getStatusButton.disabled = true;
+            const originalText = getStatusButton.textContent;
+            getStatusButton.textContent = 'Loading...';
+            setRunningConfigState('Fetching live MAC addresses...', runningConfigOutput?.textContent || '', false);
+            try {
+                const response = await fetch(macAddressUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    setRunningConfigState(data.message || 'MAC address fetch failed.', data.output || '', true);
+                } else {
+                    setRunningConfigState(data.message || 'Live MAC addresses fetched.', data.output || 'No MAC addresses returned.', false);
+                }
+            } catch (error) {
+                setRunningConfigState('OLT is Busy (Telnet Error)', '', true);
+            } finally {
+                getStatusButton.disabled = false;
+                getStatusButton.textContent = originalText;
+            }
+        });
+    }
+
+    if (runningConfigButton && runningConfigUrl) {
+        runningConfigButton.addEventListener('click', async () => {
+            runningConfigButton.disabled = true;
+            const originalText = runningConfigButton.textContent;
+            runningConfigButton.textContent = 'Loading...';
+            setRunningConfigState('Fetching live running config...', runningConfigOutput?.textContent || '', false);
+            try {
+                const response = await fetch(runningConfigUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    setRunningConfigState(data.message || 'Running configuration fetch failed.', data.output || '', true);
+                } else {
+                    setRunningConfigState(data.message || 'Live running configuration fetched.', data.output || 'No running configuration returned.', false);
+                }
+            } catch (error) {
+                setRunningConfigState('OLT is Busy (Telnet Error)', '', true);
+            } finally {
+                runningConfigButton.disabled = false;
+                runningConfigButton.textContent = originalText;
+            }
+        });
+    }
+
+    bindOnuAction(onuDisableButton, () => ((onuDisableButton?.textContent || '').trim() === 'Enable ONU' ? onuEnableUrl : onuDisableUrl));
+    bindOnuAction(onuRestartButton, onuRestartUrl);
+    bindOnuAction(onuResetButton, onuResetUrl);
 
     if (contactEditForm) {
         contactEditOpenButtons.forEach((button) => {

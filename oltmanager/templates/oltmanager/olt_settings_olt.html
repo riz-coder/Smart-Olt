@@ -7,19 +7,20 @@
     .btn-mini { padding: 9px 12px; font-size: 13px; }
     .view-col { width: 84px; }
     .id-col { width: 64px; }
-    .telnet-badge {
+    .conn-badge {
         display: inline-block;
         margin-top: 8px;
+        margin-right: 6px;
         padding: 4px 8px;
         border-radius: 999px;
         font-size: 11px;
         font-weight: 800;
     }
-    .telnet-badge.pass {
+    .conn-badge.pass {
         background: #dff8ea;
         color: #146b3a;
     }
-    .telnet-badge.fail {
+    .conn-badge.fail {
         background: #ffdede;
         color: #8f1d1d;
     }
@@ -77,8 +78,8 @@
                             </form>
                             <a href="{% url 'olt_delete' olt.pk %}" class="btn btn-danger btn-mini">Delete</a>
                             {% if telnet_pk == olt.pk and telnet_result %}
-                            <div class="telnet-badge {{ telnet_result }}">
-                                {% if telnet_result == 'pass' %}PASS{% else %}FAIL{% endif %}
+                            <div class="conn-badge {{ telnet_result }}" title="{{ telnet_note }}">
+                                Telnet {% if telnet_result == 'pass' %}PASS{% else %}FAIL{% endif %}
                             </div>
                             {% endif %}
                         </td>

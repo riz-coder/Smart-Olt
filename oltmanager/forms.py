@@ -225,7 +225,6 @@ class VLANAddForm(forms.Form):
             "max_length": "Description must be 20 characters or fewer.",
         },
     )
-
     def __init__(self, *args, **kwargs):
         reserved_ids = kwargs.pop("reserved_ids", None)
         super().__init__(*args, **kwargs)
@@ -262,7 +261,6 @@ class VLANBulkAddForm(forms.Form):
             "max_length": "VLAN range is too long.",
         },
     )
-
     def __init__(self, *args, **kwargs):
         reserved_ids = kwargs.pop("reserved_ids", None)
         super().__init__(*args, **kwargs)

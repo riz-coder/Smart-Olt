@@ -7,7 +7,7 @@ import socket
 import telnetlib
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import quote_plus, urlencode
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
@@ -15,7 +15,7 @@ from django.contrib.sessions.exceptions import SessionInterrupted
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import OperationalError
-from django.db.models import Q
+from django.db.models import Max, Q
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -24,7 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import DBAProfileAddForm, OLTForm, VLANAddForm, VLANBulkAddForm
-from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUTrapEvent
+from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, UplinkPortTrafficSample
 from .services import get_olt_adapter
 from .utils import (
     _dashboard_status_counts_from_queryset,
@@ -32,7 +32,7 @@ from .utils import (
     add_vlan,
     add_vlan_range,
     build_dba_profile_row,
-    delete_vlan_netconf,
+    delete_vlan_snmp,
     close_telnet_session,
     fetch_configured_onus_snapshot,
     fetch_dba_profile_snapshot,
@@ -40,9 +40,17 @@ from .utils import (
     fetch_single_dba_profile,
     fetch_ont_optical_subset,
     fetch_ont_optical_subset_meta,
-    fetch_single_ont_optical_info,
     fetch_single_ont_runtime_snapshot,
-    fetch_single_ont_capability_snapshot,
+    fetch_single_ont_detail_bundle,
+    fetch_single_ont_mac_addresses,
+    fetch_single_ont_running_config,
+    fetch_single_ont_live_status,
+    fetch_olt_snmp_status_map,
+    execute_onu_snmp_control_action,
+    sync_onu_detail_fields_for_olt,
+    sync_single_onu_detail_fields,
+    sync_onu_attached_vlans_for_olt,
+    sync_single_onu_attached_vlans,
     fetch_snmp_snapshot,
     fetch_telnet_version_snapshot,
     fetch_ont_autofind_snapshot,
@@ -61,6 +69,12 @@ from .utils import (
     ensure_dashboard_status_samples_for_scope,
     map_onu_alarm_to_status,
     _parse_ont_duration_to_seconds,
+    record_pon_port_traffic_samples,
+    record_pon_port_traffic_sample_for_olt,
+    record_uplink_port_traffic_samples,
+    record_uplink_port_traffic_sample_for_olt,
+    record_pon_traffic_sample_for_olt,
+    record_pon_traffic_samples,
     record_dashboard_status_samples,
 )
 
@@ -84,19 +98,55 @@ _CONFIGURED_ONU_CACHE_LOCK = threading.Lock()
 _CONFIGURED_ONU_CACHE = {}
 _CONFIGURED_ONU_SYNC_LOCK = threading.Lock()
 _CONFIGURED_ONU_SYNCING = set()
+_NEW_OLT_VLAN_FILL_LOCK = threading.Lock()
+_NEW_OLT_VLAN_FILLING = set()
 _DEVICE_SNAPSHOT_SYNC_LOCK = threading.Lock()
 _DEVICE_SNAPSHOT_SYNCING = set()
 _DEVICE_SNAPSHOT_SCAN_LOCK = threading.Lock()
 _LAST_DEVICE_SNAPSHOT_SCAN = None
+_ONU_ATTACHED_VLAN_SYNC_LOCK = threading.Lock()
+_ONU_ATTACHED_VLAN_SYNCING = set()
+_PORT_TRAFFIC_GRAPH_CACHE_LOCK = threading.Lock()
+_PORT_TRAFFIC_GRAPH_CACHE = {}
+_CONFIGURED_ONU_FILTERS_CACHE_LOCK = threading.Lock()
+_CONFIGURED_ONU_FILTERS_CACHE = {"updated_at": None, "boards": None, "olts": None, "latest_sync": None}
+_ONU_DETAIL_CACHE_LOCK = threading.Lock()
+_ONU_DETAIL_CACHE = {}
+_ONU_SIGNAL_HISTORY_CACHE_LOCK = threading.Lock()
+_ONU_SIGNAL_HISTORY_CACHE = {}
+PORT_TRAFFIC_GRAPH_CACHE_TTL = 300
 PON_CACHE_SECONDS = 120
 SNAPSHOT_CACHE_SECONDS = 90
 CONFIGURED_ONU_CACHE_SECONDS = 180
 CONFIGURED_ONU_SYNC_SECONDS = 300
 DEVICE_SNAPSHOT_SCAN_SECONDS = 300
-DASHBOARD_UPTIME_REFRESH_SECONDS = 900
+DASHBOARD_UPTIME_REFRESH_SECONDS = 120
+CONFIGURED_ONU_FILTERS_CACHE_SECONDS = 300
+ONU_DETAIL_CACHE_SECONDS = 30
+ONU_SIGNAL_HISTORY_CACHE_SECONDS = 60
+ONU_ATTACHED_VLAN_SYNC_SECONDS = 600
 _CLI_SESSIONS_LOCK = threading.Lock()
 _CLI_SESSIONS = {}
 CLI_SESSION_IDLE_SECONDS = 900
+
+
+def _get_olt_for_view(pk, selected_section):
+    heavy_fields = {
+        "olt_cards_cache",
+        "pon_ports_cache",
+        "uplink_cache",
+        "vlan_cache",
+        "dba_profile_cache",
+    }
+    needed_by_section = {
+        "olt-cards": {"olt_cards_cache"},
+        "pon-ports": {"pon_ports_cache"},
+        "uplink": {"uplink_cache"},
+        "vlans": {"vlan_cache"},
+        "profiles": {"dba_profile_cache"},
+    }.get(selected_section, set())
+    defer_fields = sorted(heavy_fields - needed_by_section)
+    return get_object_or_404(OLT.objects.defer(*defer_fields), pk=pk)
 
 
 def _get_olt_refresh_lock(olt_id):
@@ -456,6 +506,72 @@ def _schedule_configured_onu_inventory_refresh(olt_id):
     threading.Thread(target=_refresh_configured_onu_inventory_worker, args=(olt_id,), daemon=True).start()
 
 
+def _refresh_new_olt_vlan_fill_worker(olt_id):
+    try:
+        olt = OLT.objects.filter(pk=olt_id).first()
+        if not olt:
+            return
+        sync_configured_onus_inventory(olt)
+        sync_onu_detail_fields_for_olt(olt)
+        sync_onu_attached_vlans_for_olt(olt)
+    finally:
+        with _NEW_OLT_VLAN_FILL_LOCK:
+            _NEW_OLT_VLAN_FILLING.discard(int(olt_id))
+
+
+def _schedule_new_olt_vlan_fill(olt_id):
+    with _NEW_OLT_VLAN_FILL_LOCK:
+        if int(olt_id) in _NEW_OLT_VLAN_FILLING:
+            return
+        _NEW_OLT_VLAN_FILLING.add(int(olt_id))
+    threading.Thread(target=_refresh_new_olt_vlan_fill_worker, args=(olt_id,), daemon=True).start()
+
+
+def _onu_attached_vlan_sync_is_stale(olt):
+    latest_synced_at = (
+        ConfiguredONU.objects.filter(olt_id=olt.pk)
+        .order_by("-attached_vlans_synced_at")
+        .values_list("attached_vlans_synced_at", flat=True)
+        .first()
+    )
+    if latest_synced_at is None:
+        return True
+    age = (timezone.now() - latest_synced_at).total_seconds()
+    return age >= ONU_ATTACHED_VLAN_SYNC_SECONDS
+
+
+def _onu_record_attached_vlan_is_stale(record):
+    latest_synced_at = getattr(record, "attached_vlans_synced_at", None)
+    if latest_synced_at is None:
+        return True
+    age = (timezone.now() - latest_synced_at).total_seconds()
+    return age >= ONU_ATTACHED_VLAN_SYNC_SECONDS
+
+
+def _refresh_onu_attached_vlan_worker(olt_id, slot, port, ont_id):
+    try:
+        olt = OLT.objects.filter(pk=olt_id).first()
+        if not olt:
+            return
+        sync_single_onu_attached_vlans(olt, slot, port, ont_id)
+    finally:
+        with _ONU_ATTACHED_VLAN_SYNC_LOCK:
+            _ONU_ATTACHED_VLAN_SYNCING.discard((olt_id, int(slot), int(port), int(ont_id)))
+
+
+def _schedule_onu_attached_vlan_sync(olt_id, slot, port, ont_id):
+    sync_key = (int(olt_id), int(slot), int(port), int(ont_id))
+    with _ONU_ATTACHED_VLAN_SYNC_LOCK:
+        if sync_key in _ONU_ATTACHED_VLAN_SYNCING:
+            return
+        _ONU_ATTACHED_VLAN_SYNCING.add(sync_key)
+    threading.Thread(
+        target=_refresh_onu_attached_vlan_worker,
+        args=(olt_id, slot, port, ont_id),
+        daemon=True,
+    ).start()
+
+
 def _schedule_missing_onu_inventory_syncs():
     existing_olt_ids = set(
         ConfiguredONU.objects.order_by().values_list("olt_id", flat=True).distinct()
@@ -498,6 +614,11 @@ def _refresh_snapshot_worker(olt_id):
         if fetched_sw and fetched_sw.lower() != 'unknown' and fetched_sw != (olt.sw_version or ''):
             olt.sw_version = fetched_sw
             update_fields.append('sw_version')
+        fetched_status = str(snapshot.get('status') or '').strip()
+        if fetched_status:
+            olt.snmp_last_status = fetched_status[:300]
+            olt.snmp_last_synced_at = timezone.now()
+            update_fields.extend(['snmp_last_status', 'snmp_last_synced_at'])
         fetched_uptime = str(snapshot.get('uptime') or '').strip()
         fetched_temp = str(snapshot.get('temperature') or '').strip()
         if fetched_uptime and fetched_uptime != '--' and fetched_uptime != (olt.dashboard_uptime or ''):
@@ -729,7 +850,26 @@ def _normalize_serial_search_token(value):
 
 
 def _normalize_onu_serial_token(value):
-    return _normalize_search_token(value)
+    text = _normalize_search_token(value)
+    if not text:
+        return set()
+    tokens = {text}
+    if re.fullmatch(r"[0-9A-F]{16}", text):
+        prefix_hex = text[:8]
+        suffix = text[8:]
+        try:
+            prefix = bytes.fromhex(prefix_hex).decode("ascii", errors="strict")
+        except (TypeError, ValueError, UnicodeDecodeError):
+            prefix = ""
+        if prefix and all(32 <= ord(ch) <= 126 for ch in prefix):
+            tokens.add(f"{prefix.upper()}{suffix}")
+    if len(text) == 12 and re.fullmatch(r"[A-Z0-9]{4}[0-9A-F]{8}", text):
+        try:
+            prefix_hex = text[:4].encode("ascii").hex().upper()
+            tokens.add(f"{prefix_hex}{text[4:]}")
+        except UnicodeEncodeError:
+            pass
+    return {token for token in tokens if token}
 
 
 def _configured_onu_matches_search(record, query):
@@ -852,6 +992,7 @@ def _restore_vlan_bulk_form_state(request, olt, rows):
     if form.errors:
         transcript = ""
     return form, transcript
+
 
 
 def _refresh_cards_worker(olt_id):
@@ -1349,9 +1490,43 @@ def _collect_dashboard_snmp_down_olts():
     return rows
 
 
+
+def _dashboard_summary_from_latest_sample(olt_id=None):
+    sample = ensure_dashboard_status_samples_for_scope(olt_id=olt_id)
+    if not sample:
+        return None
+    return {
+        'total_onus': int(getattr(sample, 'total_onus', 0) or 0),
+        'online_onus': int(getattr(sample, 'online_onus', 0) or 0),
+        'wait_for_authorize_total': int(getattr(sample, 'wait_for_authorize_total', 0) or 0),
+        'wait_for_authorize_new_total': int(getattr(sample, 'wait_for_authorize_new_total', 0) or 0),
+        'wait_for_authorize_resync_total': int(getattr(sample, 'wait_for_authorize_resync_total', 0) or 0),
+        'admin_disabled': int(getattr(sample, 'admin_disabled', 0) or 0),
+        'power_failure': int(getattr(sample, 'power_failure', 0) or 0),
+        'loss_of_signal': int(getattr(sample, 'loss_of_signal', 0) or 0),
+        'signal_warn': int(getattr(sample, 'signal_warn', 0) or 0),
+        'signal_bad': int(getattr(sample, 'signal_bad', 0) or 0),
+    }
+
+
+def _dashboard_summary_counts(onu_qs, olt_id=None):
+    cached = _dashboard_summary_from_latest_sample(olt_id=olt_id)
+    if cached:
+        return cached
+    return _dashboard_status_counts_from_queryset(onu_qs)
+
+
 def _dashboard_graph_config(range_key="24h"):
     range_key = str(range_key or "24h").lower()
     now = timezone.now()
+    if range_key == "live":
+        return {
+            "key": "live",
+            "label": "Live",
+            "since": now - timezone.timedelta(minutes=10),
+            "bucket_minutes": 1,
+            "label_format": "%H:%M",
+        }
     if range_key == "1h":
         return {
             "key": "1h",
@@ -1529,6 +1704,966 @@ def _build_dashboard_status_graph(olt_id=None, range_key="24h"):
     }
 
 
+def _build_dashboard_pon_traffic_graph(olt_id=None, range_key="24h"):
+    config = _dashboard_graph_config(range_key)
+    qs = PONTrafficSample.objects.filter(sampled_at__gte=config["since"])
+    if olt_id:
+        qs = qs.filter(olt_id=olt_id)
+    else:
+        qs = qs.filter(olt__isnull=True)
+
+    rows = list(
+        qs.order_by("sampled_at").values(
+            "sampled_at",
+            "in_octets",
+            "out_octets",
+            "in_packets",
+            "out_packets",
+        )
+    )
+    if len(rows) < 2:
+        return {
+            "range_key": config["key"],
+            "range_label": config["label"],
+            "points": [],
+            "latest": {
+                "upload_mbps": 0,
+                "download_mbps": 0,
+                "upload_pps": 0,
+                "download_pps": 0,
+                "upload_avg_size": 0,
+                "download_avg_size": 0,
+                "upload_max_mbps": 0,
+                "download_max_mbps": 0,
+            },
+        }
+
+    grouped = {}
+    previous = None
+    for row in rows:
+        sampled_at = row.get("sampled_at")
+        if not sampled_at:
+            previous = row
+            continue
+        if previous is None:
+            previous = row
+            continue
+        elapsed = (sampled_at - previous["sampled_at"]).total_seconds() if previous.get("sampled_at") else 0
+        if elapsed <= 0:
+            previous = row
+            continue
+
+        delta_in_octets = int(row.get("in_octets") or 0) - int(previous.get("in_octets") or 0)
+        delta_out_octets = int(row.get("out_octets") or 0) - int(previous.get("out_octets") or 0)
+        delta_in_packets = int(row.get("in_packets") or 0) - int(previous.get("in_packets") or 0)
+        delta_out_packets = int(row.get("out_packets") or 0) - int(previous.get("out_packets") or 0)
+        previous = row
+
+        if min(delta_in_octets, delta_out_octets, delta_in_packets, delta_out_packets) < 0:
+            continue
+
+        local_dt = timezone.localtime(sampled_at, ZoneInfo("Asia/Karachi"))
+        bucket = _bucket_dashboard_datetime(local_dt, config)
+        bucket_key = bucket.isoformat()
+        bucket_row = grouped.setdefault(
+            bucket_key,
+            {
+                "bucket": bucket,
+                "count": 0,
+                "upload_mbps": 0.0,
+                "download_mbps": 0.0,
+                "upload_pps": 0.0,
+                "download_pps": 0.0,
+                "upload_avg_size": 0.0,
+                "download_avg_size": 0.0,
+            },
+        )
+        upload_mbps = ((delta_out_octets * 8) / elapsed) / 1_000_000
+        download_mbps = ((delta_in_octets * 8) / elapsed) / 1_000_000
+        upload_pps = (delta_out_packets / elapsed) if delta_out_packets > 0 else 0.0
+        download_pps = (delta_in_packets / elapsed) if delta_in_packets > 0 else 0.0
+        upload_avg_size = (delta_out_octets / delta_out_packets) if delta_out_packets > 0 else 0.0
+        download_avg_size = (delta_in_octets / delta_in_packets) if delta_in_packets > 0 else 0.0
+
+        bucket_row["count"] += 1
+        bucket_row["upload_mbps"] += upload_mbps
+        bucket_row["download_mbps"] += download_mbps
+        bucket_row["upload_pps"] += upload_pps
+        bucket_row["download_pps"] += download_pps
+        bucket_row["upload_avg_size"] += upload_avg_size
+        bucket_row["download_avg_size"] += download_avg_size
+
+    points = []
+    for bucket_key in sorted(grouped.keys()):
+        row = grouped[bucket_key]
+        count = max(1, int(row["count"]))
+        points.append({
+            "x": row["bucket"].isoformat(),
+            "label": row["bucket"].strftime(config["label_format"]),
+            "upload_mbps": round(row["upload_mbps"] / count, 2),
+            "download_mbps": round(row["download_mbps"] / count, 2),
+            "upload_pps": int(round(row["upload_pps"] / count)),
+            "download_pps": int(round(row["download_pps"] / count)),
+            "upload_avg_size": int(round(row["upload_avg_size"] / count)),
+            "download_avg_size": int(round(row["download_avg_size"] / count)),
+        })
+
+    if points:
+        normalized_points = []
+        point_map = {point["x"]: point for point in points}
+        start_bucket = _bucket_dashboard_datetime(timezone.localtime(config["since"], ZoneInfo("Asia/Karachi")), config)
+        end_bucket = _bucket_dashboard_datetime(timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")), config)
+        cursor = start_bucket
+        while cursor <= end_bucket:
+            key = cursor.isoformat()
+            point = point_map.get(key)
+            if point is None:
+                point = {
+                    "x": key,
+                    "label": cursor.strftime(config["label_format"]),
+                    "upload_mbps": 0,
+                    "download_mbps": 0,
+                    "upload_pps": 0,
+                    "download_pps": 0,
+                    "upload_avg_size": 0,
+                    "download_avg_size": 0,
+                }
+            normalized_points.append(point)
+            cursor = _advance_dashboard_bucket(cursor, config)
+        points = normalized_points
+
+    upload_max = max((float(point["upload_mbps"]) for point in points), default=0.0)
+    download_max = max((float(point["download_mbps"]) for point in points), default=0.0)
+    latest = points[-1] if points else {
+        "upload_mbps": 0,
+        "download_mbps": 0,
+        "upload_pps": 0,
+        "download_pps": 0,
+        "upload_avg_size": 0,
+        "download_avg_size": 0,
+    }
+    latest = {
+        **latest,
+        "upload_max_mbps": round(upload_max, 2),
+        "download_max_mbps": round(download_max, 2),
+    }
+    return {
+        "range_key": config["key"],
+        "range_label": config["label"],
+        "points": points,
+        "latest": latest,
+    }
+
+
+def _build_olt_pon_port_traffic_graph(olt_id, range_key="24h", slot=None, port=None):
+    config = _dashboard_graph_config(range_key)
+    qs = PONPortTrafficSample.objects.filter(olt_id=olt_id, sampled_at__gte=config["since"])
+    if slot is not None:
+        qs = qs.filter(slot=slot)
+    if port is not None:
+        qs = qs.filter(port=port)
+
+    rows = list(
+        qs.order_by("sampled_at").values(
+            "sampled_at",
+            "in_octets",
+            "out_octets",
+            "in_packets",
+            "out_packets",
+        )
+    )
+    if len(rows) < 2:
+        fallback_qs = PONPortTrafficSample.objects.filter(olt_id=olt_id)
+        if slot is not None:
+            fallback_qs = fallback_qs.filter(slot=slot)
+        if port is not None:
+            fallback_qs = fallback_qs.filter(port=port)
+        rows = list(
+            fallback_qs.order_by("-sampled_at").values(
+                "sampled_at",
+                "in_octets",
+                "out_octets",
+                "in_packets",
+                "out_packets",
+            )[:4]
+        )
+        rows.reverse()
+    if len(rows) < 2:
+        return {
+            "range_key": config["key"],
+            "range_label": config["label"],
+            "points": [],
+            "latest": {
+                "upload_mbps": 0,
+                "download_mbps": 0,
+                "upload_pps": 0,
+                "download_pps": 0,
+                "upload_avg_size": 0,
+                "download_avg_size": 0,
+                "upload_max_mbps": 0,
+                "download_max_mbps": 0,
+            },
+        }
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    grouped = {}
+    previous = None
+    for row in rows:
+        sampled_at = row.get("sampled_at")
+        if not sampled_at:
+            previous = row
+            continue
+        if previous is None:
+            previous = row
+            continue
+        elapsed = (sampled_at - previous["sampled_at"]).total_seconds() if previous.get("sampled_at") else 0
+        if elapsed <= 0:
+            previous = row
+            continue
+        delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
+        delta_in_packets = _counter_delta(row.get("in_packets"), previous.get("in_packets"))
+        delta_out_packets = _counter_delta(row.get("out_packets"), previous.get("out_packets"))
+        previous = row
+        if None in {delta_in_octets, delta_out_octets, delta_in_packets, delta_out_packets}:
+            continue
+        local_dt = timezone.localtime(sampled_at, ZoneInfo("Asia/Karachi"))
+        bucket = _bucket_dashboard_datetime(local_dt, config)
+        bucket_key = bucket.isoformat()
+        bucket_row = grouped.setdefault(
+            bucket_key,
+            {
+                "bucket": bucket,
+                "count": 0,
+                "upload_mbps": 0.0,
+                "download_mbps": 0.0,
+                "upload_pps": 0.0,
+                "download_pps": 0.0,
+                "upload_avg_size": 0.0,
+                "download_avg_size": 0.0,
+            },
+        )
+        upload_mbps = ((delta_out_octets * 8) / elapsed) / 1_000_000
+        download_mbps = ((delta_in_octets * 8) / elapsed) / 1_000_000
+        upload_pps = (delta_out_packets / elapsed) if delta_out_packets > 0 else 0.0
+        download_pps = (delta_in_packets / elapsed) if delta_in_packets > 0 else 0.0
+        upload_avg_size = (delta_out_octets / delta_out_packets) if delta_out_packets > 0 else 0.0
+        download_avg_size = (delta_in_octets / delta_in_packets) if delta_in_packets > 0 else 0.0
+        bucket_row["count"] += 1
+        bucket_row["upload_mbps"] += upload_mbps
+        bucket_row["download_mbps"] += download_mbps
+        bucket_row["upload_pps"] += upload_pps
+        bucket_row["download_pps"] += download_pps
+        bucket_row["upload_avg_size"] += upload_avg_size
+        bucket_row["download_avg_size"] += download_avg_size
+
+    points = []
+    for bucket_key in sorted(grouped.keys()):
+        row = grouped[bucket_key]
+        count = max(1, int(row["count"]))
+        points.append({
+            "x": row["bucket"].isoformat(),
+            "label": row["bucket"].strftime(config["label_format"]),
+            "upload_mbps": round(row["upload_mbps"] / count, 2),
+            "download_mbps": round(row["download_mbps"] / count, 2),
+            "upload_pps": int(round(row["upload_pps"] / count)),
+            "download_pps": int(round(row["download_pps"] / count)),
+            "upload_avg_size": int(round(row["upload_avg_size"] / count)),
+            "download_avg_size": int(round(row["download_avg_size"] / count)),
+        })
+
+    if points:
+        normalized_points = []
+        point_map = {point["x"]: point for point in points}
+        start_bucket = _bucket_dashboard_datetime(timezone.localtime(config["since"], ZoneInfo("Asia/Karachi")), config)
+        end_bucket = _bucket_dashboard_datetime(timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")), config)
+        cursor = start_bucket
+        while cursor <= end_bucket:
+            key = cursor.isoformat()
+            point = point_map.get(key)
+            if point is None:
+                point = {
+                    "x": key,
+                    "label": cursor.strftime(config["label_format"]),
+                    "upload_mbps": 0,
+                    "download_mbps": 0,
+                    "upload_pps": 0,
+                    "download_pps": 0,
+                    "upload_avg_size": 0,
+                    "download_avg_size": 0,
+                }
+            normalized_points.append(point)
+            cursor = _advance_dashboard_bucket(cursor, config)
+        points = normalized_points
+
+    upload_max = max((float(point["upload_mbps"]) for point in points), default=0.0)
+    download_max = max((float(point["download_mbps"]) for point in points), default=0.0)
+    latest = points[-1] if points else {
+        "upload_mbps": 0,
+        "download_mbps": 0,
+        "upload_pps": 0,
+        "download_pps": 0,
+        "upload_avg_size": 0,
+        "download_avg_size": 0,
+    }
+    latest = {
+        **latest,
+        "upload_max_mbps": round(upload_max, 2),
+        "download_max_mbps": round(download_max, 2),
+    }
+    return {
+        "range_key": config["key"],
+        "range_label": config["label"],
+        "mode": "single",
+        "points": points,
+        "latest": latest,
+    }
+
+
+def _build_olt_pon_multi_traffic_graph(olt_id, range_key="24h", allowed_ports=None):
+    config = _dashboard_graph_config(range_key)
+    if not allowed_ports:
+        return {
+            "range_key": config["key"],
+            "range_label": config["label"],
+            "mode": "multi",
+            "series": [],
+            "latest": {},
+        }
+
+    palette = [
+        ("#35d07f", "#60a5fa"),
+        ("#22d3ee", "#f59e0b"),
+        ("#c084fc", "#fb7185"),
+        ("#a3e635", "#38bdf8"),
+        ("#f97316", "#818cf8"),
+        ("#34d399", "#f472b6"),
+    ]
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    series = []
+    for index, key in enumerate(sorted(allowed_ports)):
+        slot, port = key
+        port_qs = PONPortTrafficSample.objects.filter(
+            olt_id=olt_id,
+            slot=slot,
+            port=port,
+            sampled_at__gte=config["since"],
+        )
+        port_rows = list(
+            port_qs.order_by("sampled_at").values(
+                "slot",
+                "port",
+                "sampled_at",
+                "in_octets",
+                "out_octets",
+                "in_packets",
+                "out_packets",
+            )
+        )
+        if len(port_rows) < 2:
+            port_rows = list(
+                PONPortTrafficSample.objects.filter(olt_id=olt_id, slot=slot, port=port)
+                .order_by("-sampled_at")
+                .values(
+                    "slot",
+                    "port",
+                    "sampled_at",
+                    "in_octets",
+                    "out_octets",
+                    "in_packets",
+                    "out_packets",
+                )[:4]
+            )
+            port_rows.reverse()
+        if len(port_rows) < 2:
+            continue
+        grouped = {}
+        previous = None
+        for row in port_rows:
+            sampled_at = row.get("sampled_at")
+            if not sampled_at:
+                previous = row
+                continue
+            if previous is None:
+                previous = row
+                continue
+            elapsed = (sampled_at - previous["sampled_at"]).total_seconds() if previous.get("sampled_at") else 0
+            if elapsed <= 0:
+                previous = row
+                continue
+            delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
+            delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
+            previous = row
+            if None in {delta_in_octets, delta_out_octets}:
+                continue
+            local_dt = timezone.localtime(sampled_at, ZoneInfo("Asia/Karachi"))
+            bucket = _bucket_dashboard_datetime(local_dt, config)
+            bucket_key = bucket.isoformat()
+            bucket_row = grouped.setdefault(
+                bucket_key,
+                {
+                    "bucket": bucket,
+                    "count": 0,
+                    "upload_mbps": 0.0,
+                    "download_mbps": 0.0,
+                },
+            )
+            bucket_row["count"] += 1
+            bucket_row["upload_mbps"] += ((delta_out_octets * 8) / elapsed) / 1_000_000
+            bucket_row["download_mbps"] += ((delta_in_octets * 8) / elapsed) / 1_000_000
+
+        points = []
+        for bucket_key in sorted(grouped.keys()):
+            row = grouped[bucket_key]
+            count = max(1, int(row["count"]))
+            points.append({
+                "x": row["bucket"].isoformat(),
+                "label": row["bucket"].strftime(config["label_format"]),
+                "upload_mbps": round(row["upload_mbps"] / count, 2),
+                "download_mbps": round(row["download_mbps"] / count, 2),
+            })
+        if not points:
+            continue
+        in_color, out_color = palette[index % len(palette)]
+        series.append({
+            "key": f"{slot}:{port}:in",
+            "label": f"GPON 0/{slot}/{port} (IN)",
+            "color": in_color,
+            "direction": "download_mbps",
+            "points": points,
+        })
+        series.append({
+            "key": f"{slot}:{port}:out",
+            "label": f"GPON 0/{slot}/{port} (OUT)",
+            "color": out_color,
+            "direction": "upload_mbps",
+            "points": points,
+        })
+
+    latest = {
+        "upload_mbps": 0,
+        "download_mbps": 0,
+        "upload_max_mbps": 0,
+        "download_max_mbps": 0,
+    }
+    grouped_latest = {}
+    for entry in series:
+        base_key = str(entry["key"]).rsplit(":", 1)[0]
+        point = (entry.get("points") or [])[-1] if (entry.get("points") or []) else None
+        if not point:
+            continue
+        latest_row = grouped_latest.setdefault(base_key, {"download_mbps": 0.0, "upload_mbps": 0.0})
+        if entry.get("direction") == "download_mbps":
+            latest_row["download_mbps"] = float(point.get("download_mbps") or 0)
+            latest["download_max_mbps"] = max(latest["download_max_mbps"], float(point.get("download_mbps") or 0))
+        else:
+            latest_row["upload_mbps"] = float(point.get("upload_mbps") or 0)
+            latest["upload_max_mbps"] = max(latest["upload_max_mbps"], float(point.get("upload_mbps") or 0))
+    for row in grouped_latest.values():
+        latest["download_mbps"] += row["download_mbps"]
+        latest["upload_mbps"] += row["upload_mbps"]
+    latest = {key: round(value, 2) for key, value in latest.items()}
+
+    return {
+        "range_key": config["key"],
+        "range_label": config["label"],
+        "mode": "multi",
+        "series": series,
+        "latest": latest,
+    }
+
+
+def _flatten_pon_port_choices(groups, only_up=False, include_all=False):
+    choices = []
+    seen = set()
+    if include_all:
+        choices.append({
+            "value": "",
+            "label": "All Up Ports",
+            "slot": None,
+            "port": None,
+        })
+    for grp in groups or []:
+        slot = int(grp.get("slot") or 0)
+        for row in grp.get("ports") or []:
+            if only_up:
+                status_text = str(row.get("status") or row.get("oper_status") or "").strip().lower()
+                if "up" not in status_text:
+                    continue
+            port = int(row.get("port") or 0)
+            key = (slot, port)
+            if key in seen:
+                continue
+            seen.add(key)
+            choices.append({
+                "value": f"{slot}:{port}",
+                "label": f"GPON 0/{slot}/{port}",
+                "slot": slot,
+                "port": port,
+            })
+    return choices
+
+
+def _build_latest_pon_port_traffic_map(olt_id):
+    rows = list(
+        PONPortTrafficSample.objects.filter(olt_id=olt_id)
+        .order_by("slot", "port", "-sampled_at")
+        .values("slot", "port", "sampled_at", "in_octets", "out_octets", "in_packets", "out_packets")
+    )
+    if not rows:
+        return {}
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    latest_map = {}
+    grouped = {}
+    for row in rows:
+        key = (int(row.get("slot") or 0), int(row.get("port") or 0))
+        grouped.setdefault(key, []).append(row)
+    for key, port_rows in grouped.items():
+        if len(port_rows) < 2:
+            continue
+        current = port_rows[0]
+        previous = port_rows[1]
+        current_at = current.get("sampled_at")
+        previous_at = previous.get("sampled_at")
+        if not current_at or not previous_at:
+            continue
+        elapsed = (current_at - previous_at).total_seconds()
+        if elapsed <= 0:
+            continue
+        delta_in_octets = _counter_delta(current.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _counter_delta(current.get("out_octets"), previous.get("out_octets"))
+        if delta_in_octets is None or delta_out_octets is None:
+            continue
+        latest_map[key] = {
+            "download_mbps": round(((delta_in_octets * 8) / elapsed) / 1_000_000, 2),
+            "upload_mbps": round(((delta_out_octets * 8) / elapsed) / 1_000_000, 2),
+            "sampled_at": timezone.localtime(current_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p"),
+        }
+    return latest_map
+
+
+def _attach_pon_port_latest_traffic(groups, olt_id):
+    traffic_map = _build_latest_pon_port_traffic_map(olt_id)
+    enriched = []
+    for grp in list(groups or []):
+        copied_group = dict(grp)
+        ports = []
+        slot = int(copied_group.get("slot") or 0)
+        for row in copied_group.get("ports") or []:
+            copied_row = dict(row)
+            key = (slot, int(copied_row.get("port") or 0))
+            latest = traffic_map.get(key) or {}
+            copied_row["latest_download_mbps"] = latest.get("download_mbps")
+            copied_row["latest_upload_mbps"] = latest.get("upload_mbps")
+            copied_row["latest_traffic_sampled_at"] = latest.get("sampled_at") or ""
+            ports.append(copied_row)
+        copied_group["ports"] = ports
+        enriched.append(copied_group)
+    return enriched
+
+
+def _build_latest_uplink_traffic_map(olt_id):
+    rows = list(
+        UplinkPortTrafficSample.objects.filter(olt_id=olt_id)
+        .order_by("port_name", "-sampled_at")
+        .values("port_name", "sampled_at", "in_octets", "out_octets")
+    )
+    if not rows:
+        return {}
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    latest_map = {}
+    grouped = {}
+    for row in rows:
+        key = str(row.get("port_name") or "").strip()
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(row)
+    for key, port_rows in grouped.items():
+        if len(port_rows) < 2:
+            continue
+        current = port_rows[0]
+        previous = port_rows[1]
+        current_at = current.get("sampled_at")
+        previous_at = previous.get("sampled_at")
+        if not current_at or not previous_at:
+            continue
+        elapsed = (current_at - previous_at).total_seconds()
+        if elapsed <= 0:
+            continue
+        delta_in_octets = _counter_delta(current.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _counter_delta(current.get("out_octets"), previous.get("out_octets"))
+        if delta_in_octets is None or delta_out_octets is None:
+            continue
+        latest_map[key] = {
+            "download_mbps": round(((delta_in_octets * 8) / elapsed) / 1_000_000, 2),
+            "upload_mbps": round(((delta_out_octets * 8) / elapsed) / 1_000_000, 2),
+            "sampled_at": timezone.localtime(current_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p"),
+        }
+    return latest_map
+
+
+def _attach_uplink_latest_traffic(rows, olt_id):
+    traffic_map = _build_latest_uplink_traffic_map(olt_id)
+    enriched = []
+    for row in list(rows or []):
+        copied_row = dict(row)
+        key = str(copied_row.get("port") or "").strip()
+        latest = traffic_map.get(key) or {}
+        copied_row["latest_download_mbps"] = latest.get("download_mbps")
+        copied_row["latest_upload_mbps"] = latest.get("upload_mbps")
+        copied_row["latest_traffic_sampled_at"] = latest.get("sampled_at") or ""
+        enriched.append(copied_row)
+    return enriched
+
+
+def _get_cached_port_traffic_payload(cache_key, builder):
+    now_ts = time.time()
+    with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
+        cached = _PORT_TRAFFIC_GRAPH_CACHE.get(cache_key)
+        if cached and (now_ts - cached["ts"]) <= PORT_TRAFFIC_GRAPH_CACHE_TTL:
+            return cached["payload"]
+    payload = builder()
+    with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
+        _PORT_TRAFFIC_GRAPH_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
+    return payload
+
+
+def _flatten_uplink_port_choices(rows):
+    choices = []
+    seen = set()
+    include_all = False
+    only_up = False
+    if isinstance(rows, dict):
+        include_all = bool(rows.get("include_all"))
+        only_up = bool(rows.get("only_up"))
+        rows = rows.get("rows") or []
+    if include_all:
+        choices.append({
+            "value": "",
+            "label": "All Up Ports",
+        })
+    for row in rows or []:
+        port_name = str(row.get("port") or "").strip()
+        if not port_name or port_name in seen:
+            continue
+        if only_up:
+            status_text = str(row.get("status") or row.get("oper_status") or "").strip().lower()
+            if "up" not in status_text:
+                continue
+        seen.add(port_name)
+        choices.append({
+            "value": port_name,
+            "label": port_name,
+        })
+    return choices
+
+
+def _build_olt_uplink_traffic_graph(olt_id, range_key="24h", port_name=""):
+    config = _dashboard_graph_config(range_key)
+    qs = UplinkPortTrafficSample.objects.filter(olt_id=olt_id, sampled_at__gte=config["since"])
+    if port_name:
+        qs = qs.filter(port_name=port_name)
+
+    rows = list(qs.order_by("sampled_at").values("sampled_at", "in_octets", "out_octets"))
+    if len(rows) < 2:
+        fallback_qs = UplinkPortTrafficSample.objects.filter(olt_id=olt_id)
+        if port_name:
+            fallback_qs = fallback_qs.filter(port_name=port_name)
+        rows = list(fallback_qs.order_by("-sampled_at").values("sampled_at", "in_octets", "out_octets")[:4])
+        rows.reverse()
+    if len(rows) < 2:
+        return {
+            "range_key": config["key"],
+            "range_label": config["label"],
+            "points": [],
+            "latest": {
+                "upload_mbps": 0,
+                "download_mbps": 0,
+                "upload_max_mbps": 0,
+                "download_max_mbps": 0,
+            },
+        }
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    grouped = {}
+    previous = None
+    for row in rows:
+        sampled_at = row.get("sampled_at")
+        if not sampled_at:
+            previous = row
+            continue
+        if previous is None:
+            previous = row
+            continue
+        elapsed = (sampled_at - previous["sampled_at"]).total_seconds() if previous.get("sampled_at") else 0
+        if elapsed <= 0:
+            previous = row
+            continue
+        delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
+        previous = row
+        if delta_in_octets is None or delta_out_octets is None:
+            continue
+        local_dt = timezone.localtime(sampled_at, ZoneInfo("Asia/Karachi"))
+        bucket = _bucket_dashboard_datetime(local_dt, config)
+        bucket_key = bucket.isoformat()
+        bucket_row = grouped.setdefault(bucket_key, {
+            "bucket": bucket,
+            "count": 0,
+            "upload_mbps": 0.0,
+            "download_mbps": 0.0,
+        })
+        bucket_row["count"] += 1
+        bucket_row["upload_mbps"] += ((delta_out_octets * 8) / elapsed) / 1_000_000
+        bucket_row["download_mbps"] += ((delta_in_octets * 8) / elapsed) / 1_000_000
+
+    points = []
+    for bucket_key in sorted(grouped.keys()):
+        row = grouped[bucket_key]
+        count = max(1, int(row["count"]))
+        points.append({
+            "x": row["bucket"].isoformat(),
+            "label": row["bucket"].strftime(config["label_format"]),
+            "upload_mbps": round(row["upload_mbps"] / count, 2),
+            "download_mbps": round(row["download_mbps"] / count, 2),
+        })
+
+    if points:
+        normalized_points = []
+        point_map = {point["x"]: point for point in points}
+        start_bucket = _bucket_dashboard_datetime(timezone.localtime(config["since"], ZoneInfo("Asia/Karachi")), config)
+        end_bucket = _bucket_dashboard_datetime(timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")), config)
+        cursor = start_bucket
+        while cursor <= end_bucket:
+            key = cursor.isoformat()
+            point = point_map.get(key)
+            if point is None:
+                point = {
+                    "x": key,
+                    "label": cursor.strftime(config["label_format"]),
+                    "upload_mbps": 0,
+                    "download_mbps": 0,
+                }
+            normalized_points.append(point)
+            cursor = _advance_dashboard_bucket(cursor, config)
+        points = normalized_points
+
+    upload_max = max((float(point["upload_mbps"]) for point in points), default=0.0)
+    download_max = max((float(point["download_mbps"]) for point in points), default=0.0)
+    latest = points[-1] if points else {"upload_mbps": 0, "download_mbps": 0}
+    latest = {
+        **latest,
+        "upload_max_mbps": round(upload_max, 2),
+        "download_max_mbps": round(download_max, 2),
+    }
+    return {
+        "range_key": config["key"],
+        "range_label": config["label"],
+        "mode": "single",
+        "points": points,
+        "latest": latest,
+    }
+
+
+def _build_olt_uplink_multi_traffic_graph(olt_id, range_key="24h", allowed_ports=None):
+    config = _dashboard_graph_config(range_key)
+    if not allowed_ports:
+        return {
+            "range_key": config["key"],
+            "range_label": config["label"],
+            "mode": "multi",
+            "series": [],
+            "latest": {},
+        }
+
+    palette = [
+        ("#35d07f", "#60a5fa"),
+        ("#22d3ee", "#f59e0b"),
+        ("#c084fc", "#fb7185"),
+        ("#a3e635", "#38bdf8"),
+        ("#f97316", "#818cf8"),
+        ("#34d399", "#f472b6"),
+    ]
+
+    def _counter_delta(current_value, previous_value):
+        current_int = int(current_value or 0)
+        previous_int = int(previous_value or 0)
+        delta = current_int - previous_int
+        if delta >= 0:
+            return delta
+        max_32 = 4294967295
+        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
+            return (max_32 - previous_int) + current_int + 1
+        return None
+
+    series = []
+    for index, port_name in enumerate(allowed_ports):
+        port_qs = UplinkPortTrafficSample.objects.filter(
+            olt_id=olt_id,
+            port_name=port_name,
+            sampled_at__gte=config["since"],
+        )
+        rows = list(port_qs.order_by("sampled_at").values("sampled_at", "in_octets", "out_octets"))
+        if len(rows) < 2:
+            rows = list(
+                UplinkPortTrafficSample.objects.filter(olt_id=olt_id, port_name=port_name)
+                .order_by("-sampled_at")
+                .values("sampled_at", "in_octets", "out_octets")[:4]
+            )
+            rows.reverse()
+        if len(rows) < 2:
+            continue
+
+        grouped = {}
+        previous = None
+        for row in rows:
+            sampled_at = row.get("sampled_at")
+            if not sampled_at:
+                previous = row
+                continue
+            if previous is None:
+                previous = row
+                continue
+            elapsed = (sampled_at - previous["sampled_at"]).total_seconds() if previous.get("sampled_at") else 0
+            if elapsed <= 0:
+                previous = row
+                continue
+            delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
+            delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
+            previous = row
+            if delta_in_octets is None or delta_out_octets is None:
+                continue
+            local_dt = timezone.localtime(sampled_at, ZoneInfo("Asia/Karachi"))
+            bucket = _bucket_dashboard_datetime(local_dt, config)
+            bucket_key = bucket.isoformat()
+            bucket_row = grouped.setdefault(
+                bucket_key,
+                {
+                    "bucket": bucket,
+                    "count": 0,
+                    "upload_mbps": 0.0,
+                    "download_mbps": 0.0,
+                },
+            )
+            bucket_row["count"] += 1
+            bucket_row["upload_mbps"] += ((delta_out_octets * 8) / elapsed) / 1_000_000
+            bucket_row["download_mbps"] += ((delta_in_octets * 8) / elapsed) / 1_000_000
+
+        points = []
+        for bucket_key in sorted(grouped.keys()):
+            row = grouped[bucket_key]
+            count = max(1, int(row["count"]))
+            points.append({
+                "x": row["bucket"].isoformat(),
+                "label": row["bucket"].strftime(config["label_format"]),
+                "upload_mbps": round(row["upload_mbps"] / count, 2),
+                "download_mbps": round(row["download_mbps"] / count, 2),
+            })
+        if not points:
+            continue
+
+        in_color, out_color = palette[index % len(palette)]
+        series.append({
+            "key": f"{port_name}:in",
+            "label": f"{port_name} (IN)",
+            "color": in_color,
+            "direction": "download_mbps",
+            "points": points,
+        })
+        series.append({
+            "key": f"{port_name}:out",
+            "label": f"{port_name} (OUT)",
+            "color": out_color,
+            "direction": "upload_mbps",
+            "points": points,
+        })
+
+    latest = {
+        "upload_mbps": 0,
+        "download_mbps": 0,
+        "upload_max_mbps": 0,
+        "download_max_mbps": 0,
+    }
+    grouped_latest = {}
+    for entry in series:
+        base_key = str(entry.get("key") or "").rsplit(":", 1)[0]
+        point = (entry.get("points") or [])[-1] if (entry.get("points") or []) else None
+        if not point:
+            continue
+        latest_row = grouped_latest.setdefault(base_key, {"download_mbps": 0.0, "upload_mbps": 0.0})
+        if entry.get("direction") == "download_mbps":
+            latest_row["download_mbps"] = float(point.get("download_mbps") or 0)
+            latest["download_max_mbps"] = max(latest["download_max_mbps"], float(point.get("download_mbps") or 0))
+        else:
+            latest_row["upload_mbps"] = float(point.get("upload_mbps") or 0)
+            latest["upload_max_mbps"] = max(latest["upload_max_mbps"], float(point.get("upload_mbps") or 0))
+    for row in grouped_latest.values():
+        latest["download_mbps"] += row["download_mbps"]
+        latest["upload_mbps"] += row["upload_mbps"]
+    latest = {key: round(value, 2) for key, value in latest.items()}
+
+    return {
+        "range_key": config["key"],
+        "range_label": config["label"],
+        "mode": "multi",
+        "series": series,
+        "latest": latest,
+    }
+
+
 def _signal_payload_from_values(onu_rx, olt_rx):
     signal_class = _classify_onu_signal(olt_rx)
     return {
@@ -1626,6 +2761,25 @@ def _configured_status_class(value, run_state=""):
     if normalized in {"admin_disabled", "loss_of_signal"}:
         return "warn"
     return "bad"
+
+
+def _ui_telnet_error_message(message):
+    text = str(message or "").strip()
+    lowered = text.lower()
+    telnet_tokens = (
+        "telnet",
+        "login failed",
+        "username/password invalid",
+        "session could not be opened",
+        "connection closed",
+        "shell prompt",
+        "credential",
+        "timeout while opening session",
+        "telnet tcp",
+    )
+    if any(token in lowered for token in telnet_tokens):
+        return "OLT is Busy (Telnet Error)"
+    return text
 
 
 def _status_from_runtime_snapshot(runtime_snapshot, fallback_value="", fallback_run_state=""):
@@ -1760,6 +2914,12 @@ def _status_since_datetime_from_onu_runtime(status_value, runtime_snapshot):
 
 
 def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
+    cache_key = (int(olt.pk), int(slot), int(port), int(ont_id), int(hours))
+    now = timezone.now()
+    with _ONU_SIGNAL_HISTORY_CACHE_LOCK:
+        cached = _ONU_SIGNAL_HISTORY_CACHE.get(cache_key)
+        if cached and (now - cached["updated_at"]).total_seconds() <= ONU_SIGNAL_HISTORY_CACHE_SECONDS:
+            return cached["history"]
     since = timezone.now() - timezone.timedelta(hours=hours)
     rows = (
         ONUOpticalSample.objects.filter(
@@ -1782,7 +2942,60 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
                 "tx_power": row.get("tx_power") or "--",
             }
         )
+    with _ONU_SIGNAL_HISTORY_CACHE_LOCK:
+        _ONU_SIGNAL_HISTORY_CACHE[cache_key] = {
+            "updated_at": now,
+            "history": history,
+        }
     return history
+
+
+def _get_cached_configured_onu_filter_options():
+    now = timezone.now()
+    with _CONFIGURED_ONU_FILTERS_CACHE_LOCK:
+        updated_at = _CONFIGURED_ONU_FILTERS_CACHE.get("updated_at")
+        if updated_at and (now - updated_at).total_seconds() <= CONFIGURED_ONU_FILTERS_CACHE_SECONDS:
+            return (
+                list(_CONFIGURED_ONU_FILTERS_CACHE.get("olts") or []),
+                list(_CONFIGURED_ONU_FILTERS_CACHE.get("boards") or []),
+                _CONFIGURED_ONU_FILTERS_CACHE.get("latest_sync"),
+            )
+
+    available_olts = [{"id": str(olt.pk), "name": olt.name} for olt in OLT.objects.only("id", "name").order_by("id")]
+    available_boards = sorted(
+        {str(slot) for slot in ConfiguredONU.objects.order_by().values_list("slot", flat=True).distinct()},
+        key=lambda x: int(x),
+    )
+    latest_inventory_sync = ConfiguredONU.objects.aggregate(latest_sync=Max("synced_at")).get("latest_sync")
+    with _CONFIGURED_ONU_FILTERS_CACHE_LOCK:
+        _CONFIGURED_ONU_FILTERS_CACHE.update(
+            {
+                "updated_at": now,
+                "olts": available_olts,
+                "boards": available_boards,
+                "latest_sync": latest_inventory_sync,
+            }
+        )
+    return available_olts, available_boards, latest_inventory_sync
+
+
+def _get_cached_onu_detail_bundle(olt_id, slot, port, ont_id, include_optical=False, include_capability=False):
+    cache_key = (int(olt_id), int(slot), int(port), int(ont_id), bool(include_optical), bool(include_capability))
+    now = timezone.now()
+    with _ONU_DETAIL_CACHE_LOCK:
+        cached = _ONU_DETAIL_CACHE.get(cache_key)
+        if cached and (now - cached["updated_at"]).total_seconds() <= ONU_DETAIL_CACHE_SECONDS:
+            return cached["payload"]
+    return None
+
+
+def _set_cached_onu_detail_bundle(olt_id, slot, port, ont_id, include_optical, include_capability, payload):
+    cache_key = (int(olt_id), int(slot), int(port), int(ont_id), bool(include_optical), bool(include_capability))
+    with _ONU_DETAIL_CACHE_LOCK:
+        _ONU_DETAIL_CACHE[cache_key] = {
+            "updated_at": timezone.now(),
+            "payload": payload,
+        }
 
 
 def _cli_session_key(user_id, olt_id):
@@ -1840,18 +3053,22 @@ def _refresh_olt_cards_cache(olt):
 @login_required
 def olt_list(request):
     _schedule_missing_device_snapshots_if_due()
-    _schedule_dashboard_snapshot_refreshes()
-    try:
-        record_dashboard_status_samples()
-    except OperationalError:
-        pass
-
     olt_filter = (request.GET.get('olt') or '').strip()
     selected_olt = None
     onu_qs = ConfiguredONU.objects.all()
     if olt_filter:
         try:
-            selected_olt = OLT.objects.only("id", "name", "autofind_onu_count", "autofind_new_count", "autofind_resync_count").filter(pk=int(olt_filter)).first()
+            selected_olt = OLT.objects.only(
+                "id",
+                "name",
+                "autofind_onu_count",
+                "autofind_new_count",
+                "autofind_resync_count",
+                "pon_ports_cache",
+                "pon_ports_status",
+                "uplink_cache",
+                "uplink_status",
+            ).filter(pk=int(olt_filter)).first()
         except (TypeError, ValueError):
             selected_olt = None
         if selected_olt:
@@ -1859,7 +3076,7 @@ def olt_list(request):
     if _autofind_counts_need_refresh(selected_olt.pk if selected_olt else None):
         _schedule_autofind_counts_refresh(selected_olt.pk if selected_olt else None)
 
-    dashboard_counts = _dashboard_status_counts_from_queryset(onu_qs)
+    dashboard_counts = _dashboard_summary_counts(onu_qs, selected_olt.pk if selected_olt else None)
     total_all = int(dashboard_counts.get("total_onus") or 0)
     total_online = int(dashboard_counts.get("online_onus") or 0)
     total_offline = max(0, total_all - total_online)
@@ -1882,6 +3099,48 @@ def olt_list(request):
     total_power_failure = int(dashboard_counts.get("power_failure") or 0)
     total_signal_warn = int(dashboard_counts.get("signal_warn") or 0)
     total_signal_bad = int(dashboard_counts.get("signal_bad") or 0)
+    dashboard_pon_traffic_graph = None
+    dashboard_pon_traffic_port_choices = []
+    dashboard_pon_traffic_graph_url = ""
+    dashboard_uplink_traffic_graph = None
+    dashboard_uplink_traffic_port_choices = []
+    dashboard_uplink_traffic_graph_url = ""
+    dashboard_history_rows = []
+    if selected_olt:
+        dashboard_history_rows = list(
+            OLTLoginHistory.objects.filter(olt_id=selected_olt.pk)
+            .order_by('-logged_in_at')
+            .values('logged_in_at', 'action', 'details')[:80]
+        )
+        dashboard_pon_groups = list(getattr(selected_olt, "pon_ports_cache", []) or [])
+        dashboard_pon_traffic_port_choices = _flatten_pon_port_choices(dashboard_pon_groups, only_up=True, include_all=False)
+        default_pon_choice = dashboard_pon_traffic_port_choices[0] if dashboard_pon_traffic_port_choices else None
+        if default_pon_choice:
+            dashboard_pon_traffic_graph = _get_cached_port_traffic_payload(
+                ("pon", selected_olt.pk, "live", f"{default_pon_choice['slot']}:{default_pon_choice['port']}"),
+                lambda: _build_olt_pon_port_traffic_graph(
+                    selected_olt.pk,
+                    "live",
+                    default_pon_choice["slot"],
+                    default_pon_choice["port"],
+                ),
+            )
+            dashboard_pon_traffic_graph_url = reverse("olt_pon_traffic_graph_data", kwargs={"pk": selected_olt.pk})
+
+        dashboard_uplink_rows = list(getattr(selected_olt, "uplink_cache", []) or [])
+        dashboard_uplink_traffic_port_choices = _flatten_uplink_port_choices({
+            "rows": dashboard_uplink_rows,
+            "only_up": True,
+            "include_all": False,
+        })
+        default_uplink_choice = dashboard_uplink_traffic_port_choices[0]["value"] if dashboard_uplink_traffic_port_choices else ""
+        if dashboard_uplink_traffic_port_choices:
+            dashboard_uplink_traffic_graph = _get_cached_port_traffic_payload(
+                ("uplink", selected_olt.pk, "live", default_uplink_choice),
+                lambda: _build_olt_uplink_traffic_graph(selected_olt.pk, "live", default_uplink_choice),
+            )
+            dashboard_uplink_traffic_graph_url = reverse("olt_uplink_traffic_graph_data", kwargs={"pk": selected_olt.pk})
+
     latest_dashboard_sample_at = (
         DashboardStatusSample.objects.order_by("-sampled_at").values_list("sampled_at", flat=True).first()
     )
@@ -1931,6 +3190,13 @@ def olt_list(request):
         'dashboard_loss_of_signal_url': f"{configured_signal_base}?{urlencode(loss_of_signal_params)}",
         'dashboard_power_failure_url': f"{configured_signal_base}?{urlencode(power_failure_params)}",
         'dashboard_graph': _build_dashboard_status_graph(selected_olt.pk if selected_olt else None, '1h'),
+        'dashboard_pon_traffic_graph': dashboard_pon_traffic_graph,
+        'dashboard_pon_traffic_port_choices': dashboard_pon_traffic_port_choices,
+        'dashboard_pon_traffic_graph_url': dashboard_pon_traffic_graph_url,
+        'dashboard_uplink_traffic_graph': dashboard_uplink_traffic_graph,
+        'dashboard_uplink_traffic_port_choices': dashboard_uplink_traffic_port_choices,
+        'dashboard_uplink_traffic_graph_url': dashboard_uplink_traffic_graph_url,
+        'dashboard_history_rows': dashboard_history_rows,
     }
     return render(request, 'oltmanager/olt_list.html', context)
 
@@ -1942,10 +3208,6 @@ def dashboard_status_graph(request):
     olt_id = None
     if olt_filter.isdigit():
         olt_id = int(olt_filter)
-    try:
-        record_dashboard_status_samples()
-    except OperationalError:
-        pass
     try:
         payload = _build_dashboard_status_graph(olt_id, range_key)
     except OperationalError:
@@ -1959,8 +3221,39 @@ def dashboard_status_graph(request):
 
 
 @login_required
+def dashboard_pon_traffic_graph(request):
+    range_key = (request.GET.get("range") or "24h").strip().lower()
+    olt_filter = (request.GET.get("olt") or "").strip()
+    olt_id = int(olt_filter) if olt_filter.isdigit() else None
+    try:
+        if olt_id:
+            olt = OLT.objects.only("id", "ip_address", "snmp_port", "snmp_community").filter(pk=olt_id).first()
+            if olt:
+                record_pon_traffic_sample_for_olt(olt)
+        payload = _build_dashboard_pon_traffic_graph(olt_id, range_key)
+    except OperationalError:
+        payload = {
+            "range_key": range_key,
+            "range_label": "Unavailable",
+            "points": [],
+            "latest": {
+                "upload_mbps": 0,
+                "download_mbps": 0,
+                "upload_pps": 0,
+                "download_pps": 0,
+                "upload_avg_size": 0,
+                "download_avg_size": 0,
+                "upload_max_mbps": 0,
+                "download_max_mbps": 0,
+            },
+        }
+    return JsonResponse({"ok": True, **payload})
+
+
+@login_required
 def dashboard_olt_uptimes(request):
     force_refresh = str(request.GET.get("force") or "").strip().lower() in {"1", "true", "yes", "refresh"}
+    graph_range = (request.GET.get("graph_range") or "1h").strip().lower()
     _schedule_dashboard_snapshot_refreshes()
     selected_olt_filter = (request.GET.get("olt") or "").strip()
     onu_qs = ConfiguredONU.objects.all()
@@ -1982,11 +3275,15 @@ def dashboard_olt_uptimes(request):
             record_dashboard_status_samples(force=True)
         except OperationalError:
             pass
+        try:
+            record_pon_traffic_samples(force=True)
+        except OperationalError:
+            pass
     rows = _collect_dashboard_olt_uptimes()
     down_rows = _collect_dashboard_snmp_down_olts()
     if _autofind_counts_need_refresh(selected_olt_id):
         _schedule_autofind_counts_refresh(selected_olt_id)
-    dashboard_counts = _dashboard_status_counts_from_queryset(onu_qs)
+    dashboard_counts = _dashboard_summary_counts(onu_qs, selected_olt_id)
     total_all = int(dashboard_counts.get("total_onus") or 0)
     total_online = int(dashboard_counts.get("online_onus") or 0)
     total_offline = max(0, total_all - total_online)
@@ -2038,6 +3335,7 @@ def dashboard_olt_uptimes(request):
         },
         "refreshed_at": refreshed_at,
         "dashboard_last_updated": dashboard_last_updated,
+        "status_graph": _build_dashboard_status_graph(selected_olt_id, graph_range),
         "updating": updating,
     })
 
@@ -2048,6 +3346,7 @@ def configured_onus(request):
     olt_filter = (request.GET.get('olt') or '').strip()
     board_filter = (request.GET.get('board') or '').strip()
     port_filter = (request.GET.get('port') or '').strip()
+    vlan_filter = (request.GET.get('vlan') or '').strip()
     status_filter = (request.GET.get('status') or '').strip().lower()
     signal_filter = (request.GET.get('signal') or '').strip().lower()
     sort_filter = (request.GET.get('sort') or '').strip().lower()
@@ -2056,52 +3355,58 @@ def configured_onus(request):
     elif signal_filter == "critical":
         signal_filter = "bad"
 
-    records_qs = (
-        ConfiguredONU.objects.select_related("olt")
-        .only(
-            "olt__name",
-            "olt_id",
-            "frame",
-            "slot",
-            "port",
-            "ont_id",
-            "sn",
-            "control_flag",
-            "run_state",
-            "config_state",
-            "match_state",
-            "protect_side",
-            "description",
-            "onu_rx",
-            "olt_rx",
-            "tx_power",
-            "signal_bucket",
-            "derived_status",
-            "status_source",
-            "raw_line",
-        )
-        .order_by("olt__name", "slot", "port", "ont_id")
-    )
+    base_qs = ConfiguredONU.objects.all()
     if olt_filter:
-        records_qs = records_qs.filter(olt_id=olt_filter)
+        base_qs = base_qs.filter(olt_id=olt_filter)
     if board_filter:
-        records_qs = records_qs.filter(slot=board_filter)
+        base_qs = base_qs.filter(slot=board_filter)
     if port_filter:
-        records_qs = records_qs.filter(port=port_filter)
+        base_qs = base_qs.filter(port=port_filter)
     if status_filter == "online":
-        records_qs = records_qs.filter(Q(derived_status__iexact="online") | Q(run_state__iexact="online"))
+        base_qs = base_qs.filter(Q(derived_status__iexact="online") | Q(run_state__iexact="online"))
     elif status_filter == "offline":
-        records_qs = records_qs.exclude(Q(derived_status__iexact="online") | Q(run_state__iexact="online"))
+        base_qs = base_qs.exclude(Q(derived_status__iexact="online") | Q(run_state__iexact="online"))
     elif status_filter in {"admin_disabled", "power_failure", "loss_of_signal"}:
-        records_qs = records_qs.filter(derived_status=status_filter)
+        base_qs = base_qs.filter(derived_status=status_filter)
     if signal_filter:
-        records_qs = records_qs.filter(signal_bucket=signal_filter)
-    if search_query:
-        records_qs = [
-            record
-            for record in records_qs
-            if _configured_onu_matches_search(record, search_query)
-        ]
+        base_qs = base_qs.filter(signal_bucket=signal_filter)
+    if vlan_filter:
+        base_qs = base_qs.filter(attached_vlans_cache__regex=rf'(^|,\s*){re.escape(vlan_filter)}(\s*,|$)')
+
+    detail_fields = (
+        "olt__name",
+        "olt_id",
+        "frame",
+        "slot",
+        "port",
+        "ont_id",
+        "sn",
+        "control_flag",
+        "run_state",
+        "config_state",
+        "match_state",
+        "protect_side",
+        "description",
+        "onu_rx",
+        "olt_rx",
+        "tx_power",
+        "signal_bucket",
+        "derived_status",
+        "status_source",
+        "raw_line",
+    )
+
+    if search_query or sort_filter == "signal":
+        records_qs = base_qs.select_related("olt").only("id", *detail_fields).order_by("olt_id", "slot", "port", "ont_id")
+        if search_query:
+            records_qs = [
+                record
+                for record in records_qs
+                if _configured_onu_matches_search(record, search_query)
+            ]
+    else:
+        records_qs = base_qs.select_related("olt").only("id", *detail_fields).order_by("olt_id", "slot", "port", "ont_id")
+
     if sort_filter == "signal":
         def _signal_sort_key(record):
             bucket = (getattr(record, "signal_bucket", "") or "").strip() or _classify_onu_signal(getattr(record, "olt_rx", ""))
@@ -2121,8 +3426,10 @@ def configured_onus(request):
     page_number = request.GET.get('page') or 1
     page_obj = paginator.get_page(page_number)
 
+    page_records = list(page_obj.object_list) if not isinstance(page_obj.object_list, list) else page_obj.object_list
+
     rows = []
-    for record in page_obj.object_list:
+    for record in page_records:
         row = _configured_onu_record_to_row(record)
         enriched = dict(row)
         enriched["olt_name"] = record.olt.name
@@ -2139,12 +3446,10 @@ def configured_onus(request):
         enriched["signal_class"] = (row.get("signal_bucket") or "").strip() or _classify_onu_signal(row.get("olt_rx"))
         rows.append(enriched)
 
-    available_olts = [{"id": str(olt.pk), "name": olt.name} for olt in OLT.objects.all().order_by('id')]
-    available_boards = sorted({str(slot) for slot in ConfiguredONU.objects.order_by().values_list("slot", flat=True).distinct()}, key=lambda x: int(x))
+    available_olts, available_boards, latest_inventory_sync = _get_cached_configured_onu_filter_options()
     available_ports = [str(i) for i in range(16)]
     start_index = page_obj.start_index() if paginator.count else 0
     end_index = page_obj.end_index() if paginator.count else 0
-    latest_inventory_sync = ConfiguredONU.objects.order_by("-synced_at").values_list("synced_at", flat=True).first()
     latest_inventory_sync_display = ""
     if latest_inventory_sync:
         latest_inventory_sync = timezone.localtime(latest_inventory_sync, ZoneInfo("Asia/Karachi"))
@@ -2165,6 +3470,7 @@ def configured_onus(request):
         "configured_onu_olt_filter": olt_filter,
         "configured_onu_board_filter": board_filter,
         "configured_onu_port_filter": port_filter,
+        "configured_onu_vlan_filter": vlan_filter,
         "configured_onu_filter_olts": available_olts,
         "configured_onu_filter_boards": available_boards,
         "configured_onu_filter_ports": available_ports,
@@ -2179,24 +3485,28 @@ def configured_onus(request):
 def unconfigured_onus(request):
     selected_olts = [value for value in request.GET.getlist("olts") if str(value).isdigit()]
     search_query = (request.GET.get("q") or "").strip().lower()
+    category_filter = str(request.GET.get("category") or "").strip().lower()
+    if category_filter not in {"new", "resync"}:
+        category_filter = ""
 
     all_olts = list(OLT.objects.only("id", "name", "ip_address").order_by("name"))
-    existing_onus = list(
-        ConfiguredONU.objects.select_related("olt")
-        .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
-        .exclude(sn="")
-    )
     existing_by_serial = {}
-    for record in existing_onus:
-        token = _normalize_onu_serial_token(record.sn)
-        if token and token not in existing_by_serial:
-            existing_by_serial[token] = record
 
     grouped_rows = []
     statuses = []
     total_new = 0
     total_resync = 0
     if selected_olts:
+        existing_onus = list(
+            ConfiguredONU.objects.select_related("olt")
+            .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
+            .exclude(sn="")
+        )
+        for record in existing_onus:
+            for token in _normalize_onu_serial_token(record.sn):
+                if token and token not in existing_by_serial:
+                    existing_by_serial[token] = record
+
         selected_map = {str(olt.id): olt for olt in all_olts if str(olt.id) in set(selected_olts)}
         for index, olt_id in enumerate(selected_olts, start=1):
             olt = selected_map.get(str(olt_id))
@@ -2209,8 +3519,12 @@ def unconfigured_onus(request):
                 item = dict(row)
                 item["olt_id"] = olt.id
                 item["olt_name"] = olt.name
-                serial_token = _normalize_onu_serial_token(item.get("sn"))
-                existing_record = existing_by_serial.get(serial_token)
+                serial_tokens = _normalize_onu_serial_token(item.get("sn"))
+                existing_record = None
+                for token in serial_tokens:
+                    existing_record = existing_by_serial.get(token)
+                    if existing_record:
+                        break
                 category = "resync" if existing_record else "new"
                 item["category"] = category
                 item["category_label"] = "Resync" if existing_record else "New"
@@ -2227,10 +3541,17 @@ def unconfigured_onus(request):
                     if existing_record
                     else ""
                 )
+                item["previous_running"] = (
+                    f"{existing_record.olt.name} | 0/{int(existing_record.slot or 0)}/{int(existing_record.port or 0)} | ONT {int(existing_record.ont_id or 0)}"
+                    if existing_record
+                    else "-"
+                )
                 if existing_record:
                     total_resync += 1
                 else:
                     total_new += 1
+                if category_filter and category != category_filter:
+                    continue
                 if search_query:
                     haystack = " ".join([
                         str(item.get("olt_name") or ""),
@@ -2239,7 +3560,7 @@ def unconfigured_onus(request):
                         str(item.get("port") or ""),
                         str(item.get("sn") or ""),
                         str(item.get("category_label") or ""),
-                        str(item.get("type") or ""),
+                        str(item.get("previous_running") or ""),
                         str(item.get("autofind_time") or ""),
                     ]).lower()
                     if search_query not in haystack:
@@ -2260,6 +3581,7 @@ def unconfigured_onus(request):
         "unconfigured_selected_olts": selected_olts,
         "unconfigured_filter_olts": [{"id": str(olt.id), "name": olt.name, "ip": olt.ip_address} for olt in all_olts],
         "unconfigured_search_query": request.GET.get("q", "").strip(),
+        "unconfigured_category_filter": category_filter,
         "unconfigured_status": " | ".join(statuses),
         "unconfigured_total": total_rows,
         "unconfigured_new_total": total_new,
@@ -2451,6 +3773,7 @@ def configured_onu_signals_refresh(request):
         if not olt:
             continue
         optical_bundle = fetch_ont_optical_subset_meta(olt, sorted(onu_keys))
+        snmp_status_map = (fetch_olt_snmp_status_map(olt).get("items") or {})
         optical_map = optical_bundle.get("items") or {}
         fetch_ok = bool(optical_bundle.get("ok"))
         successful_ports = {tuple(item) for item in (optical_bundle.get("successful_ports") or set())}
@@ -2466,6 +3789,9 @@ def configured_onu_signals_refresh(request):
             key = f"{olt_id}:{slot}:{port}:{ont_id}"
             port_fetch_ok = (int(slot), int(port)) in successful_ports
             if not port_fetch_ok and record is not None:
+                if detail_refresh and len(onu_keys) == 1 and _onu_record_attached_vlan_is_stale(record):
+                    sync_single_onu_attached_vlans(olt, slot, port, ont_id, record=record)
+                    record.refresh_from_db(fields=["attached_vlans_cache", "attached_vlans_synced_at"])
                 response_items[key] = _signal_payload_from_values(record.onu_rx, record.olt_rx)
                 response_items[key]["status_value"] = _normalize_configured_status(record.derived_status, run_state=record.run_state)
                 response_items[key]["status_label"] = _configured_status_label(record.derived_status, run_state=record.run_state)
@@ -2477,6 +3803,7 @@ def configured_onu_signals_refresh(request):
                     response_items[key]["signal_distance_text"] = _format_onu_distance_text(
                         getattr(record, "ont_distance_m", "") if hasattr(record, "ont_distance_m") else ""
                     )
+                    response_items[key]["attached_vlans_text"] = (getattr(record, "attached_vlans_cache", "") or "").strip() or "-"
                 continue
 
             signal = optical_map.get((slot, port, ont_id), {"onu_rx": "--", "olt_rx": "--", "tx_power": "--"})
@@ -2485,11 +3812,16 @@ def configured_onu_signals_refresh(request):
 
             if record:
                 now = timezone.now()
+                previous_status = _normalize_configured_status(record.derived_status, run_state=record.run_state)
                 record.onu_rx = payload_row["onu_rx"] if payload_row["onu_rx"] != "--" else ""
                 record.olt_rx = payload_row["olt_rx"] if payload_row["olt_rx"] != "--" else ""
                 record.tx_power = (signal.get("tx_power") or "") if (signal.get("tx_power") or "") != "--" else ""
                 record.signal_bucket = payload_row["signal_class"] or ""
-                next_status, next_source = _resolve_signal_refresh_status(record, payload_row["signal_visible"])
+                snmp_status = str(snmp_status_map.get((slot, port, ont_id)) or "").strip().lower()
+                if snmp_status in {"online", "offline"}:
+                    record.run_state = snmp_status
+                next_status = snmp_status or _normalize_configured_status(record.derived_status, run_state=record.run_state)
+                next_source = "snmp_refresh" if snmp_status else (record.status_source or "inventory")
                 if next_status != _normalize_configured_status(record.derived_status, run_state=record.run_state):
                     record.status_first_seen_at = now
                 elif not record.status_first_seen_at:
@@ -2504,7 +3836,26 @@ def configured_onu_signals_refresh(request):
                     record.status_first_seen_at or record.status_updated_at
                 )
                 db_updates.append(record)
+                became_online = previous_status != "online" and _normalize_configured_status(next_status, run_state=record.run_state) == "online"
+                if became_online:
+                    sync_single_onu_detail_fields(olt, slot, port, ont_id, record=record)
+                    record.refresh_from_db(fields=[
+                        "onu_type_cache",
+                        "uplink_pon_ports_cache",
+                        "pots_ports_cache",
+                        "eth_ports_cache",
+                        "catv_uni_ports_cache",
+                        "ont_distance_m",
+                        "capability_synced_at",
+                    ])
                 if detail_refresh and len(onu_keys) == 1:
+                    if _onu_record_attached_vlan_is_stale(record):
+                        sync_single_onu_attached_vlans(olt, slot, port, ont_id, record=record)
+                        record.refresh_from_db(fields=["attached_vlans_cache", "attached_vlans_synced_at"])
+                    response_items[key]["signal_distance_text"] = _format_onu_distance_text(
+                        getattr(record, "ont_distance_m", "") if hasattr(record, "ont_distance_m") else ""
+                    )
+                    response_items[key]["attached_vlans_text"] = (getattr(record, "attached_vlans_cache", "") or "").strip() or "-"
                     runtime_snapshot = fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id)
                     if runtime_snapshot:
                         response_items[key]["status_age_text"] = _status_age_text_from_onu_runtime(
@@ -2519,9 +3870,6 @@ def configured_onu_signals_refresh(request):
                             "Online Since" if _normalize_configured_status(response_items[key]["status_value"]) == "online" else "Status Since"
                         )
                         response_items[key]["status_since_text"] = _format_relative_time_text(since_dt)
-                        response_items[key]["signal_distance_text"] = _format_onu_distance_text(
-                            runtime_snapshot.get("ont_distance_m")
-                        )
             samples.append(
                 ONUOpticalSample(
                     olt=olt,
@@ -2536,7 +3884,7 @@ def configured_onu_signals_refresh(request):
         if db_updates:
             ConfiguredONU.objects.bulk_update(
                 db_updates,
-                ["onu_rx", "olt_rx", "tx_power", "signal_bucket", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"],
+                ["onu_rx", "olt_rx", "tx_power", "ont_distance_m", "signal_bucket", "run_state", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"],
                 batch_size=200,
             )
             try:
@@ -2597,8 +3945,37 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     )
     selected_onu["sn"] = _format_onu_serial_display(selected_onu.get("sn"))
     selected_onu["onu_label"] = f"gpon-onu_0/{slot}/{port}:{ont_id}"
-    runtime_snapshot = fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id)
-    capability_snapshot = fetch_single_ont_capability_snapshot(olt, slot, port, ont_id)
+    need_optical = False
+    need_capability = False
+    detail_bundle = _get_cached_onu_detail_bundle(
+        olt.pk,
+        slot,
+        port,
+        ont_id,
+        include_optical=need_optical,
+        include_capability=need_capability,
+    )
+    if detail_bundle is None:
+        detail_bundle = fetch_single_ont_detail_bundle(
+            olt,
+            slot,
+            port,
+            ont_id,
+            include_optical=need_optical,
+            include_capability=need_capability,
+        )
+        _set_cached_onu_detail_bundle(
+            olt.pk,
+            slot,
+            port,
+            ont_id,
+            need_optical,
+            need_capability,
+            detail_bundle,
+        )
+    runtime_snapshot = dict(detail_bundle.get("runtime_snapshot") or {})
+    capability_snapshot = dict(detail_bundle.get("capability_snapshot") or {})
+    live_signal = dict(detail_bundle.get("live_signal") or {})
     trap_status = _active_trap_status_for_onu(olt, slot, port, ont_id)
     effective_status = trap_status or _normalize_configured_status(
         selected_onu.get("derived_status"),
@@ -2628,19 +4005,25 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     selected_onu["status_text"] = _configured_status_label(effective_status, run_state=runtime_snapshot.get("run_state") or selected_onu.get("run_state"))
     selected_onu["status_class"] = _configured_status_class(effective_status, run_state=runtime_snapshot.get("run_state") or selected_onu.get("run_state"))
     selected_onu["onu_type"] = (
-        (capability_snapshot.get("equipment_id") or "").strip()
-        or (runtime_snapshot.get("ont_equipment_id") or "").strip()
+        (getattr(record, "onu_type_cache", "") if record is not None else "").strip()
         or "-"
     )
     selected_onu["attached_vlans"] = (runtime_snapshot.get("attached_vlans") or "").strip() or "-"
+    selected_onu["attached_vlans"] = (
+        (getattr(record, "attached_vlans_cache", "") if record is not None else "").strip()
+        or selected_onu["attached_vlans"]
+        or "-"
+    )
     selected_onu["onu_mode"] = (runtime_snapshot.get("onu_mode") or "").strip() or "-"
-    selected_onu["uplink_pon_ports"] = (capability_snapshot.get("uplink_pon_ports") or "").strip() or "-"
-    selected_onu["pots_ports"] = (capability_snapshot.get("pots_ports") or "").strip() or "-"
-    selected_onu["eth_ports"] = (capability_snapshot.get("eth_ports") or "").strip() or "-"
-    selected_onu["catv_uni_ports"] = (capability_snapshot.get("catv_uni_ports") or "").strip() or "-"
+    selected_onu["uplink_pon_ports"] = ((getattr(record, "uplink_pon_ports_cache", "") if record is not None else "").strip() or "-")
+    selected_onu["pots_ports"] = ((getattr(record, "pots_ports_cache", "") if record is not None else "").strip() or "-")
+    selected_onu["eth_ports"] = ((getattr(record, "eth_ports_cache", "") if record is not None else "").strip() or "-")
+    selected_onu["catv_uni_ports"] = ((getattr(record, "catv_uni_ports_cache", "") if record is not None else "").strip() or "-")
     selected_onu["last_down_cause"] = (runtime_snapshot.get("last_down_cause") or "").strip()
     selected_onu["battery_state"] = (runtime_snapshot.get("battery_state") or "").strip()
-    selected_onu["ont_distance_m"] = (runtime_snapshot.get("ont_distance_m") or "").strip()
+    selected_onu["ont_distance_m"] = (
+        (getattr(record, "ont_distance_m", "") if record is not None else "").strip()
+    )
     selected_onu["status_age_text"] = _status_age_text_from_onu_runtime(
         effective_status,
         runtime_snapshot,
@@ -2650,16 +4033,41 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     status_since_dt = _status_since_datetime_from_onu_runtime(effective_status, runtime_snapshot)
     selected_onu["status_since_label"] = "Online Since" if _normalize_configured_status(effective_status) == "online" else "Status Since"
     selected_onu["status_since_text"] = _format_relative_time_text(status_since_dt)
-    if all(str(selected_onu.get(key, "")).strip() in {"", "--"} for key in ("onu_rx", "olt_rx")):
-        live_signal = fetch_single_ont_optical_info(olt, slot, port, ont_id)
-        if live_signal:
-            selected_onu["onu_rx"] = live_signal.get("onu_rx", "--")
-            selected_onu["tx_power"] = live_signal.get("tx_power", "--")
-            selected_onu["olt_rx"] = live_signal.get("olt_rx", "--")
+    if need_optical and live_signal:
+        selected_onu["onu_rx"] = live_signal.get("onu_rx", "--")
+        selected_onu["tx_power"] = live_signal.get("tx_power", "--")
+        selected_onu["olt_rx"] = live_signal.get("olt_rx", "--")
+
+    if record is not None:
+        capability_update_fields = []
+        if selected_onu["onu_type"] not in {"", "-"} and selected_onu["onu_type"] != (record.onu_type_cache or ""):
+            record.onu_type_cache = selected_onu["onu_type"]
+            capability_update_fields.append("onu_type_cache")
+        if selected_onu["uplink_pon_ports"] not in {"", "-"} and selected_onu["uplink_pon_ports"] != (record.uplink_pon_ports_cache or ""):
+            record.uplink_pon_ports_cache = selected_onu["uplink_pon_ports"]
+            capability_update_fields.append("uplink_pon_ports_cache")
+        if selected_onu["pots_ports"] not in {"", "-"} and selected_onu["pots_ports"] != (record.pots_ports_cache or ""):
+            record.pots_ports_cache = selected_onu["pots_ports"]
+            capability_update_fields.append("pots_ports_cache")
+        if selected_onu["eth_ports"] not in {"", "-"} and selected_onu["eth_ports"] != (record.eth_ports_cache or ""):
+            record.eth_ports_cache = selected_onu["eth_ports"]
+            capability_update_fields.append("eth_ports_cache")
+        if selected_onu["catv_uni_ports"] not in {"", "-"} and selected_onu["catv_uni_ports"] != (record.catv_uni_ports_cache or ""):
+            record.catv_uni_ports_cache = selected_onu["catv_uni_ports"]
+            capability_update_fields.append("catv_uni_ports_cache")
+        if selected_onu["ont_distance_m"] != (record.ont_distance_m or ""):
+            record.ont_distance_m = selected_onu["ont_distance_m"]
+            capability_update_fields.append("ont_distance_m")
+        if capability_update_fields:
+            record.capability_synced_at = timezone.now()
+            capability_update_fields.append("capability_synced_at")
+            record.save(update_fields=capability_update_fields)
     selected_onu["signal_distance_text"] = _format_onu_distance_text(selected_onu.get("ont_distance_m"))
     selected_onu["signal_class"] = _classify_onu_signal(selected_onu.get("olt_rx"))
     signal_visible = any(str(selected_onu.get(key, "")).strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
     signal_history = _get_onu_signal_history(olt, slot, port, ont_id, hours=24)
+    if record is not None and _onu_record_attached_vlan_is_stale(record):
+        _schedule_onu_attached_vlan_sync(olt.pk, slot, port, ont_id)
 
     context = {
         "olt": olt,
@@ -2674,8 +4082,145 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "board_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}",
         "port_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}&port={port}",
         "onu_signal_refresh_url": reverse("configured_onu_signals_refresh"),
+        "onu_mac_address_url": reverse("configured_onu_mac_address", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
+        "onu_running_config_url": reverse("configured_onu_running_config", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
+        "onu_disable_url": reverse("configured_onu_snmp_action", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+            "action": "disable",
+        }),
+        "onu_enable_url": reverse("configured_onu_snmp_action", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+            "action": "enable",
+        }),
+        "onu_restart_url": reverse("configured_onu_snmp_action", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+            "action": "restart",
+        }),
+        "onu_reset_url": reverse("configured_onu_snmp_action", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+            "action": "reset",
+        }),
     }
     return render(request, "oltmanager/configured_onu_detail.html", context)
+
+
+@login_required
+@require_POST
+def configured_onu_mac_address(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    snapshot = fetch_single_ont_mac_addresses(olt, slot, port, ont_id)
+    status_code = 200 if snapshot.get("ok") else 400
+    message = _ui_telnet_error_message(snapshot.get("message"))
+    return JsonResponse(
+        {
+            "ok": bool(snapshot.get("ok")),
+            "output": str(snapshot.get("output") or ""),
+            "message": message,
+            "command": str(snapshot.get("command") or ""),
+        },
+        status=status_code,
+    )
+
+
+@login_required
+@require_POST
+def configured_onu_live_status(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    snapshot = fetch_single_ont_live_status(olt, slot, port, ont_id)
+    status_code = 200 if snapshot.get("ok") else 400
+    message = _ui_telnet_error_message(snapshot.get("message"))
+    return JsonResponse(
+        {
+            "ok": bool(snapshot.get("ok")),
+            "output": str(snapshot.get("output") or ""),
+            "message": message,
+            "command": str(snapshot.get("command") or ""),
+        },
+        status=status_code,
+    )
+
+
+@login_required
+@require_POST
+def configured_onu_running_config(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    snapshot = fetch_single_ont_running_config(olt, slot, port, ont_id)
+    status_code = 200 if snapshot.get("ok") else 400
+    message = _ui_telnet_error_message(snapshot.get("message"))
+    return JsonResponse(
+        {
+            "ok": bool(snapshot.get("ok")),
+            "output": str(snapshot.get("output") or ""),
+            "message": message,
+            "command": str(snapshot.get("command") or ""),
+        },
+        status=status_code,
+    )
+
+
+@login_required
+@require_POST
+def configured_onu_snmp_action(request, olt_pk, slot, port, ont_id, action):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    snapshot = execute_onu_snmp_control_action(olt, slot, port, ont_id, action)
+    record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
+    if snapshot.get("ok") and record is not None:
+        now = timezone.now()
+        action_key = str(action or "").strip().lower()
+        if action_key == "disable":
+            record.control_flag = "disabled"
+            record.run_state = "offline"
+            record.derived_status = "admin_disabled"
+            record.status_source = "snmp_write"
+        elif action_key == "enable":
+            record.control_flag = ""
+            record.run_state = "offline"
+            record.derived_status = "offline"
+            record.status_source = "snmp_write"
+        elif action_key in {"restart", "reset"}:
+            record.run_state = "offline"
+            if str(record.derived_status or "").strip().lower() != "admin_disabled":
+                record.derived_status = "offline"
+            record.status_source = "snmp_write"
+        record.status_first_seen_at = now
+        record.status_updated_at = now
+        record.save(update_fields=["control_flag", "run_state", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"])
+    status_code = 200 if snapshot.get("ok") else 400
+    return JsonResponse(
+        {
+            "ok": bool(snapshot.get("ok")),
+            "message": str(snapshot.get("message") or ""),
+            "oid": str(snapshot.get("oid") or ""),
+            "value": str(snapshot.get("value") or ""),
+            "action": str(action or ""),
+            "status_value": (record.derived_status if record is not None else ""),
+            "status_label": (_configured_status_label(record.derived_status, run_state=record.run_state) if record is not None else ""),
+            "status_class": (_configured_status_class(record.derived_status, run_state=record.run_state) if record is not None else ""),
+        },
+        status=status_code,
+    )
 
 
 @login_required
@@ -2726,6 +4271,7 @@ def olt_add(request):
                 failure_text = f"OLT added, but SNMP fetch failed: {snmp_status}"
             _schedule_device_snapshots_refresh(olt.pk)
             _schedule_configured_onu_inventory_refresh(olt.pk)
+            _schedule_new_olt_vlan_fill(olt.pk)
             if snmp_ok:
                 messages.success(request, success_text)
             else:
@@ -2828,7 +4374,6 @@ def olt_telnet_connect(request, pk):
 
 @login_required
 def olt_view(request, pk):
-    olt = get_object_or_404(OLT, pk=pk)
     available_sections = {
         'olt-details',
         'olt-cards',
@@ -2842,6 +4387,7 @@ def olt_view(request, pk):
     selected_section = getattr(request, "_olt_view_section", None) or request.GET.get('section', 'olt-details')
     if selected_section not in available_sections:
         selected_section = 'olt-details'
+    olt = _get_olt_for_view(pk, selected_section)
 
     olt_cards = []
     olt_cards_status = ''
@@ -2885,13 +4431,34 @@ def olt_view(request, pk):
     if selected_section == 'pon-ports':
         saved_groups = list(getattr(olt, "pon_ports_cache", []) or [])
         if saved_groups:
-            pon_port_groups = saved_groups
+            pon_port_groups = _attach_pon_port_latest_traffic(saved_groups, olt.pk)
             pon_ports_status = _clean_ui_status(olt.pon_ports_status, 'Loaded from database', has_data=bool(saved_groups))
             _set_cached_pon_ports(olt.pk, pon_port_groups, pon_ports_status)
         else:
             _schedule_device_snapshots_refresh(olt.pk)
             pon_port_groups = []
             pon_ports_status = 'Snapshot is being prepared. Open again shortly or use Refresh PON Ports.'
+        pon_traffic_port_choices = _flatten_pon_port_choices(pon_port_groups)
+        default_choice = pon_traffic_port_choices[0] if pon_traffic_port_choices else None
+        selected_pon_traffic_slot = default_choice["slot"] if default_choice else None
+        selected_pon_traffic_port = default_choice["port"] if default_choice else None
+        pon_traffic_graph = _build_olt_pon_port_traffic_graph(olt.pk, '1h', selected_pon_traffic_slot, selected_pon_traffic_port) if default_choice else {
+            "range_key": "1h",
+            "range_label": "Hourly",
+            "points": [],
+            "latest": {"upload_mbps": 0, "download_mbps": 0, "upload_pps": 0, "download_pps": 0, "upload_avg_size": 0, "download_avg_size": 0, "upload_max_mbps": 0, "download_max_mbps": 0},
+        }
+        if default_choice and not (pon_traffic_graph.get("points") or []):
+            try:
+                record_pon_port_traffic_sample_for_olt(olt, force=True)
+                pon_traffic_graph = _build_olt_pon_port_traffic_graph(
+                    olt.pk,
+                    '1h',
+                    selected_pon_traffic_slot,
+                    selected_pon_traffic_port,
+                )
+            except OperationalError:
+                pass
 
     if selected_section == 'olt-details':
         snmp_snapshot = _build_saved_device_snapshot(olt)
@@ -2900,18 +4467,44 @@ def olt_view(request, pk):
         if saved_uplink_rows:
             uplink_data = {
                 'status': _clean_ui_status(getattr(olt, "uplink_status", ""), 'Loaded from database', has_data=True),
-                'rows': saved_uplink_rows,
+                'rows': _attach_uplink_latest_traffic(saved_uplink_rows, olt.pk),
             }
         else:
             _schedule_device_snapshots_refresh(olt.pk)
             uplink_data = {'status': 'Snapshot is being prepared. Open again shortly or use Refresh Ports.', 'rows': []}
+        uplink_traffic_port_choices = _flatten_uplink_port_choices(uplink_data.get("rows") or [])
+        default_uplink_choice = uplink_traffic_port_choices[0]["value"] if uplink_traffic_port_choices else ""
+        uplink_traffic_graph = (
+            _get_cached_port_traffic_payload(
+                ("uplink", olt.pk, "1h", default_uplink_choice),
+                lambda: _build_olt_uplink_traffic_graph(olt.pk, '1h', default_uplink_choice),
+            )
+            if default_uplink_choice else {
+                "range_key": "1h",
+                "range_label": "Hourly",
+                "points": [],
+                "latest": {"upload_mbps": 0, "download_mbps": 0, "upload_max_mbps": 0, "download_max_mbps": 0},
+            }
+        )
 
     if selected_section == 'vlans':
         saved_vlan_rows = list(getattr(olt, "vlan_cache", []) or [])
+        vlan_onu_counts = {}
+        for cache_value in ConfiguredONU.objects.filter(olt=olt).exclude(attached_vlans_cache="").values_list("attached_vlans_cache", flat=True):
+            for vlan_id in [part.strip() for part in str(cache_value or "").split(",") if part.strip()]:
+                vlan_onu_counts[vlan_id] = vlan_onu_counts.get(vlan_id, 0) + 1
         if saved_vlan_rows:
+            prepared_vlan_rows = []
+            configured_onus_url = reverse("configured_onus")
+            for row in saved_vlan_rows:
+                prepared_row = dict(row)
+                vlan_id_text = str(prepared_row.get("vlan_id") or "").strip()
+                prepared_row["onu_count"] = vlan_onu_counts.get(vlan_id_text, 0)
+                prepared_row["onu_link"] = f"{configured_onus_url}?olt={olt.pk}&vlan={quote_plus(vlan_id_text)}" if vlan_id_text else ""
+                prepared_vlan_rows.append(prepared_row)
             vlan_data = {
                 'status': _clean_ui_status(getattr(olt, "vlan_status", ""), 'Loaded from database', has_data=True),
-                'rows': saved_vlan_rows,
+                'rows': prepared_vlan_rows,
             }
         else:
             vlan_data = {
@@ -2998,9 +4591,16 @@ def olt_view(request, pk):
         'pon_ports_status': pon_ports_status,
         'pon_ports_status_display': pon_ports_status_display,
         'pon_ports_refresh_data_url': reverse('olt_pon_ports_refresh_data', kwargs={'pk': olt.pk}),
+        'uplink_refresh_data_url': reverse('olt_uplink_refresh_data', kwargs={'pk': olt.pk}),
+        'pon_traffic_graph': pon_traffic_graph if selected_section == 'pon-ports' else None,
+        'pon_traffic_port_choices': pon_traffic_port_choices if selected_section == 'pon-ports' else [],
+        'pon_traffic_graph_url': reverse('olt_pon_traffic_graph_data', kwargs={'pk': olt.pk}) if selected_section == 'pon-ports' else '',
         'snmp_snapshot': snmp_snapshot,
         'uplink_data': uplink_data,
         'uplink_status_display': uplink_status_display,
+        'uplink_traffic_graph': uplink_traffic_graph if selected_section == 'uplink' else None,
+        'uplink_traffic_port_choices': uplink_traffic_port_choices if selected_section == 'uplink' else [],
+        'uplink_traffic_graph_url': reverse('olt_uplink_traffic_graph_data', kwargs={'pk': olt.pk}) if selected_section == 'uplink' else '',
         'vlan_data': vlan_data,
         'vlan_status_display': vlan_status_display,
         'vlan_add_form': vlan_add_form,
@@ -3193,6 +4793,7 @@ def olt_pon_ports_refresh_data(request, pk):
         refreshed = False
 
     groups = list(getattr(olt, "pon_ports_cache", []) or [])
+    groups = _attach_pon_port_latest_traffic(groups, olt.pk)
     status_text = _clean_ui_status(
         getattr(olt, "pon_ports_status", ""),
         "No PON ports found.",
@@ -3211,6 +4812,137 @@ def olt_pon_ports_refresh_data(request, pk):
         "refreshed": refreshed,
         "refreshed_at": refreshed_display,
     })
+
+
+@login_required
+def olt_uplink_refresh_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    rows = _attach_uplink_latest_traffic(list(getattr(olt, "uplink_cache", []) or []), olt.pk)
+    status_text = _clean_ui_status(
+        getattr(olt, "uplink_status", ""),
+        "No uplink data found.",
+        has_data=bool(rows),
+    )
+    refreshed_at = getattr(olt, "uplink_refreshed_at", None)
+    refreshed_display = (
+        timezone.localtime(refreshed_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+        if refreshed_at
+        else ""
+    )
+    return JsonResponse({
+        "ok": True,
+        "rows": rows,
+        "status": status_text,
+        "refreshed_at": refreshed_display,
+    })
+
+
+@login_required
+def olt_pon_traffic_graph_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    range_key = (request.GET.get("range") or "1h").strip().lower()
+    port_value = (request.GET.get("pon_port") or "").strip()
+    slot = None
+    port = None
+    if ":" in port_value:
+        left, right = port_value.split(":", 1)
+        if left.isdigit() and right.isdigit():
+            slot = int(left)
+            port = int(right)
+
+    if slot is None or port is None:
+        first_choice = next(
+            iter(_flatten_pon_port_choices(list(getattr(olt, "pon_ports_cache", []) or []), only_up=True, include_all=False)),
+            None,
+        )
+        if first_choice:
+            slot = first_choice["slot"]
+            port = first_choice["port"]
+    cache_key = ("pon", olt.pk, range_key, f"{slot}:{port}")
+    if range_key == "live":
+        try:
+            had_history = PONPortTrafficSample.objects.filter(olt_id=olt.pk, slot=slot, port=port).exists() if slot is not None and port is not None else False
+            record_pon_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+            if slot is not None and port is not None and not had_history:
+                time.sleep(0.8)
+                record_pon_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+        except OperationalError:
+            pass
+        payload = _build_olt_pon_port_traffic_graph(olt.pk, range_key, slot, port)
+        return JsonResponse({"ok": True, **payload})
+
+    payload = _get_cached_port_traffic_payload(
+        cache_key,
+        lambda: _build_olt_pon_port_traffic_graph(olt.pk, range_key, slot, port),
+    )
+    if slot is not None and port is not None and not (payload.get("points") or []):
+        try:
+            had_history = PONPortTrafficSample.objects.filter(olt_id=olt.pk, slot=slot, port=port).exists()
+            record_pon_port_traffic_sample_for_olt(olt, force=True)
+            if not had_history:
+                time.sleep(0.8)
+                record_pon_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+        except OperationalError:
+            pass
+        else:
+            with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
+                _PORT_TRAFFIC_GRAPH_CACHE.pop(cache_key, None)
+            payload = _get_cached_port_traffic_payload(
+                cache_key,
+                lambda: _build_olt_pon_port_traffic_graph(olt.pk, range_key, slot, port),
+            )
+    return JsonResponse({"ok": True, **payload})
+
+
+@login_required
+def olt_uplink_traffic_graph_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    range_key = (request.GET.get("range") or "1h").strip().lower()
+    port_name = (request.GET.get("uplink_port") or "").strip()
+    if not port_name:
+        first_choice = next(
+            iter(_flatten_uplink_port_choices({
+                "rows": list(getattr(olt, "uplink_cache", []) or []),
+                "only_up": True,
+                "include_all": False,
+            })),
+            None,
+        )
+        port_name = (first_choice or {}).get("value", "")
+    cache_key = ("uplink", olt.pk, range_key, port_name)
+    if range_key == "live":
+        try:
+            had_history = UplinkPortTrafficSample.objects.filter(olt_id=olt.pk, port_name=port_name).exists() if port_name else False
+            record_uplink_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+            if port_name and not had_history:
+                time.sleep(0.8)
+                record_uplink_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+        except OperationalError:
+            pass
+        payload = _build_olt_uplink_traffic_graph(olt.pk, range_key, port_name)
+        return JsonResponse({"ok": True, **payload})
+
+    payload = _get_cached_port_traffic_payload(
+        cache_key,
+        lambda: _build_olt_uplink_traffic_graph(olt.pk, range_key, port_name),
+    )
+    if port_name and not (payload.get("points") or []):
+        try:
+            had_history = UplinkPortTrafficSample.objects.filter(olt_id=olt.pk, port_name=port_name).exists()
+            record_uplink_port_traffic_sample_for_olt(olt, force=True)
+            if not had_history:
+                time.sleep(0.8)
+                record_uplink_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
+        except OperationalError:
+            pass
+        else:
+            with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
+                _PORT_TRAFFIC_GRAPH_CACHE.pop(cache_key, None)
+            payload = _get_cached_port_traffic_payload(
+                cache_key,
+                lambda: _build_olt_uplink_traffic_graph(olt.pk, range_key, port_name),
+            )
+    return JsonResponse({"ok": True, **payload})
 
 
 @login_required
@@ -3287,8 +5019,6 @@ def olt_add_vlan(request, pk):
                     "rows": fetched_rows,
                     "status": f"VLANs fetched: {len(fetched_rows)}",
                 })
-            fetched_count = len(fetched_rows)
-            vlan_found = fetched_row is not None
             _record_olt_login(
                 olt,
                 request.user,
@@ -3296,24 +5026,18 @@ def olt_add_vlan(request, pk):
                 f'VLAN added: id={cleaned["vlan_id"]}, description={cleaned["description"] or "-"}',
                 request=request,
             )
-            if vlan_found and fetched_count >= previous_count:
-                messages.success(request, "VLAN added successfully.")
-                notice_text = "VLAN added successfully."
-                _store_vlan_notice(request, olt.pk, notice_text)
-            else:
-                messages.warning(request, "VLAN not created or not detected on OLT after refresh.")
-                notice_text = "VLAN not created or not detected on OLT after refresh."
-                _store_vlan_notice(request, olt.pk, notice_text)
-            success_form = VLANAddForm(reserved_ids={int(row.get("vlan_id")) for row in fetched_rows if str(row.get("vlan_id", "")).isdigit()})
-            success_transcript = add_result.get("transcript") or ""
-            if not _store_vlan_form_state(request, olt.pk, success_form, transcript=success_transcript):
-                return _render_olt_vlans_response(request, pk, form=success_form, transcript=success_transcript, notice=notice_text)
+            messages.success(request, "Created")
+            notice_text = "Created"
+            _store_vlan_notice(request, olt.pk, notice_text)
+            success_form = VLANAddForm(
+                reserved_ids={int(row.get("vlan_id")) for row in fetched_rows if str(row.get("vlan_id", "")).isdigit()},
+            )
+            if not _store_vlan_form_state(request, olt.pk, success_form, transcript=""):
+                return _render_olt_vlans_response(request, pk, form=success_form, transcript="", notice=notice_text)
         else:
-            error_message = add_result.get("message") or "VLAN create failed."
-            error_transcript = add_result.get("transcript") or ""
-            _store_vlan_notice(request, olt.pk, f"Not created: {error_message}")
-            if not _store_vlan_form_state(request, olt.pk, form, transcript=error_transcript):
-                return _render_olt_vlans_response(request, pk, form=form, transcript=error_transcript, notice=f"Not created: {error_message}")
+            _store_vlan_notice(request, olt.pk, "Not created")
+            if not _store_vlan_form_state(request, olt.pk, form, transcript=""):
+                return _render_olt_vlans_response(request, pk, form=form, transcript="", notice="Not created")
             return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
     finally:
         live_lock.release()
@@ -3364,9 +5088,6 @@ def olt_add_vlan_bulk(request, pk):
                     "rows": fetched_rows,
                     "status": f"VLANs fetched: {len(fetched_rows)}",
                 })
-            expected = (end_vlan - start_vlan) + 1
-            verified_ids = {int(row.get("vlan_id", -1) or -1) for row in verified_rows}
-            verified_ok = len([vlan_id for vlan_id in range(start_vlan, end_vlan + 1) if vlan_id in verified_ids]) == expected
             _record_olt_login(
                 olt,
                 request.user,
@@ -3374,25 +5095,18 @@ def olt_add_vlan_bulk(request, pk):
                 f"VLAN range added: {start_vlan}-{end_vlan}",
                 request=request,
             )
-            if verified_ok:
-                messages.success(request, "VLAN range added successfully.")
-                notice_text = "VLAN range added successfully."
-            else:
-                messages.warning(request, "VLAN range not created or not detected on OLT after refresh.")
-                notice_text = "VLAN range not created or not detected on OLT after refresh."
+            messages.success(request, "Created")
+            notice_text = "Created"
             _store_vlan_notice(request, olt.pk, notice_text)
             success_form = VLANBulkAddForm(
-                reserved_ids={int(row.get("vlan_id")) for row in fetched_rows if str(row.get("vlan_id", "")).isdigit()}
+                reserved_ids={int(row.get("vlan_id")) for row in fetched_rows if str(row.get("vlan_id", "")).isdigit()},
             )
-            success_transcript = add_result.get("transcript") or ""
-            if not _store_vlan_bulk_form_state(request, olt.pk, success_form, transcript=success_transcript):
-                return _render_olt_vlans_response(request, pk, bulk_form=success_form, bulk_transcript=success_transcript, notice=notice_text)
+            if not _store_vlan_bulk_form_state(request, olt.pk, success_form, transcript=""):
+                return _render_olt_vlans_response(request, pk, bulk_form=success_form, bulk_transcript="", notice=notice_text)
         else:
-            error_message = add_result.get("message") or "VLAN range create failed."
-            error_transcript = add_result.get("transcript") or ""
-            _store_vlan_notice(request, olt.pk, f"Not created: {error_message}")
-            if not _store_vlan_bulk_form_state(request, olt.pk, form, transcript=error_transcript):
-                return _render_olt_vlans_response(request, pk, bulk_form=form, bulk_transcript=error_transcript, notice=f"Not created: {error_message}")
+            _store_vlan_notice(request, olt.pk, "Not created")
+            if not _store_vlan_bulk_form_state(request, olt.pk, form, transcript=""):
+                return _render_olt_vlans_response(request, pk, bulk_form=form, bulk_transcript="", notice="Not created")
             return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
     finally:
         live_lock.release()
@@ -3417,19 +5131,33 @@ def olt_delete_vlan(request, pk):
         return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
     try:
-        delete_result = delete_vlan_netconf(olt, vlan_id)
+        vlan_id_text = str(vlan_id)
+        onu_count = 0
+        for cache_value in ConfiguredONU.objects.filter(olt=olt).exclude(attached_vlans_cache="").values_list("attached_vlans_cache", flat=True):
+            parts = [part.strip() for part in str(cache_value or "").split(",") if part.strip()]
+            if vlan_id_text in parts:
+                onu_count += 1
+        if onu_count:
+            _store_vlan_notice(request, olt.pk, f"Remove {onu_count} ONU(s) from VLAN {vlan_id} first")
+            messages.warning(request, f"Remove {onu_count} ONU(s) from VLAN {vlan_id} first")
+            return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+        delete_result = delete_vlan_snmp(olt, vlan_id)
         if not delete_result.get("ok"):
-            error_message = delete_result.get("message") or "VLAN delete failed."
-            _store_vlan_notice(request, olt.pk, f"Not deleted: {error_message}")
-            messages.warning(request, f"Not deleted: {error_message}")
+            delete_message = str(delete_result.get("message") or "")
+            if "nosuchname" in delete_message.lower():
+                notice_text = "SNMP delete unsupported on this OLT"
+            else:
+                notice_text = "Not deleted"
+            _store_vlan_notice(request, olt.pk, notice_text)
+            messages.warning(request, notice_text)
             return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
         verify_result = fetch_single_vlan(olt, vlan_id)
         vlan_still_present = bool(verify_result.get("ok"))
         if vlan_still_present:
-            failure_text = f"VLAN {vlan_id} is still present on the OLT."
-            _store_vlan_notice(request, olt.pk, failure_text)
-            messages.warning(request, failure_text)
+            _store_vlan_notice(request, olt.pk, "Not deleted")
+            messages.warning(request, "Not deleted")
             return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
         current_rows = list(getattr(olt, "vlan_cache", []) or [])
@@ -3445,10 +5173,10 @@ def olt_delete_vlan(request, pk):
             olt,
             request.user,
             "delete_vlan",
-            f"VLAN deleted via NETCONF: id={vlan_id}",
+            f"VLAN deleted via SNMP: id={vlan_id}",
             request=request,
         )
-        success_text = f"VLAN {vlan_id} deleted successfully."
+        success_text = "Deleted"
         _store_vlan_notice(request, olt.pk, success_text)
         messages.success(request, success_text)
     finally:

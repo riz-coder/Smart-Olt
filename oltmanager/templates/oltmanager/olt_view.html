@@ -377,6 +377,17 @@
       .onus-link {
           text-decoration: none;
       }
+      .vlan-onus-link,
+      .vlan-onus-link:visited {
+          color: #7fc0ff;
+          font-weight: 700;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+      }
+      .vlan-onus-link:hover,
+      .vlan-onus-link:focus {
+          color: #a8d5ff;
+      }
       .onus-link.onus-online,
       .onus-link.onus-online:visited,
       .onus-link.onus-online:hover {
@@ -427,6 +438,117 @@
     .avg-signal-link:hover {
         text-decoration: underline;
     }
+    .pon-traffic-box {
+        margin: 0 0 16px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #0f1b32;
+    }
+    .pon-traffic-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+    .pon-traffic-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .pon-traffic-select {
+        min-width: 180px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #29466f;
+        background: #091120;
+        color: #dbe8ff;
+    }
+    .pon-traffic-select.range-select {
+        min-width: 130px;
+    }
+    .pon-traffic-canvas {
+        position: relative;
+        border: 1px solid #21395f;
+        border-radius: 12px;
+        background: #08111f;
+        padding: 12px;
+    }
+    .pon-traffic-svg {
+        width: 100%;
+        height: 230px;
+        display: block;
+    }
+    .pon-traffic-grid {
+        stroke: rgba(115, 152, 207, 0.2);
+        stroke-width: 1;
+    }
+    .pon-traffic-axis {
+        fill: #89a3ca;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .pon-traffic-line-download {
+        fill: none;
+        stroke: #60a5fa;
+        stroke-width: 2.2;
+    }
+    .pon-traffic-line-upload {
+        fill: none;
+        stroke: #f59e0b;
+        stroke-width: 2.2;
+    }
+    .pon-traffic-point-download { fill: #60a5fa; }
+    .pon-traffic-point-upload { fill: #f59e0b; }
+    .pon-traffic-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        color: #dbe8ff;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .pon-traffic-latest {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .pon-traffic-legend {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 10px;
+        color: #dbe8ff;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .pon-traffic-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        margin-right: 6px;
+    }
+    .pon-traffic-empty {
+        min-height: 180px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6f90bf;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .pon-port-row-active {
+        outline: 1px solid rgba(80, 154, 255, 0.85);
+        box-shadow: inset 0 0 0 9999px rgba(56, 130, 246, 0.08);
+    }
     .avg-signal-bars {
         display: inline-flex;
         align-items: flex-end;
@@ -445,6 +567,35 @@
     .avg-signal-bars span:nth-child(2) { height: 8px; }
     .avg-signal-bars span:nth-child(3) { height: 11px; }
     .avg-signal-bars span:nth-child(4) { height: 14px; }
+    .pon-traffic-inline {
+        display: grid;
+        gap: 3px;
+        min-width: 132px;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+    .pon-traffic-inline strong {
+        color: #dbe8ff;
+        font-weight: 800;
+    }
+    .pon-traffic-inline span {
+        color: #99b1d4;
+    }
+    .pon-traffic-inline .traffic-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .pon-traffic-inline .traffic-label.in {
+        color: #7cc4ff;
+    }
+    .pon-traffic-inline .traffic-label.out {
+        color: #ffbf66;
+    }
+    .pon-traffic-inline .traffic-value {
+        color: #f4f8ff;
+        font-weight: 800;
+    }
     .uptime-pill {
         display: inline-block;
         margin-top: 2px;
@@ -716,12 +867,13 @@
                                           <th>ONUs</th>
                                           <th>SFP Tx</th>
                                           <th>Average signal</th>
+                                          <th>Traffic</th>
                                       </tr>
                                 </thead>
                                 <tbody>
                                     {% for port in grp.ports %}
-                                    <tr>
-                                        <td>{{ port.port }}</td>
+                                    <tr data-pon-port-row data-slot="{{ grp.slot }}" data-port="{{ port.port }}">
+                                        <td>GPON 0/{{ grp.slot }}/{{ port.port }}</td>
                                         <td>{{ port.type }}</td>
                                         <td>{{ port.admin_state }}</td>
                                         <td class="{% if 'down' in port.status|lower %}pon-status-down{% elif 'up' in port.status|lower %}pon-status-up{% endif %}">{{ port.status }}</td>
@@ -745,6 +897,12 @@
                                             {% else %}
                                             -
                                             {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="pon-traffic-inline">
+                                                <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">{% if port.latest_download_mbps or port.latest_download_mbps == 0 %}{{ port.latest_download_mbps }} Mbps{% else %}-{% endif %}</span></div>
+                                                <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">{% if port.latest_upload_mbps or port.latest_upload_mbps == 0 %}{{ port.latest_upload_mbps }} Mbps{% else %}-{% endif %}</span></div>
+                                            </div>
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -778,6 +936,7 @@
                                     <th>Speed</th>
                                     <th>Negotiation</th>
                                     <th>MTU</th>
+                                    <th>Traffic</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -790,6 +949,12 @@
                                     <td class="{% if row.speed|default:'-' != '-' %}status-normal{% endif %}">{{ row.speed|default:"-" }}</td>
                                     <td>{{ row.negotiation }}</td>
                                     <td>{{ row.mtu }}</td>
+                                    <td>
+                                        <div class="pon-traffic-inline">
+                                            <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">{% if row.latest_download_mbps or row.latest_download_mbps == 0 %}{{ row.latest_download_mbps }} Mbps{% else %}-{% endif %}</span></div>
+                                            <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">{% if row.latest_upload_mbps or row.latest_upload_mbps == 0 %}{{ row.latest_upload_mbps }} Mbps{% else %}-{% endif %}</span></div>
+                                        </div>
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -812,7 +977,7 @@
                                 type="button"
                                 class="btn btn-primary"
                                 id="toggleAddVlanBtn"
-                                aria-expanded="{% if vlan_add_form.is_bound or vlan_add_form.non_field_errors or vlan_transcript %}true{% else %}false{% endif %}"
+                                aria-expanded="{% if vlan_add_form.is_bound or vlan_add_form.non_field_errors %}true{% else %}false{% endif %}"
                                 aria-controls="addVlanCard"
                             >
                                 Add VLAN
@@ -821,7 +986,7 @@
                                 type="button"
                                 class="btn btn-primary"
                                 id="toggleAddBulkVlanBtn"
-                                aria-expanded="{% if vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors or vlan_bulk_transcript %}true{% else %}false{% endif %}"
+                                aria-expanded="{% if vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors %}true{% else %}false{% endif %}"
                                 aria-controls="addBulkVlanCard"
                             >
                                 Add Multiple VLANs
@@ -835,7 +1000,7 @@
                     <div
                         class="vlan-add-card"
                         id="addVlanCard"
-                        {% if not vlan_add_form.is_bound and not vlan_add_form.non_field_errors and not vlan_transcript %}hidden{% endif %}
+                        {% if not vlan_add_form.is_bound and not vlan_add_form.non_field_errors %}hidden{% endif %}
                     >
                         <h4>Create VLAN</h4>
                         {% if vlan_add_form.non_field_errors %}
@@ -863,17 +1028,11 @@
                                 <button type="submit" class="btn btn-primary vlan-add-submit">Create VLAN</button>
                             </div>
                         </form>
-                        {% if vlan_transcript and not vlan_add_form.errors %}
-                        <div class="vlan-cli-output" id="vlanCliOutputBox">
-                            <strong>Command Output</strong>
-                            <pre>{{ vlan_transcript }}</pre>
-                        </div>
-                        {% endif %}
                     </div>
                     <div
                         class="vlan-add-card"
                         id="addBulkVlanCard"
-                        {% if not vlan_bulk_form.is_bound and not vlan_bulk_form.non_field_errors and not vlan_bulk_transcript %}hidden{% endif %}
+                        {% if not vlan_bulk_form.is_bound and not vlan_bulk_form.non_field_errors %}hidden{% endif %}
                     >
                         <h4>Create Multiple VLANs</h4>
                         {% if vlan_bulk_form.non_field_errors %}
@@ -895,17 +1054,11 @@
                                 <button type="submit" class="btn btn-primary vlan-bulk-add-submit">Create VLANs</button>
                             </div>
                         </form>
-                        {% if vlan_bulk_transcript and not vlan_bulk_form.errors %}
-                        <div class="vlan-cli-output" id="vlanBulkCliOutputBox">
-                            <strong>Command Output</strong>
-                            <pre>{{ vlan_bulk_transcript }}</pre>
-                        </div>
-                        {% endif %}
                     </div>
                     <div
                         class="vlan-list-wrap"
                         id="vlanListWrap"
-                        {% if vlan_add_form.is_bound or vlan_add_form.non_field_errors or vlan_transcript or vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors or vlan_bulk_transcript %}hidden{% endif %}
+                        {% if vlan_add_form.is_bound or vlan_add_form.non_field_errors or vlan_bulk_form.is_bound or vlan_bulk_form.non_field_errors %}hidden{% endif %}
                     >
                     {% if vlan_data.rows %}
                     <div class="cards-table-wrap">
@@ -913,23 +1066,29 @@
                             <thead>
                                 <tr>
                                     <th>VLAN</th>
-                                    <th>ONUs</th>
                                     <th>Description</th>
                                     <th>Action</th>
+                                    <th>ONUs</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for row in vlan_data.rows %}
                                 <tr>
                                     <td>{{ row.vlan_id }}</td>
-                                    <td>{{ row.service_port_num|default:"-" }}</td>
                                     <td>{{ row.description|default:"-" }}</td>
                                     <td>
-                                        <form method="post" action="{% url 'olt_delete_vlan' olt.pk %}" class="refresh-form">
+                                        <form method="post" action="{% url 'olt_delete_vlan' olt.pk %}" class="inline">
                                             {% csrf_token %}
                                             <input type="hidden" name="vlan_id" value="{{ row.vlan_id }}">
-                                            <button type="submit" class="btn btn-primary btn-mini" data-loading-text="Deleting...">Delete</button>
+                                            <button type="submit" class="btn btn-danger btn-mini">Delete</button>
                                         </form>
+                                    </td>
+                                    <td>
+                                        {% if row.onu_link %}
+                                        <a href="{{ row.onu_link }}" class="onus-link vlan-onus-link" title="Show ONUs for VLAN {{ row.vlan_id }}">{{ row.onu_count|default:0 }}</a>
+                                        {% else %}
+                                        {{ row.onu_count|default:0 }}
+                                        {% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -1686,6 +1845,12 @@ terminal.addEventListener('click', () => terminal.focus());
         `;
     };
 
+    const formatLatestTraffic = (value) => {
+        if (value === 0 || value === '0' || value === 0.0) return '0 Mbps';
+        if (value === null || value === undefined || value === '') return '-';
+        return `${escapeHtml(value)} Mbps`;
+    };
+
     const renderGroups = (groups) => {
         const oltPk = "{{ olt.pk }}";
         const safeGroups = groups || [];
@@ -1706,6 +1871,7 @@ terminal.addEventListener('click', () => terminal.focus());
                             <th>ONUs</th>
                             <th>SFP Tx</th>
                             <th>Average signal</th>
+                            <th>Traffic</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1733,6 +1899,12 @@ terminal.addEventListener('click', () => terminal.focus());
                                 </td>
                                 <td>${port.sfp_tx ? escapeHtml(port.sfp_tx) : '-'}</td>
                                 <td>${buildAverageSignalMarkup(oltPk, grp.slot, port.port, port.average_signal, port.average_signal_bucket)}</td>
+                                <td>
+                                    <div class="pon-traffic-inline">
+                                        <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">${formatLatestTraffic(port.latest_download_mbps)}</span></div>
+                                        <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">${formatLatestTraffic(port.latest_upload_mbps)}</span></div>
+                                    </div>
+                                </td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -1756,8 +1928,9 @@ terminal.addEventListener('click', () => terminal.focus());
         }
     };
 
-    window.setInterval(refreshPonPorts, 120000);
+    window.setInterval(refreshPonPorts, 600000);
 })();
+
 </script>
 {% endblock %}
 

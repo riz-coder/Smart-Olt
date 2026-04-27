@@ -39,6 +39,9 @@ class OLT(models.Model):
     dashboard_uptime = models.CharField(max_length=120, blank=True, default='')
     dashboard_temperature = models.CharField(max_length=32, blank=True, default='')
     dashboard_snapshot_refreshed_at = models.DateTimeField(blank=True, null=True)
+    attached_vlan_sync_cursor_pk = models.PositiveIntegerField(default=0)
+    attached_vlan_sync_status = models.CharField(max_length=300, blank=True, default='')
+    attached_vlan_sync_updated_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -78,9 +81,18 @@ class ConfiguredONU(models.Model):
     description = models.CharField(max_length=255, blank=True, default='')
     address = models.CharField(max_length=255, blank=True, default='')
     contact = models.CharField(max_length=64, blank=True, default='')
+    onu_type_cache = models.CharField(max_length=128, blank=True, default='')
+    uplink_pon_ports_cache = models.CharField(max_length=32, blank=True, default='')
+    pots_ports_cache = models.CharField(max_length=32, blank=True, default='')
+    eth_ports_cache = models.CharField(max_length=32, blank=True, default='')
+    catv_uni_ports_cache = models.CharField(max_length=32, blank=True, default='')
+    capability_synced_at = models.DateTimeField(blank=True, null=True)
+    attached_vlans_cache = models.CharField(max_length=255, blank=True, default='')
+    attached_vlans_synced_at = models.DateTimeField(blank=True, null=True)
     onu_rx = models.CharField(max_length=32, blank=True, default='')
     olt_rx = models.CharField(max_length=32, blank=True, default='')
     tx_power = models.CharField(max_length=32, blank=True, default='')
+    ont_distance_m = models.CharField(max_length=32, blank=True, default='')
     signal_bucket = models.CharField(max_length=16, blank=True, default='', db_index=True)
     derived_status = models.CharField(max_length=32, blank=True, default='', db_index=True)
     status_source = models.CharField(max_length=32, blank=True, default='')
@@ -159,6 +171,9 @@ class DashboardStatusSample(models.Model):
     total_onus = models.PositiveIntegerField(default=0)
     online_onus = models.PositiveIntegerField(default=0)
     offline_onus = models.PositiveIntegerField(default=0)
+    wait_for_authorize_total = models.PositiveIntegerField(default=0)
+    wait_for_authorize_new_total = models.PositiveIntegerField(default=0)
+    wait_for_authorize_resync_total = models.PositiveIntegerField(default=0)
     admin_disabled = models.PositiveIntegerField(default=0)
     power_failure = models.PositiveIntegerField(default=0)
     loss_of_signal = models.PositiveIntegerField(default=0)
@@ -176,3 +191,62 @@ class DashboardStatusSample(models.Model):
     def __str__(self):
         scope = self.olt.name if self.olt_id else 'All OLTs'
         return f"{scope} @ {self.sampled_at}"
+
+
+class PONTrafficSample(models.Model):
+    olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='pon_traffic_samples', null=True, blank=True)
+    in_octets = models.BigIntegerField(default=0)
+    out_octets = models.BigIntegerField(default=0)
+    in_packets = models.BigIntegerField(default=0)
+    out_packets = models.BigIntegerField(default=0)
+    sampled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sampled_at']
+        indexes = [
+            models.Index(fields=['olt', 'sampled_at'], name='pon_traffic_olt_time_idx'),
+            models.Index(fields=['sampled_at'], name='pon_traffic_time_idx'),
+        ]
+
+    def __str__(self):
+        scope = self.olt.name if self.olt_id else 'All OLTs'
+        return f"{scope} PON traffic @ {self.sampled_at}"
+
+
+class PONPortTrafficSample(models.Model):
+    olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='pon_port_traffic_samples')
+    slot = models.PositiveIntegerField(default=0)
+    port = models.PositiveIntegerField(default=0)
+    in_octets = models.BigIntegerField(default=0)
+    out_octets = models.BigIntegerField(default=0)
+    in_packets = models.BigIntegerField(default=0)
+    out_packets = models.BigIntegerField(default=0)
+    sampled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sampled_at']
+        indexes = [
+            models.Index(fields=['olt', 'slot', 'port', 'sampled_at'], name='pon_port_slot_time_idx'),
+            models.Index(fields=['olt', 'sampled_at'], name='pon_port_olt_time_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.olt.name} GPON 0/{self.slot}/{self.port} @ {self.sampled_at}"
+
+
+class UplinkPortTrafficSample(models.Model):
+    olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='uplink_port_traffic_samples')
+    port_name = models.CharField(max_length=64)
+    in_octets = models.BigIntegerField(default=0)
+    out_octets = models.BigIntegerField(default=0)
+    sampled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sampled_at']
+        indexes = [
+            models.Index(fields=['olt', 'port_name', 'sampled_at'], name='uplk_port_time_idx'),
+            models.Index(fields=['olt', 'sampled_at'], name='uplk_olt_time_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.olt.name} {self.port_name} @ {self.sampled_at}"

@@ -31,6 +31,23 @@ PROMPT_LINE_PATTERN = re.compile(r"^[^\r\n]*[>#\]]\s*$")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _TELNET_SESSION_LOCK = threading.Lock()
 _TELNET_SESSIONS = {}
+_ONU_TRAFFIC_IFINDEX_CACHE_LOCK = threading.Lock()
+_ONU_TRAFFIC_IFINDEX_CACHE = {}
+
+
+def _run_asyncio_sync(awaitable):
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(awaitable)
+    finally:
+        try:
+            loop.close()
+        finally:
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
 
 
 def generate_snmp_community():
@@ -248,6 +265,90 @@ def fetch_snmp_snapshot(olt):
     except Exception as exc:
         snapshot["status"] = f"SNMP fetch failed: {exc}"
         return snapshot
+
+
+def probe_snmp_reachability(olt):
+    result = {
+        "ok": False,
+        "status": "SNMP no response",
+    }
+    try:
+        from pysnmp.hlapi.asyncio import (  # type: ignore
+            CommunityData,
+            ContextData,
+            ObjectIdentity,
+            ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            get_cmd,
+        )
+    except Exception:
+        result["status"] = "pysnmp not installed"
+        return result
+
+    async def _snmp_get(mp_model):
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.0,
+            retries=0,
+        )
+        return await get_cmd(
+            SnmpEngine(),
+            CommunityData(olt.snmp_community, mpModel=mp_model),
+            target,
+            ContextData(),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.5.0")),
+        )
+
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            error_indication, error_status, _, var_binds = asyncio.run(_snmp_get(mp_model))
+            if error_indication:
+                last_error = str(error_indication)
+                continue
+            if error_status:
+                last_error = error_status.prettyPrint()
+                continue
+            if var_binds:
+                result["ok"] = True
+                result["status"] = "Live SNMP data fetched"
+                return result
+        except Exception as exc:
+            last_error = str(exc)
+    result["status"] = (
+        "SNMP timeout/no response. Check community, UDP port, SNMP version, and ACL/firewall. "
+        f"Last error: {last_error or 'no response'}"
+    )[:300]
+    return result
+
+
+def mark_olt_onus_offline_due_to_snmp(olt, *, status_text=""):
+    from .models import ConfiguredONU
+
+    now = timezone.now()
+    rows = list(
+        ConfiguredONU.objects.filter(olt=olt)
+        .exclude(derived_status="offline", run_state="offline")
+        .only("id", "derived_status", "run_state", "status_source", "status_first_seen_at", "status_updated_at")
+    )
+    for row in rows:
+        row.run_state = "offline"
+        row.derived_status = "offline"
+        row.status_source = "snmp_down"
+        row.status_first_seen_at = now
+        row.status_updated_at = now
+    if rows:
+        ConfiguredONU.objects.bulk_update(
+            rows,
+            ["run_state", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"],
+            batch_size=500,
+        )
+
+    olt.snmp_last_status = (status_text or "SNMP no response on UDP 161")[:300]
+    olt.snmp_last_synced_at = now
+    olt.save(update_fields=["snmp_last_status", "snmp_last_synced_at"])
+    return {"checked": len(rows), "updated": len(rows)}
 
 
 def fetch_snmp_interfaces(olt, limit=24):
@@ -568,6 +669,779 @@ def fetch_snmp_interfaces(olt, limit=24):
     except Exception as exc:
         result["status"] = f"SNMP interface fetch failed: {exc}"
         return result
+
+
+def fetch_snmp_onu_live_traffic(olt, slot, port, *, frame=0, ifname_limit=2048):
+    result = {
+        "ok": False,
+        "status": "SNMP live traffic unavailable",
+        "port_name": f"GPON {int(frame)}/{int(slot)}/{int(port)}",
+        "if_index": "",
+        "sample_time": timezone.now().isoformat(),
+        "counters": {
+            "in_octets": "0",
+            "out_octets": "0",
+            "in_packets": "0",
+            "out_packets": "0",
+        },
+    }
+    try:
+        from pysnmp.hlapi.asyncio import (  # type: ignore
+            CommunityData,
+            ContextData,
+            ObjectIdentity,
+            ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            get_cmd,
+            next_cmd,
+        )
+    except Exception:
+        result["status"] = "pysnmp not installed"
+        return result
+
+    cache_key = (int(olt.pk), int(frame), int(slot), int(port))
+    target_ifname = f"GPON {int(frame)}/{int(slot)}/{int(port)}".upper()
+
+    def _normalize_ifname(value):
+        text = str(value or "").strip().strip('"').upper()
+        return re.sub(r"\s+", " ", text)
+
+    def _pick_first_numeric(*values):
+        for value in values:
+            text = str(value or "").strip()
+            if text in {"18446744073709551615", "4294967295"}:
+                continue
+            if text.isdigit():
+                return text
+        return "0"
+
+    async def _walk_ifname(mp_model):
+        rows = {}
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        engine = SnmpEngine()
+        base_oid = "1.3.6.1.2.1.31.1.1.1.1"
+        current_oid = base_oid
+        for _ in range(ifname_limit):
+            error_indication, error_status, _, var_binds = await next_cmd(
+                engine,
+                CommunityData(olt.snmp_community, mpModel=mp_model),
+                target,
+                ContextData(),
+                ObjectType(ObjectIdentity(current_oid)),
+            )
+            if error_indication:
+                engine.close_dispatcher()
+                raise RuntimeError(str(error_indication))
+            if error_status:
+                engine.close_dispatcher()
+                raise RuntimeError(error_status.prettyPrint())
+            if not var_binds:
+                break
+            stop = False
+            for oid, value in var_binds:
+                oid_text = str(oid)
+                if not oid_text.startswith(base_oid + "."):
+                    stop = True
+                    break
+                rows[oid_text.split(".")[-1]] = str(value)
+                current_oid = oid_text
+            if stop:
+                break
+        engine.close_dispatcher()
+        return rows
+
+    async def _get_port_counters(mp_model, if_index):
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        base = str(if_index).strip()
+        return await get_cmd(
+            SnmpEngine(),
+            CommunityData(olt.snmp_community, mpModel=mp_model),
+            target,
+            ContextData(),
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.31.1.1.1.6.{base}")),   # ifHCInOctets
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.31.1.1.1.10.{base}")),  # ifHCOutOctets
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.31.1.1.1.7.{base}")),   # ifHCInUcastPkts
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.31.1.1.1.11.{base}")),  # ifHCOutUcastPkts
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.2.2.1.10.{base}")),     # ifInOctets fallback
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.2.2.1.16.{base}")),     # ifOutOctets fallback
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.2.2.1.11.{base}")),     # ifInUcastPkts fallback
+            ObjectType(ObjectIdentity(f"1.3.6.1.2.1.2.2.1.17.{base}")),     # ifOutUcastPkts fallback
+        )
+
+    def _resolve_if_index():
+        with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+            cached = _ONU_TRAFFIC_IFINDEX_CACHE.get(cache_key)
+            if cached:
+                return cached
+        last_error = ""
+        for mp_model in (1, 0):
+            try:
+                walked = asyncio.run(_walk_ifname(mp_model))
+                for idx, if_name in walked.items():
+                    if _normalize_ifname(if_name) == target_ifname:
+                        with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+                            _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
+                        return str(idx)
+            except Exception as exc:
+                last_error = str(exc)
+        result["status"] = f"SNMP traffic ifIndex lookup failed: {last_error or 'no response'}"
+        return ""
+
+    if_index = _resolve_if_index()
+    if not if_index:
+        return result
+
+    result["if_index"] = if_index
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            error_indication, error_status, _, var_binds = asyncio.run(_get_port_counters(mp_model, if_index))
+            if error_indication:
+                last_error = str(error_indication)
+                continue
+            if error_status:
+                last_error = error_status.prettyPrint()
+                continue
+            values = [str(var_bind[1]) for var_bind in var_binds]
+            result["counters"] = {
+                "in_octets": _pick_first_numeric(values[0], values[4]),
+                "out_octets": _pick_first_numeric(values[1], values[5]),
+                "in_packets": _pick_first_numeric(values[2], values[6]),
+                "out_packets": _pick_first_numeric(values[3], values[7]),
+            }
+            result["ok"] = True
+            result["status"] = "SNMP live traffic fetched"
+            result["sample_time"] = timezone.now().isoformat()
+            return result
+        except Exception as exc:
+            last_error = str(exc)
+    result["status"] = f"SNMP live traffic fetch failed: {last_error or 'no response'}"
+    return result
+
+
+def _snmp_normalize_ifname(value):
+    text = str(value or "").strip().strip('"').upper()
+    return re.sub(r"\s+", " ", text)
+
+
+def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1):
+    from pysnmp.hlapi.asyncio import (  # type: ignore
+        CommunityData,
+        ContextData,
+        ObjectIdentity,
+        ObjectType,
+        SnmpEngine,
+        UdpTransportTarget,
+        next_cmd,
+    )
+
+    async def _walk():
+        rows = {}
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        engine = SnmpEngine()
+        current_oid = base_oid
+        for _ in range(limit):
+            error_indication, error_status, _, var_binds = await next_cmd(
+                engine,
+                CommunityData(olt.snmp_community, mpModel=mp_model),
+                target,
+                ContextData(),
+                ObjectType(ObjectIdentity(current_oid)),
+                lexicographicMode=False,
+            )
+            if error_indication:
+                engine.close_dispatcher()
+                raise RuntimeError(str(error_indication))
+            if error_status:
+                engine.close_dispatcher()
+                raise RuntimeError(error_status.prettyPrint())
+            if not var_binds:
+                break
+            stop = False
+            for oid, value in var_binds:
+                oid_text = str(oid)
+                if not oid_text.startswith(base_oid + "."):
+                    stop = True
+                    break
+                rows[oid_text] = str(value)
+                current_oid = oid_text
+            if stop:
+                break
+        engine.close_dispatcher()
+        return rows
+
+    return _run_asyncio_sync(_walk())
+
+
+def _snmp_get_value(olt, oid, *, mp_model=1):
+    from pysnmp.hlapi.asyncio import (  # type: ignore
+        CommunityData,
+        ContextData,
+        ObjectIdentity,
+        ObjectType,
+        SnmpEngine,
+        UdpTransportTarget,
+        get_cmd,
+    )
+
+    async def _get():
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        return await get_cmd(
+            SnmpEngine(),
+            CommunityData(olt.snmp_community, mpModel=mp_model),
+            target,
+            ContextData(),
+            ObjectType(ObjectIdentity(oid)),
+        )
+
+    return _run_asyncio_sync(_get())
+
+
+def _snmp_set_value(olt, oid, value, *, value_type="Integer", mp_model=1):
+    from pysnmp.hlapi.asyncio import (  # type: ignore
+        CommunityData,
+        ContextData,
+        Integer,
+        ObjectIdentity,
+        ObjectType,
+        OctetString,
+        SnmpEngine,
+        UdpTransportTarget,
+        set_cmd,
+    )
+
+    type_map = {
+        "Integer": Integer,
+        "OctetString": OctetString,
+    }
+    caster = type_map.get(value_type, Integer)
+
+    async def _set():
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=0,
+        )
+        return await set_cmd(
+            SnmpEngine(),
+            CommunityData(olt.snmp_write_community or olt.snmp_community, mpModel=mp_model),
+            target,
+            ContextData(),
+            ObjectType(ObjectIdentity(oid), caster(value)),
+        )
+
+    return _run_asyncio_sync(_set())
+
+
+def _resolve_snmp_gpon_ifindex(olt, slot, port, *, frame=0, ifname_limit=4096):
+    cache_key = (int(olt.pk), int(frame), int(slot), int(port))
+    target_ifname = f"GPON {int(frame)}/{int(slot)}/{int(port)}".upper()
+    with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+        cached = _ONU_TRAFFIC_IFINDEX_CACHE.get(cache_key)
+        if cached:
+            return str(cached)
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            walked = _snmp_walk_rows(olt, "1.3.6.1.2.1.31.1.1.1.1", limit=ifname_limit, mp_model=mp_model)
+            for oid_text, if_name in walked.items():
+                idx = oid_text.split(".")[-1]
+                if _snmp_normalize_ifname(if_name) == target_ifname:
+                    with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+                        _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
+                    return str(idx)
+        except Exception as exc:
+            last_error = str(exc)
+    return ""
+
+
+def _format_snmp_distance_value(raw_value):
+    text = str(raw_value or "").strip()
+    if text in {"", "-1", "2147483647", "4294967295"}:
+        return ""
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return ""
+    return str(value)
+
+
+def fetch_single_onu_snmp_distance(olt, slot, port, ont_id, *, frame=0):
+    result = {
+        "status": "SNMP ONU distance unavailable",
+        "ont_distance_m": "",
+    }
+    try:
+        if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, frame=frame)
+        if not if_index:
+            result["status"] = "SNMP ONU distance ifIndex lookup failed"
+            return result
+        last_error = ""
+        base_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.20"
+        target_oid = f"{base_oid}.{int(if_index)}.{int(ont_id)}"
+        for mp_model in (1, 0):
+            try:
+                error_indication, error_status, _, var_binds = _snmp_get_value(olt, target_oid, mp_model=mp_model)
+                if error_indication:
+                    last_error = str(error_indication)
+                    continue
+                if error_status:
+                    last_error = error_status.prettyPrint()
+                    continue
+                if not var_binds:
+                    continue
+                result["ont_distance_m"] = _format_snmp_distance_value(var_binds[0][1])
+                result["status"] = "SNMP ONU distance fetched"
+                return result
+            except Exception as exc:
+                last_error = str(exc)
+        result["status"] = f"SNMP ONU distance fetch failed: {last_error or 'no response'}"
+        return result
+    except Exception as exc:
+        result["status"] = f"SNMP ONU distance fetch failed: {exc}"
+        return result
+
+
+def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0):
+    result = {
+        "ok": False,
+        "message": "SNMP ONU action unavailable",
+        "oid": "",
+        "value": "",
+    }
+    action_key = str(action or "").strip().lower()
+    action_map = {
+        "enable": {
+            "oid_base": "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.1",
+            "value": 1,
+            "label": "Enable ONU",
+        },
+        "disable": {
+            "oid_base": "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.1",
+            "value": 2,
+            "label": "Disable ONU",
+        },
+        "restart": {
+            "oid_base": "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.3",
+            "value": 1,
+            "label": "Restart ONU",
+        },
+        "reset": {
+            "oid_base": "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.2",
+            "value": 1,
+            "label": "Reset ONU",
+        },
+    }
+    config = action_map.get(action_key)
+    if not config:
+        result["message"] = "Unsupported SNMP ONU action."
+        return result
+    if not str(getattr(olt, "snmp_write_community", "") or "").strip():
+        result["message"] = "SNMP write community is not configured."
+        return result
+    try:
+        if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, frame=frame)
+        if not if_index:
+            result["message"] = "SNMP ifIndex lookup failed."
+            return result
+        target_oid = f"{config['oid_base']}.{int(if_index)}.{int(ont_id)}"
+        result["oid"] = target_oid
+        result["value"] = str(config["value"])
+        last_error = ""
+        for mp_model in (1, 0):
+            try:
+                error_indication, error_status, _, _ = _snmp_set_value(
+                    olt,
+                    target_oid,
+                    config["value"],
+                    value_type="Integer",
+                    mp_model=mp_model,
+                )
+                if error_indication:
+                    last_error = str(error_indication)
+                    continue
+                if error_status:
+                    last_error = error_status.prettyPrint()
+                    continue
+                result["ok"] = True
+                result["message"] = f"{config['label']} command sent."
+                return result
+            except Exception as exc:
+                last_error = str(exc)
+        result["message"] = f"{config['label']} failed: {last_error or 'no response'}"
+        return result
+    except Exception as exc:
+        result["message"] = f"SNMP ONU action failed: {exc}"
+        return result
+
+
+def fetch_olt_snmp_distance_map(olt, *, ifname_limit=4096, distance_limit=16384):
+    result = {
+        "status": "SNMP ONU distance map unavailable",
+        "items": {},
+    }
+    try:
+        base_ifname_oid = "1.3.6.1.2.1.31.1.1.1.1"
+        base_distance_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.20"
+        last_error = ""
+        for mp_model in (1, 0):
+            try:
+                ifname_rows = _snmp_walk_rows(olt, base_ifname_oid, limit=ifname_limit, mp_model=mp_model)
+                distance_rows = _snmp_walk_rows(olt, base_distance_oid, limit=distance_limit, mp_model=mp_model)
+                break
+            except Exception as exc:
+                last_error = str(exc)
+        else:
+            result["status"] = f"SNMP ONU distance map fetch failed: {last_error or 'no response'}"
+            return result
+
+        gpon_indexes = {}
+        for oid_text, if_name in (ifname_rows or {}).items():
+            idx = oid_text.split(".")[-1]
+            normalized = _snmp_normalize_ifname(if_name)
+            match = re.search(r"GPON\s+(\d+)\s*/\s*(\d+)\s*/\s*(\d+)", normalized)
+            if not match:
+                continue
+            frame, slot, port = [int(part) for part in match.groups()]
+            gpon_indexes[str(idx)] = (frame, slot, port)
+            cache_key = (int(olt.pk), frame, slot, port)
+            with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+                _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
+
+        items = {}
+        for oid_text, raw_value in (distance_rows or {}).items():
+            suffix = oid_text[len(base_distance_oid) + 1 :]
+            parts = suffix.split(".")
+            if len(parts) < 2:
+                continue
+            if_index = str(parts[-2]).strip()
+            ont_id = int(parts[-1])
+            fsp = gpon_indexes.get(if_index)
+            if not fsp:
+                continue
+            _, slot, port = fsp
+            formatted = _format_snmp_distance_value(raw_value)
+            if formatted:
+                items[(slot, port, ont_id)] = formatted
+        result["items"] = items
+        result["status"] = f"SNMP ONU distance map fetched: {len(items)}"
+        return result
+    except Exception as exc:
+        result["status"] = f"SNMP ONU distance map fetch failed: {exc}"
+        return result
+
+
+def _map_snmp_onu_status(control_value, run_value):
+    control_text = str(control_value or "").strip()
+    run_text = str(run_value or "").strip()
+    if control_text == "1" or run_text == "3":
+        return "online"
+    if control_text == "2" or run_text == "1":
+        return "offline"
+    return ""
+
+
+def fetch_olt_snmp_status_map(olt, *, ifname_limit=4096, status_limit=16384):
+    result = {
+        "status": "SNMP ONU status map unavailable",
+        "items": {},
+    }
+    try:
+        base_ifname_oid = "1.3.6.1.2.1.31.1.1.1.1"
+        base_control_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15"
+        base_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16"
+        last_error = ""
+        for mp_model in (1, 0):
+            try:
+                ifname_rows = _snmp_walk_rows(olt, base_ifname_oid, limit=ifname_limit, mp_model=mp_model)
+                control_rows = _snmp_walk_rows(olt, base_control_oid, limit=status_limit, mp_model=mp_model)
+                run_rows = _snmp_walk_rows(olt, base_run_oid, limit=status_limit, mp_model=mp_model)
+                break
+            except Exception as exc:
+                last_error = str(exc)
+        else:
+            result["status"] = f"SNMP ONU status map fetch failed: {last_error or 'no response'}"
+            return result
+
+        gpon_indexes = {}
+        for oid_text, if_name in (ifname_rows or {}).items():
+            idx = oid_text.split(".")[-1]
+            normalized = _snmp_normalize_ifname(if_name)
+            match = re.search(r"GPON\s+(\d+)\s*/\s*(\d+)\s*/\s*(\d+)", normalized)
+            if not match:
+                continue
+            frame, slot, port = [int(part) for part in match.groups()]
+            gpon_indexes[str(idx)] = (frame, slot, port)
+            cache_key = (int(olt.pk), frame, slot, port)
+            with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
+                _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
+
+        run_by_key = {}
+        for oid_text, raw_value in (run_rows or {}).items():
+            suffix = oid_text[len(base_run_oid) + 1 :]
+            parts = suffix.split(".")
+            if len(parts) < 2:
+                continue
+            run_by_key[(str(parts[-2]).strip(), int(parts[-1]))] = str(raw_value or "").strip()
+
+        items = {}
+        for oid_text, raw_value in (control_rows or {}).items():
+            suffix = oid_text[len(base_control_oid) + 1 :]
+            parts = suffix.split(".")
+            if len(parts) < 2:
+                continue
+            if_index = str(parts[-2]).strip()
+            ont_id = int(parts[-1])
+            fsp = gpon_indexes.get(if_index)
+            if not fsp:
+                continue
+            _, slot, port = fsp
+            status_value = _map_snmp_onu_status(raw_value, run_by_key.get((if_index, ont_id)))
+            if status_value:
+                items[(slot, port, ont_id)] = status_value
+        result["items"] = items
+        result["status"] = f"SNMP ONU status map fetched: {len(items)}"
+        return result
+    except Exception as exc:
+        result["status"] = f"SNMP ONU status map fetch failed: {exc}"
+        return result
+
+
+def fetch_snmp_pon_aggregate_counters(olt, ifname_limit=4096):
+    result = {
+        "ok": False,
+        "status": "SNMP PON traffic unavailable",
+        "in_octets": 0,
+        "out_octets": 0,
+        "in_packets": 0,
+        "out_packets": 0,
+        "ports": 0,
+        "sample_time": timezone.now(),
+    }
+    try:
+        from pysnmp.hlapi.asyncio import (  # type: ignore
+            CommunityData,
+            ContextData,
+            ObjectIdentity,
+            ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            next_cmd,
+        )
+    except Exception:
+        result["status"] = "pysnmp not installed"
+        return result
+
+    oids = {
+        "name": "1.3.6.1.2.1.31.1.1.1.1",
+        "in_hc_octets": "1.3.6.1.2.1.31.1.1.1.6",
+        "out_hc_octets": "1.3.6.1.2.1.31.1.1.1.10",
+        "in_hc_packets": "1.3.6.1.2.1.31.1.1.1.7",
+        "out_hc_packets": "1.3.6.1.2.1.31.1.1.1.11",
+        "in_octets": "1.3.6.1.2.1.2.2.1.10",
+        "out_octets": "1.3.6.1.2.1.2.2.1.16",
+        "in_packets": "1.3.6.1.2.1.2.2.1.11",
+        "out_packets": "1.3.6.1.2.1.2.2.1.17",
+    }
+
+    def _clean_counter(value):
+        text = str(value or "").strip()
+        if text in {"", "18446744073709551615", "4294967295"}:
+            return 0
+        try:
+            return int(text)
+        except (TypeError, ValueError):
+            return 0
+
+    async def _walk_oid(mp_model, base_oid):
+        rows = {}
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        engine = SnmpEngine()
+        current_oid = base_oid
+        for _ in range(ifname_limit):
+            error_indication, error_status, _, var_binds = await next_cmd(
+                engine,
+                CommunityData(olt.snmp_community, mpModel=mp_model),
+                target,
+                ContextData(),
+                ObjectType(ObjectIdentity(current_oid)),
+            )
+            if error_indication:
+                engine.close_dispatcher()
+                raise RuntimeError(str(error_indication))
+            if error_status:
+                engine.close_dispatcher()
+                raise RuntimeError(error_status.prettyPrint())
+            if not var_binds:
+                break
+            stop = False
+            for oid, value in var_binds:
+                oid_text = str(oid)
+                if not oid_text.startswith(base_oid + "."):
+                    stop = True
+                    break
+                rows[oid_text.split(".")[-1]] = str(value)
+                current_oid = oid_text
+            if stop:
+                break
+        engine.close_dispatcher()
+        return rows
+
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            walked = {key: asyncio.run(_walk_oid(mp_model, oid)) for key, oid in oids.items()}
+            gpon_indexes = []
+            for idx, if_name in walked["name"].items():
+                normalized = str(if_name or "").strip().strip('"').upper()
+                if normalized.startswith("GPON "):
+                    gpon_indexes.append(idx)
+            if not gpon_indexes:
+                result["status"] = "No GPON interfaces found in SNMP interface table."
+                return result
+            result["in_octets"] = sum(_clean_counter(walked["in_hc_octets"].get(idx)) or _clean_counter(walked["in_octets"].get(idx)) for idx in gpon_indexes)
+            result["out_octets"] = sum(_clean_counter(walked["out_hc_octets"].get(idx)) or _clean_counter(walked["out_octets"].get(idx)) for idx in gpon_indexes)
+            result["in_packets"] = sum(_clean_counter(walked["in_hc_packets"].get(idx)) or _clean_counter(walked["in_packets"].get(idx)) for idx in gpon_indexes)
+            result["out_packets"] = sum(_clean_counter(walked["out_hc_packets"].get(idx)) or _clean_counter(walked["out_packets"].get(idx)) for idx in gpon_indexes)
+            result["ports"] = len(gpon_indexes)
+            result["sample_time"] = timezone.now()
+            result["status"] = f"SNMP PON traffic fetched: {len(gpon_indexes)} ports"
+            result["ok"] = True
+            return result
+        except Exception as exc:
+            last_error = str(exc)
+    result["status"] = f"SNMP PON traffic fetch failed: {last_error or 'no response'}"
+    return result
+
+
+def fetch_snmp_pon_port_counters(olt, ifname_limit=4096):
+    result = {
+        "ok": False,
+        "status": "SNMP PON port traffic unavailable",
+        "rows": [],
+        "sample_time": timezone.now(),
+    }
+    try:
+        from pysnmp.hlapi.asyncio import (  # type: ignore
+            CommunityData,
+            ContextData,
+            ObjectIdentity,
+            ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            next_cmd,
+        )
+    except Exception:
+        result["status"] = "pysnmp not installed"
+        return result
+
+    oids = {
+        "name": "1.3.6.1.2.1.31.1.1.1.1",
+        "in_hc_octets": "1.3.6.1.2.1.31.1.1.1.6",
+        "out_hc_octets": "1.3.6.1.2.1.31.1.1.1.10",
+        "in_hc_packets": "1.3.6.1.2.1.31.1.1.1.7",
+        "out_hc_packets": "1.3.6.1.2.1.31.1.1.1.11",
+        "in_octets": "1.3.6.1.2.1.2.2.1.10",
+        "out_octets": "1.3.6.1.2.1.2.2.1.16",
+        "in_packets": "1.3.6.1.2.1.2.2.1.11",
+        "out_packets": "1.3.6.1.2.1.2.2.1.17",
+    }
+
+    def _clean_counter(value):
+        text = str(value or "").strip()
+        if text in {"", "18446744073709551615", "4294967295"}:
+            return 0
+        try:
+            return int(text)
+        except (TypeError, ValueError):
+            return 0
+
+    async def _walk_oid(mp_model, base_oid):
+        rows = {}
+        target = await UdpTransportTarget.create((olt.ip_address, olt.snmp_port), timeout=1.2, retries=1)
+        engine = SnmpEngine()
+        current_oid = base_oid
+        for _ in range(ifname_limit):
+            error_indication, error_status, _, var_binds = await next_cmd(
+                engine,
+                CommunityData(olt.snmp_community, mpModel=mp_model),
+                target,
+                ContextData(),
+                ObjectType(ObjectIdentity(current_oid)),
+            )
+            if error_indication:
+                engine.close_dispatcher()
+                raise RuntimeError(str(error_indication))
+            if error_status:
+                engine.close_dispatcher()
+                raise RuntimeError(error_status.prettyPrint())
+            if not var_binds:
+                break
+            stop = False
+            for oid, value in var_binds:
+                oid_text = str(oid)
+                if not oid_text.startswith(base_oid + "."):
+                    stop = True
+                    break
+                rows[oid_text.split(".")[-1]] = str(value)
+                current_oid = oid_text
+            if stop:
+                break
+        engine.close_dispatcher()
+        return rows
+
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            walked = {key: asyncio.run(_walk_oid(mp_model, oid)) for key, oid in oids.items()}
+            rows = []
+            for idx, if_name in walked["name"].items():
+                normalized = str(if_name or "").strip().strip('"').upper()
+                match = re.match(r"^GPON\s+(\d+)\/(\d+)\/(\d+)$", normalized)
+                if not match:
+                    continue
+                frame, slot, port = [int(part) for part in match.groups()]
+                rows.append({
+                    "if_index": str(idx),
+                    "frame": frame,
+                    "slot": slot,
+                    "port": port,
+                    "port_name": normalized,
+                    "in_octets": _clean_counter(walked["in_hc_octets"].get(idx)) or _clean_counter(walked["in_octets"].get(idx)),
+                    "out_octets": _clean_counter(walked["out_hc_octets"].get(idx)) or _clean_counter(walked["out_octets"].get(idx)),
+                    "in_packets": _clean_counter(walked["in_hc_packets"].get(idx)) or _clean_counter(walked["in_packets"].get(idx)),
+                    "out_packets": _clean_counter(walked["out_hc_packets"].get(idx)) or _clean_counter(walked["out_packets"].get(idx)),
+                })
+            result["rows"] = rows
+            result["sample_time"] = timezone.now()
+            result["status"] = f"SNMP PON port traffic fetched: {len(rows)} ports"
+            result["ok"] = True
+            return result
+        except Exception as exc:
+            last_error = str(exc)
+    result["status"] = f"SNMP PON port traffic fetch failed: {last_error or 'no response'}"
+    return result
 
 
 def fetch_snmp_pon_port_states(olt, limit=256):
@@ -1406,20 +2280,36 @@ def _snmp_config_commands(vendor, read_community, write_community=""):
 
 
 def _authenticate_telnet(tn, username, password):
-    login_prompts = [re.compile(rb"(?i)(login|user\s*name|username|user)\s*:?\s*$")]
-    password_prompts = [re.compile(rb"(?i)password\s*:?\s*$")]
-    fail_markers = [re.compile(rb"(?i)(invalid|failed|denied|incorrect)")]
+    login_prompts = [re.compile(rb"(?im)^[^\r\n]*(login|user\s*name|username|user)\s*:?\s*$")]
+    password_prompts = [re.compile(rb"(?im)^[^\r\n]*password\s*:?\s*$")]
+    fail_markers = [
+        re.compile(rb"(?i)user\s*name\s*or\s*password\s*invalid\.?"),
+        re.compile(rb"(?i)username\s*or\s*password\s*invalid\.?"),
+        re.compile(rb"(?i)password\s*invalid\.?"),
+        re.compile(rb"(?i)authentication\s*failed\.?"),
+        re.compile(rb"(?i)access\s*denied\.?"),
+    ]
     # Matches common prompts like "#", "MA5600T>", "<Huawei>", "OLT]"
     shell_prompts = [re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")]
+
+    def _detect_from_buffer(buffer):
+        if not buffer:
+            return -1
+        for idx, pattern in enumerate(shell_prompts + login_prompts + password_prompts + fail_markers):
+            if pattern.search(buffer):
+                return idx
+        return -1
 
     last_reason = "Telnet login failed."
     for eol in ("\r\n", "\n"):
         try:
-            preface = tn.read_very_eager().decode("ascii", errors="ignore")
-            tn.write(eol.encode("ascii", errors="ignore"))
-
-            # Handle direct shell or immediate login/password prompts.
-            idx, _, _ = tn.expect(shell_prompts + login_prompts + password_prompts + fail_markers, timeout=12)
+            preface_raw = tn.read_very_eager()
+            preface = preface_raw.decode("ascii", errors="ignore")
+            idx = _detect_from_buffer(preface_raw)
+            if idx < 0:
+                tn.write(eol.encode("ascii", errors="ignore"))
+                # Handle direct shell or immediate login/password prompts.
+                idx, _, _ = tn.expect(shell_prompts + login_prompts + password_prompts + fail_markers, timeout=12)
             if idx == 0:
                 return True, "Telnet authenticated."
             if idx == 1:
@@ -1640,31 +2530,33 @@ def _probe_tcp_port(host, port, timeout=2.2):
 
 
 def _diagnose_telnet_open_failure(olt, last_status):
-    tcp_ok, tcp_reason = _probe_tcp_port(olt.ip_address, olt.port)
+    telnet_port = int(getattr(olt, "tcp_port", 23) or 23)
+    tcp_ok, tcp_reason = _probe_tcp_port(olt.ip_address, telnet_port)
     snmp_down_hint = _recent_snmp_down_hint(olt)
     lowered_status = str(last_status or "").lower()
 
     if "username/password invalid" in lowered_status or "returned to login prompt" in lowered_status:
         if tcp_ok:
-            return f"{last_status} | OLT is reachable on TCP {olt.port}; likely credential or login prompt issue."
-        return f"{last_status} | TCP {olt.port} is not reachable ({tcp_reason})."
+            return f"{last_status} | OLT is reachable on Telnet TCP {telnet_port}; likely credential or shell prompt issue."
+        return f"{last_status} | Telnet TCP {telnet_port} is not reachable ({tcp_reason})."
 
     if not tcp_ok and snmp_down_hint:
         return (
-            f"OLT appears down or unreachable. Telnet TCP {olt.port} probe failed ({tcp_reason}). "
+            f"OLT appears down or unreachable. Telnet TCP {telnet_port} probe failed ({tcp_reason}). "
             f"Recent SNMP status: {snmp_down_hint}"
         )[:300]
     if not tcp_ok:
-        return f"Telnet TCP {olt.port} is not reachable ({tcp_reason})."
+        return f"Telnet TCP {telnet_port} is not reachable ({tcp_reason})."
     if snmp_down_hint:
         return (
             f"{last_status} | Telnet port is reachable, but recent SNMP health was bad: {snmp_down_hint}. "
-            f"Possible prompt/session issue on OLT."
+            f"Possible shell/session issue on OLT."
         )[:300]
-    return f"{last_status} | Telnet port is reachable; likely prompt/session/auth issue on OLT."
+    return f"{last_status} | Telnet port is reachable; likely shell/session/auth issue on OLT."
 
 
 def open_telnet_authenticated_session(olt):
+    telnet_port = int(getattr(olt, "tcp_port", 23) or 23)
     last_status = "Telnet timeout while opening session."
     recovered_sessions = False
     for attempt in range(1, TELNET_OPEN_ATTEMPTS + 1):
@@ -1672,21 +2564,20 @@ def open_telnet_authenticated_session(olt):
         try:
             if attempt == 1:
                 _close_competing_telnet_sessions(olt)
-            tn = telnetlib.Telnet(olt.ip_address, olt.port, timeout=8)
-            ok, status = _authenticate_telnet(tn, olt.username, olt.password)
-            if ok:
-                _register_telnet_session(olt, tn)
-                return tn, status
-
-            last_status = status
-            _close_telnet_session(tn)
-            if attempt < TELNET_OPEN_ATTEMPTS:
-                if not recovered_sessions:
-                    _close_competing_telnet_sessions(olt, force=True)
-                    recovered_sessions = True
-                time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
-                continue
-            return None, _diagnose_telnet_open_failure(olt, status)
+            tn = telnetlib.Telnet(str(olt.ip_address), telnet_port, timeout=8)
+            auth_ok, status = _authenticate_telnet(tn, str(olt.username or ""), str(olt.password or ""))
+            if not auth_ok:
+                last_status = status
+                _close_telnet_session(tn)
+                if attempt < TELNET_OPEN_ATTEMPTS and _is_retryable_auth_status(status):
+                    if not recovered_sessions:
+                        _close_competing_telnet_sessions(olt, force=True)
+                        recovered_sessions = True
+                    time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
+                    continue
+                return None, _diagnose_telnet_open_failure(olt, status)
+            _register_telnet_session(olt, tn)
+            return tn, status
         except (socket.timeout, TimeoutError):
             last_status = "Telnet timeout while opening session."
             _close_telnet_session(tn)
@@ -1775,6 +2666,23 @@ def _clean_cli_transcript_block(command, output):
             continue
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines).strip()
+
+
+def _clean_cli_response_text(command, output):
+    cleaned = _clean_cli_transcript_block(command, output)
+    cleaned = re.sub(r"(?im)^\s*scroll\s+512\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*enable\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*config\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*quit\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*save\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*Command:\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*it\s+will\s+take\s+a\s+long\s+time.*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*you\s+can\s+press\s+ctrl_c\s+to\s+break\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*return\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^\s*\^\s*$", "", cleaned)
+    cleaned = re.sub(r"(?im)^%.*$", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 
 def _prepare_telnet_cli_session(tn, include_enable=True, use_paging=False):
@@ -2016,7 +2924,7 @@ def _run_telnet_save_command(tn):
     return output
 
 
-def _run_telnet_bulk_command(tn, command, max_wait_seconds=45):
+def _run_telnet_bulk_command(tn, command, max_wait_seconds=45, idle_poke=b"\r\n"):
     _touch_telnet_session(tn)
     try:
         tn.read_very_eager()
@@ -2033,6 +2941,7 @@ def _run_telnet_bulk_command(tn, command, max_wait_seconds=45):
     start_ts = time.time()
     idle_rounds = 0
     saw_payload = False
+    idle_pokes = 0
 
     while (time.time() - start_ts) < max_wait_seconds:
         time.sleep(0.35)
@@ -2063,15 +2972,113 @@ def _run_telnet_bulk_command(tn, command, max_wait_seconds=45):
                 break
         else:
             idle_rounds += 1
-            if saw_payload and idle_rounds >= 5:
-                break
-            if not saw_payload and idle_rounds >= 8:
-                break
+            if idle_rounds in {2, 4, 6, 8, 10, 12}:
+                try:
+                    _touch_telnet_session(tn)
+                    tn.write(idle_poke)
+                    idle_pokes += 1
+                except EOFError:
+                    break
+            if saw_payload and idle_rounds >= 14 and idle_pokes >= 2:
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if lines and prompt_pattern.match(lines[-1]):
+                    break
+            if not saw_payload and idle_rounds >= 18 and idle_pokes >= 2:
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if lines and prompt_pattern.match(lines[-1]):
+                    break
 
     output = re.sub(r"(?i)-+\s*more\s*-+", "", output)
     output = re.sub(r"(?i)--more--", "", output)
     output = re.sub(r"(?i)press\s+space\s+to\s+continue", "", output)
     output = re.sub(r"(?i)press\s+enter[^\r\n]*", "", output)
+    return output
+
+
+def _run_service_port_all_command(tn, max_wait_seconds=45):
+    command = "display service-port all"
+    _touch_telnet_session(tn)
+    try:
+        tn.read_very_eager()
+    except (OSError, EOFError):
+        pass
+
+    try:
+        tn.write((command + "\r\n").encode("ascii", errors="ignore"))
+    except EOFError:
+        return ""
+
+    output = ""
+    prompt_pattern = re.compile(r"(?m)^[^\r\n]*[>#\]]\s*$")
+    start_ts = time.time()
+    idle_rounds = 0
+    saw_table = False
+    initial_steps = [b"\r\n", b"\r\n", b" "]
+    initial_step_index = 0
+
+    while (time.time() - start_ts) < max_wait_seconds:
+        time.sleep(0.35)
+        try:
+            chunk = tn.read_very_eager().decode("ascii", errors="ignore")
+        except EOFError:
+            break
+
+        if chunk:
+            cleaned = ANSI_ESCAPE_PATTERN.sub("", chunk)
+            output += cleaned
+            idle_rounds = 0
+            lowered = cleaned.lower()
+
+            if "switch-oriented flow list" in lowered or "index vlan vlan" in lowered:
+                saw_table = True
+
+            if "more" in lowered and "press" in lowered:
+                _touch_telnet_session(tn)
+                tn.write(b" ")
+                continue
+
+            if "<cr>" in lowered or "press enter" in lowered or "sort-by" in lowered:
+                if initial_step_index < len(initial_steps):
+                    _touch_telnet_session(tn)
+                    tn.write(initial_steps[initial_step_index])
+                    initial_step_index += 1
+                else:
+                    _touch_telnet_session(tn)
+                    tn.write(b" ")
+                continue
+
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
+            if saw_table and lines and prompt_pattern.match(lines[-1]):
+                break
+        else:
+            idle_rounds += 1
+            if initial_step_index < len(initial_steps) and idle_rounds >= 2:
+                try:
+                    _touch_telnet_session(tn)
+                    tn.write(initial_steps[initial_step_index])
+                    initial_step_index += 1
+                    idle_rounds = 0
+                    continue
+                except EOFError:
+                    break
+            if saw_table and idle_rounds >= 2:
+                try:
+                    _touch_telnet_session(tn)
+                    tn.write(b" ")
+                except EOFError:
+                    break
+            if idle_rounds >= 10:
+                lines = [line.strip() for line in output.splitlines() if line.strip()]
+                if lines and prompt_pattern.match(lines[-1]):
+                    break
+
+    output = re.sub(r"(?i)-+\s*more\s*-+", "", output)
+    output = re.sub(r"(?i)--more--", "", output)
+    output = re.sub(r"(?i)press\s+space\s+to\s+continue", "", output)
+    output = re.sub(r"(?i)press\s+enter[^\r\n]*", "", output)
+    output = re.sub(r"\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", "", output, flags=re.IGNORECASE | re.MULTILINE)
+    output = re.sub(r"(?i)\{\s*<cr", "", output)
+    output = re.sub(r"(?i)<cr>", "", output)
     return output
 
 
@@ -3308,19 +4315,23 @@ def _parse_single_vlan_row(output):
     if not text.strip() or _is_cli_error_text(text):
         return None
     vlan_match = re.search(r"\bVLAN ID:\s*(\d+)", text, re.IGNORECASE)
-    if not vlan_match:
-        return None
-    service_match = re.search(r"\bService virtual port number:\s*([0-9-]+)", text, re.IGNORECASE)
-    description = _parse_single_vlan_description(text) or "-"
-    try:
-        vlan_id = int(vlan_match.group(1))
-    except (TypeError, ValueError):
-        return None
-    return {
-        "vlan_id": vlan_id,
-        "service_port_num": (service_match.group(1).strip() if service_match else "-") or "-",
-        "description": description,
-    }
+    if vlan_match:
+        service_match = re.search(r"\bService virtual port number:\s*([0-9-]+)", text, re.IGNORECASE)
+        description = _parse_single_vlan_description(text) or "-"
+        try:
+            vlan_id = int(vlan_match.group(1))
+        except (TypeError, ValueError):
+            return None
+        return {
+            "vlan_id": vlan_id,
+            "service_port_num": (service_match.group(1).strip() if service_match else "-") or "-",
+            "description": description,
+        }
+
+    table_rows = _parse_vlan_table(text)
+    if table_rows:
+        return table_rows[0]
+    return None
 
 
 def _compact_dba_output(output):
@@ -3428,9 +4439,23 @@ def fetch_vlan_snapshot(olt):
         _prepare_telnet_cli_session(tn, use_paging=True)
         output = _run_telnet_command(tn, "display vlan all", enter_until_prompt=True)
         rows = _parse_vlan_table(output)
+        if not rows:
+            time.sleep(0.35)
+            retry_output = _run_telnet_command(tn, "display vlan all", enter_until_prompt=True)
+            retry_rows = _parse_vlan_table(retry_output)
+            if retry_rows:
+                output = retry_output
+                rows = retry_rows
         desc_map = {}
         desc_output = _run_telnet_command(tn, "display vlan description", enter_until_prompt=True)
         desc_map.update(_parse_vlan_description_table(desc_output))
+        if not rows and desc_map:
+            time.sleep(0.35)
+            retry_output = _run_telnet_command(tn, "display vlan all", enter_until_prompt=True)
+            retry_rows = _parse_vlan_table(retry_output)
+            if retry_rows:
+                output = retry_output
+                rows = retry_rows
         if len(desc_map) < len(rows):
             for row in rows:
                 vlan_id = int(row.get("vlan_id") or 0)
@@ -3464,6 +4489,13 @@ def fetch_vlan_snapshot(olt):
 def save_vlan_snapshot(olt, data):
     rows = (data or {}).get("rows") or []
     status = (data or {}).get("status") or ""
+    existing_rows = list(getattr(olt, "vlan_cache", []) or [])
+    if not rows and existing_rows and "VLANs fetched: 0" in status:
+        olt.vlan_cache = existing_rows
+        olt.vlan_status = f"{status[:220]} | Retained cached VLAN snapshot: {len(existing_rows)}"
+        olt.vlan_refreshed_at = timezone.now()
+        olt.save(update_fields=["vlan_cache", "vlan_status", "vlan_refreshed_at"])
+        return
     olt.vlan_cache = rows
     olt.vlan_status = status[:300]
     olt.vlan_refreshed_at = timezone.now()
@@ -3697,6 +4729,834 @@ def fetch_single_ont_capability_snapshot(olt, slot, port, ont_id):
         _close_telnet_session(tn)
 
 
+def fetch_single_ont_detail_bundle(olt, slot, port, ont_id, include_optical=False, include_capability=True):
+    runtime_result = {
+        "online_duration": "",
+        "last_up_time": "",
+        "last_down_time": "",
+        "ont_equipment_id": "",
+        "run_state": "",
+        "config_state": "",
+        "control_flag": "",
+        "last_down_cause": "",
+        "battery_state": "",
+        "attached_vlans": "",
+        "onu_mode": "",
+        "ont_distance_m": "",
+        "output": "",
+    }
+    capability_result = {
+        "equipment_id": "",
+        "uplink_pon_ports": "",
+        "pots_ports": "",
+        "eth_ports": "",
+        "catv_uni_ports": "",
+        "output": "",
+    }
+    optical_result = {
+        "onu_rx": "",
+        "olt_rx": "",
+        "tx_power": "",
+    }
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {
+            "runtime_snapshot": runtime_result,
+            "capability_snapshot": capability_result,
+            "live_signal": optical_result,
+        }
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+
+        runtime_output = _run_telnet_command(
+            tn,
+            f"display ont info 0 {int(slot)} {int(port)} {int(ont_id)}",
+            enter_until_prompt=True,
+        )
+        parsed_runtime = _parse_ont_runtime_snapshot(runtime_output)
+        if parsed_runtime:
+            runtime_result = parsed_runtime
+
+        if include_capability:
+            capability_commands = (
+                f"display ont capability 0/{int(slot)} {int(port)} {int(ont_id)}",
+                f"display ont capability 0 {int(slot)} {int(port)} {int(ont_id)}",
+            )
+            best_capability = capability_result
+            for command in capability_commands:
+                capability_output = _run_telnet_command(
+                    tn,
+                    command,
+                    enter_until_prompt=True,
+                )
+                parsed_capability = _parse_ont_capability_snapshot(capability_output)
+                if any(str(parsed_capability.get(key) or "").strip() for key in ("equipment_id", "uplink_pon_ports", "pots_ports", "eth_ports", "catv_uni_ports")):
+                    capability_result = parsed_capability
+                    break
+                if str(capability_output or "").strip():
+                    best_capability = dict(parsed_capability or capability_result)
+                    best_capability["output"] = str(capability_output or "").strip()
+            else:
+                capability_result = best_capability
+
+        if include_optical:
+            optical_result = fetch_single_ont_optical_info(olt, slot, port, ont_id) or optical_result
+
+        return {
+            "runtime_snapshot": runtime_result,
+            "capability_snapshot": capability_result,
+            "live_signal": optical_result,
+        }
+    except (socket.timeout, TimeoutError, EOFError, OSError):
+        return {
+            "runtime_snapshot": runtime_result,
+            "capability_snapshot": capability_result,
+            "live_signal": optical_result,
+        }
+    finally:
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+
+
+def sync_onu_capabilities_for_olt(olt, limit=None, start_pk=None):
+    from django.utils import timezone
+    from .models import ConfiguredONU
+
+    qs = ConfiguredONU.objects.filter(olt=olt).order_by("id")
+    wrapped = False
+    if start_pk:
+        records = list(qs.filter(id__gt=int(start_pk))[:limit] if limit else qs.filter(id__gt=int(start_pk)))
+        if not records:
+            records = list(qs[:limit] if limit else qs)
+            wrapped = True
+    else:
+        records = list(qs[:limit] if limit else qs)
+
+    if not records:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU capability records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": status, "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    checked = 0
+    updated = 0
+    bulk = []
+    now = timezone.now()
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        for record in records:
+            checked += 1
+            capability_commands = (
+                f"display ont capability 0/{int(record.slot)} {int(record.port)} {int(record.ont_id)}",
+                f"display ont capability 0 {int(record.slot)} {int(record.port)} {int(record.ont_id)}",
+            )
+            snapshot = {}
+            for command in capability_commands:
+                output = _run_telnet_command(tn, command, enter_until_prompt=True)
+                parsed = _parse_ont_capability_snapshot(output)
+                if any(str(parsed.get(key) or "").strip() for key in ("equipment_id", "uplink_pon_ports", "pots_ports", "eth_ports", "catv_uni_ports")):
+                    snapshot = parsed
+                    break
+                if not snapshot and str(output or "").strip():
+                    snapshot = parsed
+
+            onu_type_value = (snapshot.get("equipment_id") or "").strip()[:128]
+            uplink_value = (snapshot.get("uplink_pon_ports") or "").strip()[:32]
+            pots_value = (snapshot.get("pots_ports") or "").strip()[:32]
+            eth_value = (snapshot.get("eth_ports") or "").strip()[:32]
+            catv_value = (snapshot.get("catv_uni_ports") or "").strip()[:32]
+
+            changed = False
+            if onu_type_value != (record.onu_type_cache or ""):
+                record.onu_type_cache = onu_type_value
+                changed = True
+            if uplink_value != (record.uplink_pon_ports_cache or ""):
+                record.uplink_pon_ports_cache = uplink_value
+                changed = True
+            if pots_value != (record.pots_ports_cache or ""):
+                record.pots_ports_cache = pots_value
+                changed = True
+            if eth_value != (record.eth_ports_cache or ""):
+                record.eth_ports_cache = eth_value
+                changed = True
+            if catv_value != (record.catv_uni_ports_cache or ""):
+                record.catv_uni_ports_cache = catv_value
+                changed = True
+            if changed or not record.capability_synced_at:
+                record.capability_synced_at = now
+                bulk.append(record)
+                updated += 1 if changed else 0
+
+        if bulk:
+            ConfiguredONU.objects.bulk_update(
+                bulk,
+                [
+                    "onu_type_cache",
+                    "uplink_pon_ports_cache",
+                    "pots_ports_cache",
+                    "eth_ports_cache",
+                    "catv_uni_ports_cache",
+                    "capability_synced_at",
+                ],
+                batch_size=200,
+            )
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Checked {checked}, updated {updated}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    except (socket.timeout, TimeoutError):
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": "Telnet timeout during capability sync.",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    except (EOFError, OSError) as exc:
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Telnet error during capability sync: {exc}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    finally:
+        _close_telnet_session(tn)
+
+
+def _sync_record_detail_fields_via_telnet(tn, record, now=None):
+    now = now or timezone.now()
+
+    runtime_output = _run_telnet_command(
+        tn,
+        f"display ont info 0 {int(record.slot)} {int(record.port)} {int(record.ont_id)}",
+        enter_until_prompt=True,
+    )
+    runtime_snapshot = _parse_ont_runtime_snapshot(runtime_output) or {}
+
+    capability_snapshot = {}
+    capability_commands = (
+        f"display ont capability 0/{int(record.slot)} {int(record.port)} {int(record.ont_id)}",
+        f"display ont capability 0 {int(record.slot)} {int(record.port)} {int(record.ont_id)}",
+    )
+    for command in capability_commands:
+        output = _run_telnet_command(tn, command, enter_until_prompt=True)
+        parsed = _parse_ont_capability_snapshot(output) or {}
+        if any(str(parsed.get(key) or "").strip() for key in ("equipment_id", "uplink_pon_ports", "pots_ports", "eth_ports", "catv_uni_ports")):
+            capability_snapshot = parsed
+            break
+        if not capability_snapshot and str(output or "").strip():
+            capability_snapshot = parsed
+
+    changed = False
+    mapped_values = {
+        "onu_type_cache": (capability_snapshot.get("equipment_id") or runtime_snapshot.get("ont_equipment_id") or "").strip()[:128],
+        "uplink_pon_ports_cache": (capability_snapshot.get("uplink_pon_ports") or "").strip()[:32],
+        "pots_ports_cache": (capability_snapshot.get("pots_ports") or "").strip()[:32],
+        "eth_ports_cache": (capability_snapshot.get("eth_ports") or "").strip()[:32],
+        "catv_uni_ports_cache": (capability_snapshot.get("catv_uni_ports") or "").strip()[:32],
+        "ont_distance_m": (runtime_snapshot.get("ont_distance_m") or "").strip()[:32],
+    }
+
+    for field_name, value in mapped_values.items():
+        if value != (getattr(record, field_name, "") or ""):
+            setattr(record, field_name, value)
+            changed = True
+
+    if changed or not record.capability_synced_at:
+        record.capability_synced_at = now
+
+    return {
+        "record": record,
+        "changed": changed,
+        "runtime_snapshot": runtime_snapshot,
+        "capability_snapshot": capability_snapshot,
+    }
+
+
+def sync_single_onu_detail_fields(olt, slot, port, ont_id, *, record=None):
+    from .models import ConfiguredONU
+
+    record = record or ConfiguredONU.objects.filter(
+        olt=olt,
+        slot=slot,
+        port=port,
+        ont_id=ont_id,
+    ).first()
+    if record is None:
+        return {"ok": False, "updated": False, "status": "ONU record not found."}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {"ok": False, "updated": False, "status": status or "Telnet session could not be opened."}
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        result = _sync_record_detail_fields_via_telnet(tn, record, now=timezone.now())
+        snmp_distance = fetch_single_onu_snmp_distance(olt, slot, port, ont_id).get("ont_distance_m", "").strip()[:32]
+        if snmp_distance != (record.ont_distance_m or ""):
+            record.ont_distance_m = snmp_distance
+            result["changed"] = True
+        record.save(
+            update_fields=[
+                "onu_type_cache",
+                "uplink_pon_ports_cache",
+                "pots_ports_cache",
+                "eth_ports_cache",
+                "catv_uni_ports_cache",
+                "ont_distance_m",
+                "capability_synced_at",
+            ]
+        )
+        return {
+            "ok": True,
+            "updated": bool(result["changed"]),
+            "status": "ONU detail fields synced.",
+        }
+    except (socket.timeout, TimeoutError):
+        return {"ok": False, "updated": False, "status": "Telnet timeout during ONU detail sync."}
+    except (EOFError, OSError) as exc:
+        return {"ok": False, "updated": False, "status": f"Telnet error during ONU detail sync: {exc}"}
+    finally:
+        _close_telnet_session(tn)
+
+
+def sync_onu_detail_fields_for_olt(olt, limit=None, start_pk=None):
+    from .models import ConfiguredONU
+
+    qs = ConfiguredONU.objects.filter(olt=olt).order_by("id")
+    wrapped = False
+    if start_pk:
+        records = list(qs.filter(id__gt=int(start_pk))[:limit] if limit else qs.filter(id__gt=int(start_pk)))
+        if not records:
+            records = list(qs[:limit] if limit else qs)
+            wrapped = True
+    else:
+        records = list(qs[:limit] if limit else qs)
+
+    if not records:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU detail records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": status, "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    checked = 0
+    updated = 0
+    bulk = []
+    now = timezone.now()
+    distance_map = (fetch_olt_snmp_distance_map(olt).get("items") or {})
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        for record in records:
+            checked += 1
+            result = _sync_record_detail_fields_via_telnet(tn, record, now=now)
+            snmp_distance = (distance_map.get((int(record.slot), int(record.port), int(record.ont_id))) or "").strip()[:32]
+            if snmp_distance != (record.ont_distance_m or ""):
+                record.ont_distance_m = snmp_distance
+                result["changed"] = True
+            if result["changed"]:
+                updated += 1
+            bulk.append(record)
+
+        if bulk:
+            ConfiguredONU.objects.bulk_update(
+                bulk,
+                [
+                    "onu_type_cache",
+                    "uplink_pon_ports_cache",
+                    "pots_ports_cache",
+                    "eth_ports_cache",
+                    "catv_uni_ports_cache",
+                    "ont_distance_m",
+                    "capability_synced_at",
+                ],
+                batch_size=200,
+            )
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Checked {checked}, updated {updated}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    except (socket.timeout, TimeoutError):
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": "Telnet timeout during ONU detail sync.",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    except (EOFError, OSError) as exc:
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Telnet error during ONU detail sync: {exc}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    finally:
+        _close_telnet_session(tn)
+
+
+def fetch_single_ont_running_config(olt, slot, port, ont_id):
+    result = {
+        "ok": False,
+        "command": f"display current-configuration ont 0/{int(slot)}/{int(port)} {int(ont_id)}",
+        "output": "",
+        "message": "",
+    }
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["message"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        primary_command = f"display current-configuration ont 0/{int(slot)}/{int(port)} {int(ont_id)}"
+        service_port_command = f"display current-configuration | include 0/{int(slot)}/{int(port)} ont {int(ont_id)} gem"
+
+        def _clean_running_config_output(command_text, output_text):
+            cleaned_text = _clean_cli_transcript_block(command_text, output_text)
+            cleaned_text = re.sub(r"(?im)^\s*enable\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*Command:\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*scroll\s+512\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^[^\r\n]*display\s+current-configuration[^\r\n]*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^[^\r\n]*\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*it\s+will\s+take\s+a\s+long\s+time.*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*you\s+can\s+press\s+ctrl_c\s+to\s+break\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*return\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*\^\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^%.*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^[A-Z0-9._-]+(?:\([^)]+\))?[#>]\s*$", "", cleaned_text)
+            cleaned_text = re.sub(r"(?im)^\s*(?:-{2,}|={2,})\s*$", "", cleaned_text)
+            cleaned_text = "\n".join(line.rstrip() for line in cleaned_text.splitlines())
+            cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text).strip()
+            return cleaned_text
+
+        def _extract_primary_lines(output_text):
+            filtered = []
+            for raw_line in str(output_text or "").splitlines():
+                line = raw_line.rstrip()
+                stripped = line.strip()
+                lowered = stripped.lower()
+                if not stripped:
+                    continue
+                if lowered.startswith("interface gpon "):
+                    filtered.append(stripped)
+                    continue
+                if lowered.startswith("ont add "):
+                    filtered.append(stripped)
+                    continue
+                if lowered.startswith("ont-srvprofile-id "):
+                    filtered.append(stripped)
+                    continue
+            deduped = []
+            for line in filtered:
+                if line not in deduped:
+                    deduped.append(line)
+            return deduped
+
+        def _extract_service_port_lines(output_text):
+            filtered = []
+            ont_token = f"ont {int(ont_id)}"
+            slot_port_token = f"0/{int(slot)}/{int(port)}"
+            for raw_line in str(output_text or "").splitlines():
+                stripped = raw_line.strip()
+                lowered = stripped.lower()
+                if not stripped:
+                    continue
+                if not lowered.startswith("service-port "):
+                    continue
+                if slot_port_token in stripped and ont_token in lowered:
+                    filtered.append(stripped)
+            deduped = []
+            for line in filtered:
+                if line not in deduped:
+                    deduped.append(line)
+            return deduped
+
+        primary_output = _run_telnet_bulk_command(tn, primary_command, max_wait_seconds=55)
+        service_port_output = _run_telnet_bulk_command(tn, service_port_command, max_wait_seconds=55)
+        primary_lines = _extract_primary_lines(_clean_running_config_output(primary_command, primary_output))
+        service_port_lines = _extract_service_port_lines(_clean_running_config_output(service_port_command, service_port_output))
+
+        final_sections = []
+        if primary_lines:
+            final_sections.append("\n".join(primary_lines))
+        if service_port_lines:
+            final_sections.append("\n".join(service_port_lines))
+        final_output = "\n\n".join(section for section in final_sections if section).strip()
+
+        if final_output:
+            result["ok"] = True
+            result["command"] = f"{primary_command}\n{service_port_command}"
+            result["output"] = final_output[:16000]
+            result["message"] = "Live running configuration fetched."
+            return result
+
+        result["command"] = f"{primary_command}\n{service_port_command}"
+        result["message"] = "No running configuration output returned."
+        return result
+    except (socket.timeout, TimeoutError):
+        result["message"] = "Running configuration command timed out."
+        return result
+    except (EOFError, OSError) as exc:
+        result["message"] = f"Running configuration fetch failed: {exc}"
+        return result
+    finally:
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+
+
+def _parse_attached_vlans_from_service_port_output(output_text):
+    vlan_ids = []
+    for raw_line in str(output_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower_line = line.lower()
+        if "service-port" not in lower_line:
+            continue
+        for match in re.finditer(r"(?i)\bvlan\s+(\d+)\b", line):
+            vlan_id = match.group(1)
+            if vlan_id not in vlan_ids:
+                vlan_ids.append(vlan_id)
+    return ",".join(vlan_ids)
+
+
+def _parse_service_port_all_vlan_map(output_text):
+    vlan_map = {}
+    for raw_line in str(output_text or "").splitlines():
+        line = " ".join(raw_line.strip().split())
+        if not line:
+            continue
+        if not re.match(r"^\d+\s+\d+\b", line):
+            continue
+        tokens = line.split()
+        if len(tokens) < 8:
+            continue
+        try:
+            vlan_id = str(int(tokens[1]))
+        except (TypeError, ValueError):
+            continue
+
+        port_type_idx = next((idx for idx, token in enumerate(tokens) if token.lower() in {"gpon", "epon"}), -1)
+        if port_type_idx < 0 or (port_type_idx + 2) >= len(tokens):
+            continue
+
+        frame = slot = port = ont_id = None
+        fsp_inline = re.match(r"^(\d+)\s*/\s*(\d+)\s*/\s*(\d+)$", tokens[port_type_idx + 1])
+        if fsp_inline:
+            frame = int(fsp_inline.group(1))
+            slot = int(fsp_inline.group(2))
+            try:
+                ont_id = int(tokens[port_type_idx + 2])
+            except (TypeError, ValueError):
+                ont_id = None
+            port = int(fsp_inline.group(3))
+        else:
+            fsp_split = re.match(r"^(\d+)\s*/\s*(\d+)$", tokens[port_type_idx + 1])
+            port_split = re.match(r"^/\s*(\d+)$", tokens[port_type_idx + 2])
+            if fsp_split and port_split and (port_type_idx + 3) < len(tokens):
+                frame = int(fsp_split.group(1))
+                slot = int(fsp_split.group(2))
+                port = int(port_split.group(1))
+                try:
+                    ont_id = int(tokens[port_type_idx + 3])
+                except (TypeError, ValueError):
+                    ont_id = None
+
+        if None in {frame, slot, port, ont_id}:
+            continue
+
+        key = (frame, slot, port, ont_id)
+        bucket = vlan_map.setdefault(key, [])
+        if vlan_id not in bucket:
+            bucket.append(vlan_id)
+
+    return {key: ",".join(vlans[:32])[:255] for key, vlans in vlan_map.items()}
+
+
+def _fetch_service_port_all_vlan_map(tn):
+    command = "display service-port all"
+    output = _run_service_port_all_command(tn, max_wait_seconds=45)
+    return {
+        "command": command,
+        "output": output,
+        "vlan_map": _parse_service_port_all_vlan_map(output),
+    }
+
+
+def _sync_record_attached_vlans_via_telnet(tn, record, now=None):
+    now = now or timezone.now()
+    command = f"display current-configuration | include 0/{int(record.slot)}/{int(record.port)} ont {int(record.ont_id)} gem"
+    output = _run_telnet_bulk_command(tn, command, max_wait_seconds=35)
+    vlan_value = _parse_attached_vlans_from_service_port_output(output)[:255]
+    changed = vlan_value != (record.attached_vlans_cache or "")
+    record.attached_vlans_cache = vlan_value
+    record.attached_vlans_synced_at = now
+    return {
+        "record": record,
+        "changed": changed,
+        "vlan_value": vlan_value,
+        "command": command,
+        "output": output,
+    }
+
+
+def sync_single_onu_attached_vlans(olt, slot, port, ont_id, *, record=None):
+    from .models import ConfiguredONU
+
+    record = record or ConfiguredONU.objects.filter(
+        olt=olt,
+        slot=slot,
+        port=port,
+        ont_id=ont_id,
+    ).first()
+    if record is None:
+        return {"ok": False, "updated": False, "status": "ONU record not found.", "vlan_value": ""}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {
+            "ok": False,
+            "updated": False,
+            "status": status or "Telnet session could not be opened.",
+            "vlan_value": (record.attached_vlans_cache or ""),
+        }
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        now = timezone.now()
+        service_port_all = _fetch_service_port_all_vlan_map(tn)
+        vlan_map = service_port_all.get("vlan_map") or {}
+        vlan_value = (vlan_map.get((int(record.frame or 0), int(record.slot), int(record.port), int(record.ont_id))) or "")[:255]
+        changed = vlan_value != (record.attached_vlans_cache or "")
+        record.attached_vlans_cache = vlan_value
+        record.attached_vlans_synced_at = now
+        record.save(update_fields=["attached_vlans_cache", "attached_vlans_synced_at"])
+        return {
+            "ok": True,
+            "updated": bool(changed),
+            "status": "ONU attached VLANs synced.",
+            "vlan_value": vlan_value,
+        }
+    except (socket.timeout, TimeoutError):
+        return {
+            "ok": False,
+            "updated": False,
+            "status": "Telnet timeout during VLAN sync.",
+            "vlan_value": (record.attached_vlans_cache or ""),
+        }
+    except (EOFError, OSError) as exc:
+        return {
+            "ok": False,
+            "updated": False,
+            "status": f"Telnet error during VLAN sync: {exc}",
+            "vlan_value": (record.attached_vlans_cache or ""),
+        }
+    finally:
+        _close_telnet_session(tn)
+
+
+def sync_onu_attached_vlans_for_olt(olt, limit=None, start_pk=None):
+    from django.utils import timezone
+    from .models import ConfiguredONU
+
+    qs = ConfiguredONU.objects.filter(olt=olt).order_by("id")
+    wrapped = False
+    if start_pk:
+        records = list(qs.filter(id__gt=int(start_pk))[:limit] if limit else qs.filter(id__gt=int(start_pk)))
+        if not records:
+            records = list(qs[:limit] if limit else qs)
+            wrapped = True
+    else:
+        records = list(qs[:limit] if limit else qs)
+
+    if not records:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU VLAN records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {"olt": olt.name, "checked": 0, "updated": 0, "status": status, "last_pk": start_pk or 0, "wrapped": wrapped}
+
+    checked = 0
+    updated = 0
+    bulk = []
+    now = timezone.now()
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        service_port_all = _fetch_service_port_all_vlan_map(tn)
+        vlan_map = service_port_all.get("vlan_map") or {}
+        for record in records:
+            checked += 1
+            vlan_value = (vlan_map.get((int(record.frame or 0), int(record.slot), int(record.port), int(record.ont_id))) or "")[:255]
+            changed = vlan_value != (record.attached_vlans_cache or "")
+            record.attached_vlans_cache = vlan_value
+            record.attached_vlans_synced_at = now
+            if changed:
+                updated += 1
+            bulk.append(record)
+
+        if bulk:
+            ConfiguredONU.objects.bulk_update(
+                bulk,
+                [
+                    "attached_vlans_cache",
+                    "attached_vlans_synced_at",
+                ],
+                batch_size=200,
+            )
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Service-port all checked {checked}, updated {updated}, rows {len(vlan_map)}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": True,
+        }
+    except (socket.timeout, TimeoutError):
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": "Telnet timeout during VLAN sync.",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    except (EOFError, OSError) as exc:
+        return {
+            "olt": olt.name,
+            "checked": checked,
+            "updated": updated,
+            "status": f"Telnet error during VLAN sync: {exc}",
+            "last_pk": records[-1].id if records else (start_pk or 0),
+            "wrapped": wrapped,
+        }
+    finally:
+        _close_telnet_session(tn)
+
+
+def fetch_single_ont_live_status(olt, slot, port, ont_id):
+    result = {
+        "ok": False,
+        "command": f"display ont info 0 {int(slot)} {int(port)} {int(ont_id)}",
+        "output": "",
+        "message": "",
+    }
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["message"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        command = f"display ont info 0 {int(slot)} {int(port)} {int(ont_id)}"
+        output = _run_telnet_bulk_command(tn, command, max_wait_seconds=35)
+        cleaned = _clean_cli_transcript_block(command, output)
+        cleaned = re.sub(r"(?im)^\s*Command:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*scroll\s+512\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*display\s+ont\s+info[^\r\n]*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*it\s+will\s+take\s+a\s+long\s+time.*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*you\s+can\s+press\s+ctrl_c\s+to\s+break\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*return\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*\^\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^%.*$", "", cleaned)
+        cleaned = re.sub(r"(?is)\n?\s*Note:\s*F--Frame.*$", "", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        if cleaned:
+            result["ok"] = True
+            result["output"] = cleaned[:20000]
+            result["message"] = "Live ONU status fetched."
+            return result
+        result["message"] = "No live ONU status returned."
+        return result
+    except (socket.timeout, TimeoutError):
+        result["message"] = "Live ONU status command timed out."
+        return result
+    except (EOFError, OSError) as exc:
+        result["message"] = f"Live ONU status fetch failed: {exc}"
+        return result
+    finally:
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+
+
+def fetch_single_ont_mac_addresses(olt, slot, port, ont_id):
+    result = {
+        "ok": False,
+        "command": f"display mac-address port 0/{int(slot)}/{int(port)} ont {int(ont_id)}",
+        "output": "",
+        "message": "",
+    }
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["message"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        command = f"display mac-address port 0/{int(slot)}/{int(port)} ont {int(ont_id)}"
+        output = _run_telnet_bulk_command(tn, command, max_wait_seconds=25)
+        cleaned = _clean_cli_transcript_block(command, output)
+        cleaned = re.sub(r"(?im)^\s*Command:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*scroll\s+512\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*display\s+mac-address[^\r\n]*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*it\s+will\s+take\s+a\s+long\s+time.*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*you\s+can\s+press\s+ctrl_c\s+to\s+break\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*return\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*\^\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^%.*$", "", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        if cleaned:
+            result["ok"] = True
+            result["output"] = cleaned[:12000]
+            result["message"] = "Live MAC addresses fetched."
+            return result
+        result["message"] = "No MAC addresses returned for this ONU."
+        return result
+    except (socket.timeout, TimeoutError):
+        result["message"] = "MAC address command timed out."
+        return result
+    except (EOFError, OSError) as exc:
+        result["message"] = f"MAC address fetch failed: {exc}"
+        return result
+    finally:
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+
+
 def derive_runtime_onu_status(runtime_snapshot, fallback_status="", fallback_run_state=""):
     snapshot = runtime_snapshot or {}
     run_state = str(snapshot.get("run_state") or fallback_run_state or "").strip().lower()
@@ -3738,44 +5598,26 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
     if not records:
         return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
 
-    tn, status = open_telnet_authenticated_session(olt)
-    if tn is None:
-        return {"olt": olt.name, "checked": 0, "updated": 0, "status": status, "last_pk": start_pk or 0, "wrapped": wrapped}
-
     updated = 0
     checked = 0
     bulk = []
     status_changed = 0
     now = timezone.now()
     try:
-        _prepare_telnet_cli_session(tn, use_paging=True)
         trap_status_map = get_active_onu_trap_status_map(olt)
+        snmp_status_map = (fetch_olt_snmp_status_map(olt).get("items") or {})
         for record in records:
             checked += 1
-            output = _run_telnet_command(
-                tn,
-                f"display ont info 0 {int(record.slot)} {int(record.port)} {int(record.ont_id)}",
-                enter_until_prompt=True,
-            )
-            snapshot = _parse_ont_runtime_snapshot(output)
-
             changed = False
-            runtime_run_state = str(snapshot.get("run_state") or "").strip()
-            runtime_control_flag = str(snapshot.get("control_flag") or "").strip()
-            if runtime_run_state and runtime_run_state != (record.run_state or "").strip():
+            snmp_status = str(snmp_status_map.get((int(record.slot), int(record.port), int(record.ont_id))) or "").strip().lower()
+            runtime_run_state = "online" if snmp_status == "online" else "offline" if snmp_status == "offline" else ""
+            if runtime_run_state and runtime_run_state != (record.run_state or "").strip().lower():
                 record.run_state = runtime_run_state
-                changed = True
-            if runtime_control_flag and runtime_control_flag != (record.control_flag or "").strip():
-                record.control_flag = runtime_control_flag
                 changed = True
 
             trap_status = trap_status_map.get((int(record.slot), int(record.port), int(record.ont_id)))
-            runtime_status = trap_status or derive_runtime_onu_status(
-                snapshot,
-                fallback_status=record.derived_status,
-                fallback_run_state=record.run_state,
-            )
-            runtime_source = "trap" if trap_status else "ont_runtime"
+            runtime_status = trap_status or snmp_status or str(record.derived_status or "").strip().lower()
+            runtime_source = "trap" if trap_status else "snmp_runtime"
             current_status = str(record.derived_status or "").strip().lower()
             current_source = str(record.status_source or "").strip()
             if runtime_status and runtime_status != current_status:
@@ -3813,10 +5655,6 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
                 ],
                 batch_size=200,
             )
-            try:
-                record_dashboard_status_samples(force=True)
-            except Exception:
-                pass
         return {
             "olt": olt.name,
             "checked": checked,
@@ -3825,26 +5663,15 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             "last_pk": records[-1].id if records else (start_pk or 0),
             "wrapped": wrapped,
         }
-    except (socket.timeout, TimeoutError):
+    except Exception as exc:
         return {
             "olt": olt.name,
             "checked": checked,
             "updated": updated,
-            "status": "Telnet timeout during runtime sync.",
+            "status": f"SNMP error during runtime sync: {exc}",
             "last_pk": records[-1].id if records else (start_pk or 0),
             "wrapped": wrapped,
         }
-    except (EOFError, OSError) as exc:
-        return {
-            "olt": olt.name,
-            "checked": checked,
-            "updated": updated,
-            "status": f"Telnet error during runtime sync: {exc}",
-            "last_pk": records[-1].id if records else (start_pk or 0),
-            "wrapped": wrapped,
-        }
-    finally:
-        _close_telnet_session(tn)
 
 
 def sync_runtime_statuses_for_non_online_onus(limit_per_olt=None):
@@ -3937,6 +5764,29 @@ def _normalize_autofind_pon_type(value):
     return "-"
 
 
+def _serial_match_tokens(value):
+    text = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+    if not text:
+        return set()
+    tokens = {text}
+    if re.fullmatch(r"[0-9A-F]{16}", text):
+        prefix_hex = text[:8]
+        suffix = text[8:]
+        try:
+            prefix = bytes.fromhex(prefix_hex).decode("ascii", errors="strict")
+        except (TypeError, ValueError, UnicodeDecodeError):
+            prefix = ""
+        if prefix and all(32 <= ord(ch) <= 126 for ch in prefix):
+            tokens.add(f"{prefix.upper()}{suffix}")
+    if len(text) == 12 and re.fullmatch(r"[A-Z0-9]{4}[0-9A-F]{8}", text):
+        try:
+            prefix_hex = text[:4].encode("ascii").hex().upper()
+            tokens.add(f"{prefix_hex}{text[4:]}")
+        except UnicodeEncodeError:
+            pass
+    return {token for token in tokens if token}
+
+
 def fetch_ont_autofind_snapshot(olt):
     result = {
         "status": "Autofind data unavailable",
@@ -3983,9 +5833,6 @@ def fetch_ont_autofind_snapshot(olt):
 def sync_olt_autofind_count(olt):
     from .models import ConfiguredONU
 
-    def _normalize_serial(value):
-        return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-
     snapshot = fetch_ont_autofind_snapshot(olt)
     rows = snapshot.get("rows") or []
     status_text = str(snapshot.get("status") or "").strip()
@@ -3996,18 +5843,16 @@ def sync_olt_autofind_count(olt):
         for token in ("timeout", "unavailable", "connection closed", "login failed", "error")
     )
 
-    existing_serials = {
-        _normalize_serial(item)
-        for item in ConfiguredONU.objects.exclude(sn="").values_list("sn", flat=True)
-        if _normalize_serial(item)
-    }
+    existing_serials = set()
+    for item in ConfiguredONU.objects.exclude(sn="").values_list("sn", flat=True):
+        existing_serials.update(_serial_match_tokens(item))
     resync_count = 0
     new_count = 0
     for row in rows:
-        serial = _normalize_serial(row.get("sn"))
-        if not serial:
+        serial_tokens = _serial_match_tokens(row.get("sn"))
+        if not serial_tokens:
             continue
-        if serial in existing_serials:
+        if existing_serials.intersection(serial_tokens):
             resync_count += 1
         else:
             new_count += 1
@@ -4076,188 +5921,194 @@ def fetch_vlan_range(olt, start_vlan, end_vlan):
         _close_telnet_session(tn)
 
 
-def add_vlan_range(olt, start_vlan, end_vlan):
+def add_vlan_range(olt, start_vlan, end_vlan, uplink_port=""):
     result = {
         "ok": False,
         "message": "VLAN range create failed.",
         "transcript": "",
     }
-    tn, status = open_telnet_authenticated_session(olt)
-    if tn is None:
-        result["message"] = status
-        result["transcript"] = f"LOGIN FAILED\n{status}"
-        return result
-
     try:
-        transcript_parts = []
-        _prepare_telnet_cli_session(tn, use_paging=False)
-        transcript_parts.append("enable")
-        transcript_parts.append("config")
-        config_entered, config_output = _enter_config_mode(tn)
-        if not config_entered:
-            result["message"] = "Unable to enter configuration mode."
-            result["transcript"] = "\n\n".join([part for part in transcript_parts + [str(config_output or "").strip()] if part])
-            return result
+        start_vlan = int(start_vlan)
+        end_vlan = int(end_vlan)
+    except (TypeError, ValueError):
+        result["message"] = "Invalid VLAN range."
+        return result
+    if start_vlan > end_vlan:
+        result["message"] = "Invalid VLAN range."
+        return result
+    transcript_parts = []
+    failures = []
+    for vlan_id in range(start_vlan, end_vlan + 1):
+        item_result = add_vlan(olt, vlan_id, description="", uplink_port=uplink_port)
+        transcript = str(item_result.get("transcript") or "").strip()
+        if transcript:
+            transcript_parts.append(transcript)
+        if not item_result.get("ok"):
+            failures.append(f"{vlan_id}: {item_result.get('message') or 'failed'}")
+    result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
+    if failures:
+        result["message"] = f"VLAN range create failed on {len(failures)} VLAN(s)."
+        return result
+    result["ok"] = True
+    result["message"] = "VLAN range created via SNMP."
+    return result
 
-        range_command = f"vlan {int(start_vlan)}-{int(end_vlan)}"
-        transcript_parts.append(range_command)
+
+def _snmp_octets_to_bytes(value):
+    if hasattr(value, "asOctets"):
         try:
-            tn.read_very_eager()
-        except (OSError, EOFError):
+            return bytes(value.asOctets())
+        except Exception:
             pass
-        tn.write((range_command + "\r\n").encode("ascii", errors="ignore"))
-        output = ""
-        prompt_pattern = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
-        yes_no_patterns = [
-            re.compile(rb"(?i)\b\(yes/no\)\b"),
-            re.compile(rb"(?i)\by/n\b"),
-            re.compile(rb"(?i)\bcontinue\b"),
-        ]
-        patterns = yes_no_patterns + [prompt_pattern]
-        answered_yes = False
-        start_ts = time.time()
-        while time.time() - start_ts < 15:
-            idx, _, text = tn.expect(patterns, timeout=0.8)
-            if text:
-                output += ANSI_ESCAPE_PATTERN.sub("", text.decode("ascii", errors="ignore"))
-            else:
-                try:
-                    extra = tn.read_very_eager().decode("ascii", errors="ignore")
-                except EOFError:
-                    break
-                output += ANSI_ESCAPE_PATTERN.sub("", extra or "")
-            if idx in (0, 1, 2) and not answered_yes:
-                _touch_telnet_session(tn)
-                tn.write(b"y\r\n")
-                answered_yes = True
+    text = str(value or "")
+    return text.encode("latin1", errors="ignore")
+
+
+def _snmp_set_bitmap_port(bitmap_bytes, port_number, *, enabled=True):
+    try:
+        port_number = int(port_number)
+    except (TypeError, ValueError):
+        return bytes(bitmap_bytes or b"")
+    if port_number < 1:
+        return bytes(bitmap_bytes or b"")
+    byte_index = (port_number - 1) // 8
+    bit_index = 7 - ((port_number - 1) % 8)
+    data = bytearray(bitmap_bytes or b"")
+    if len(data) <= byte_index:
+        data.extend(b"\x00" * ((byte_index + 1) - len(data)))
+    if enabled:
+        data[byte_index] |= (1 << bit_index)
+    else:
+        data[byte_index] &= ~(1 << bit_index)
+    return bytes(data)
+
+
+def _resolve_snmp_bridge_port_for_ifindex(olt, if_index):
+    if_index_text = str(if_index or "").strip()
+    if not if_index_text:
+        return ""
+    base_oid = "1.3.6.1.2.1.17.1.4.1.2"
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            rows = _snmp_walk_rows(olt, base_oid, limit=512, mp_model=mp_model)
+            for oid_text, value in (rows or {}).items():
+                if str(value or "").strip() == if_index_text:
+                    return oid_text.split(".")[-1]
+        except Exception as exc:
+            last_error = str(exc)
+    return ""
+
+
+def _bind_vlan_to_uplink_port_snmp(olt, vlan_id, uplink_port):
+    result = {"ok": False, "message": "SNMP uplink VLAN bind failed.", "transcript": ""}
+    if_index_text = str(uplink_port or "").strip()
+    if not if_index_text:
+        result["ok"] = True
+        result["message"] = "No uplink bind requested."
+        return result
+    if not str(getattr(olt, "snmp_write_community", "") or "").strip():
+        result["message"] = "SNMP write community is not configured."
+        return result
+    bridge_port = _resolve_snmp_bridge_port_for_ifindex(olt, if_index_text)
+    if not bridge_port:
+        result["message"] = "SNMP bridge port lookup failed."
+        return result
+    egress_oid = f"1.3.6.1.2.1.17.7.1.4.3.1.2.{int(vlan_id)}"
+    untagged_oid = f"1.3.6.1.2.1.17.7.1.4.3.1.4.{int(vlan_id)}"
+    transcript_parts = []
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            current_egress = b""
+            current_untagged = b""
+            err_ind, err_stat, _, var_binds = _snmp_get_value(olt, egress_oid, mp_model=mp_model)
+            if not err_ind and not err_stat and var_binds:
+                current_egress = _snmp_octets_to_bytes(var_binds[0][1])
+            err_ind, err_stat, _, var_binds = _snmp_get_value(olt, untagged_oid, mp_model=mp_model)
+            if not err_ind and not err_stat and var_binds:
+                current_untagged = _snmp_octets_to_bytes(var_binds[0][1])
+            new_egress = _snmp_set_bitmap_port(current_egress, bridge_port, enabled=True)
+            new_untagged = _snmp_set_bitmap_port(current_untagged, bridge_port, enabled=False)
+            err_ind, err_stat, _, _ = _snmp_set_value(olt, egress_oid, new_egress, value_type="OctetString", mp_model=mp_model)
+            if err_ind or err_stat:
+                last_error = str(err_ind or err_stat.prettyPrint())
                 continue
-            lines = [line.strip() for line in output.splitlines() if line.strip()]
-            if lines and PROMPT_LINE_PATTERN.match(lines[-1]):
-                break
-
-        cleaned_output = _clean_cli_transcript_block(range_command, output)
-        if cleaned_output:
-            transcript_parts.append(cleaned_output)
-        lowered = str(output or "").lower()
-        if _is_cli_error_text(output):
-            result["message"] = str(output or "").strip() or "OLT rejected VLAN range command."
-            result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-            return result
-
-        processed_match = re.search(r"processed\s+is\s+(\d+)", output, re.IGNORECASE)
-        added_match = re.search(r"added\s+vlans?\s+is\s+(\d+)", output, re.IGNORECASE)
-        processed = int(processed_match.group(1)) if processed_match else 0
-        added = int(added_match.group(1)) if added_match else 0
-        expected = (int(end_vlan) - int(start_vlan)) + 1
-        if processed == expected and added == expected:
-            transcript_parts.append("quit")
-            quit_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
-            cleaned_quit = _clean_cli_transcript_block("quit", quit_output)
-            if cleaned_quit:
-                transcript_parts.append(cleaned_quit)
-            transcript_parts.append("save")
-            save_output = _run_telnet_command(tn, "save", enter_until_prompt=True)
-            cleaned_save = _clean_cli_transcript_block("save", save_output)
-            if cleaned_save:
-                transcript_parts.append(cleaned_save)
+            transcript_parts.append(f"SET {egress_oid}")
+            err_ind, err_stat, _, _ = _snmp_set_value(olt, untagged_oid, new_untagged, value_type="OctetString", mp_model=mp_model)
+            if err_ind or err_stat:
+                last_error = str(err_ind or err_stat.prettyPrint())
+                continue
+            transcript_parts.append(f"SET {untagged_oid}")
             result["ok"] = True
-            result["message"] = "VLAN range created."
-            result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
+            result["message"] = "Uplink VLAN bind applied via SNMP."
+            result["transcript"] = "\n".join(transcript_parts)
             return result
-
-        result["message"] = str(output or "").strip() or "VLAN range was not confirmed by the OLT."
-        result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-        return result
-    except (socket.timeout, TimeoutError):
-        result["message"] = "Telnet timeout while creating VLAN range."
-        return result
-    except EOFError:
-        result["message"] = "Telnet connection closed while creating VLAN range."
-        return result
-    except OSError as exc:
-        result["message"] = f"Telnet error while creating VLAN range: {exc}"
-        return result
-    finally:
-        _close_telnet_session(tn)
+        except Exception as exc:
+            last_error = str(exc)
+    result["message"] = f"SNMP uplink VLAN bind failed: {last_error or 'no response'}"
+    result["transcript"] = "\n".join(transcript_parts)
+    return result
 
 
-def add_vlan(olt, vlan_id, description=""):
+def add_vlan(olt, vlan_id, description="", uplink_port=""):
     result = {
         "ok": False,
         "message": "VLAN create failed.",
         "transcript": "",
     }
-    tn, status = open_telnet_authenticated_session(olt)
-    if tn is None:
-        result["message"] = status
-        result["transcript"] = f"LOGIN FAILED\n{status}"
-        return result
-
     try:
-        transcript_parts = []
-        _prepare_telnet_cli_session(tn, use_paging=False)
-        transcript_parts.append("enable")
-        transcript_parts.append("config")
-        config_entered, config_output = _enter_config_mode(tn)
-        if not config_entered:
-            result["message"] = "Unable to enter configuration mode."
-            result["transcript"] = "\n\n".join([part for part in transcript_parts + [str(config_output or "").strip()] if part])
+        vlan_id = int(vlan_id)
+    except (TypeError, ValueError):
+        result["message"] = "Invalid VLAN ID."
+        return result
+    if vlan_id < 1 or vlan_id > 4093:
+        result["message"] = "VLAN ID must be between 1 and 4093."
+        return result
+    transcript_parts = []
+    description = str(description or "").strip()[:32]
+    type_oid = f"1.3.6.1.4.1.2011.5.6.1.1.1.4.{vlan_id}"
+    row_oid = f"1.3.6.1.4.1.2011.5.6.1.1.1.13.{vlan_id}"
+    name_oid = f"1.3.6.1.4.1.2011.5.6.1.1.1.2.{vlan_id}"
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            err_ind, err_stat, _, _ = _snmp_set_value(olt, type_oid, 2, value_type="Integer", mp_model=mp_model)
+            if err_ind or err_stat:
+                last_error = str(err_ind or err_stat.prettyPrint())
+                continue
+            transcript_parts.append(f"SET {type_oid} = 2")
+            if description:
+                err_ind, err_stat, _, _ = _snmp_set_value(olt, name_oid, description, value_type="OctetString", mp_model=mp_model)
+                if err_ind or err_stat:
+                    last_error = str(err_ind or err_stat.prettyPrint())
+                    continue
+                transcript_parts.append(f"SET {name_oid} = {description}")
+            err_ind, err_stat, _, _ = _snmp_set_value(olt, row_oid, 4, value_type="Integer", mp_model=mp_model)
+            if err_ind or err_stat:
+                last_error = str(err_ind or err_stat.prettyPrint())
+                continue
+            transcript_parts.append(f"SET {row_oid} = 4")
+            if str(uplink_port or "").strip():
+                bind_result = _bind_vlan_to_uplink_port_snmp(olt, vlan_id, uplink_port)
+                bind_transcript = str(bind_result.get("transcript") or "").strip()
+                if bind_transcript:
+                    transcript_parts.append(bind_transcript)
+                if not bind_result.get("ok"):
+                    last_error = str(bind_result.get("message") or "uplink bind failed")
+                    continue
+            result["ok"] = True
+            result["message"] = "VLAN created via SNMP."
+            result["transcript"] = "\n".join(transcript_parts)
             return result
-
-        vlan_command = f"vlan {int(vlan_id)} smart"
-        transcript_parts.append(vlan_command)
-        vlan_output = _run_telnet_command(tn, vlan_command, enter_until_prompt=True)
-        cleaned_vlan_output = _clean_cli_transcript_block(vlan_command, vlan_output)
-        if cleaned_vlan_output:
-            transcript_parts.append(cleaned_vlan_output)
-        lowered_vlan = str(vlan_output or "").lower()
-        if _is_cli_error_text(vlan_output) or "already exist" in lowered_vlan or "already exists" in lowered_vlan or "duplicate" in lowered_vlan:
-            result["message"] = str(vlan_output or "").strip() or "OLT rejected VLAN create command."
-            result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-            return result
-
-        description = str(description or "").strip()
-        if description:
-            desc_command = f"vlan desc {int(vlan_id)} description {description}"
-            transcript_parts.append(desc_command)
-            desc_output = _run_telnet_command(tn, desc_command, enter_until_prompt=True)
-            cleaned_desc_output = _clean_cli_transcript_block(desc_command, desc_output)
-            if cleaned_desc_output:
-                transcript_parts.append(cleaned_desc_output)
-            if _is_cli_error_text(desc_output):
-                result["message"] = str(desc_output or "").strip() or "VLAN created, but description command failed."
-                result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-                return result
-
-        transcript_parts.append("quit")
-        quit_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
-        cleaned_quit = _clean_cli_transcript_block("quit", quit_output)
-        if cleaned_quit:
-            transcript_parts.append(cleaned_quit)
-        transcript_parts.append("save")
-        save_output = _run_telnet_command(tn, "save", enter_until_prompt=True)
-        cleaned_save = _clean_cli_transcript_block("save", save_output)
-        if cleaned_save:
-            transcript_parts.append(cleaned_save)
-
-        result["ok"] = True
-        result["message"] = "VLAN created."
-        result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-        return result
-    except (socket.timeout, TimeoutError):
-        result["message"] = "Telnet timeout while creating VLAN."
-        return result
-    except EOFError:
-        result["message"] = "Telnet connection closed while creating VLAN."
-        return result
-    except OSError as exc:
-        result["message"] = f"Telnet error while creating VLAN: {exc}"
-        return result
-    finally:
-        _close_telnet_session(tn)
+        except Exception as exc:
+            last_error = str(exc)
+    result["message"] = f"SNMP VLAN create failed: {last_error or 'no response'}"
+    result["transcript"] = "\n".join(transcript_parts)
+    return result
 
 
-def delete_vlan_netconf(olt, vlan_id):
+def delete_vlan_snmp(olt, vlan_id):
     result = {
         "ok": False,
         "message": "VLAN delete failed.",
@@ -4273,48 +6124,42 @@ def delete_vlan_netconf(olt, vlan_id):
         result["message"] = "VLAN ID must be between 1 and 4094."
         return result
 
-    if nc_manager is None:
-        result["message"] = "NETCONF client is not installed."
-        return result
+    row_oids = [
+        f"1.3.6.1.4.1.2011.5.6.1.1.1.13.{vlan_id}",
+        f"1.3.6.1.2.1.17.7.1.4.3.1.5.{vlan_id}",
+    ]
+    clear_oids = [
+        f"1.3.6.1.2.1.17.7.1.4.3.1.2.{vlan_id}",
+        f"1.3.6.1.2.1.17.7.1.4.3.1.3.{vlan_id}",
+        f"1.3.6.1.2.1.17.7.1.4.3.1.4.{vlan_id}",
+    ]
+    transcript_parts = []
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            for clear_oid in clear_oids:
+                err_ind, err_stat, _, _ = _snmp_set_value(olt, clear_oid, b"", value_type="OctetString", mp_model=mp_model)
+                if not err_ind and not err_stat:
+                    transcript_parts.append(f"SET {clear_oid} = <empty>")
+            for row_oid in row_oids:
+                err_ind, err_stat, _, _ = _snmp_set_value(olt, row_oid, 6, value_type="Integer", mp_model=mp_model)
+                if err_ind or err_stat:
+                    last_error = str(err_ind or err_stat.prettyPrint())
+                    continue
+                transcript_parts.append(f"SET {row_oid} = 6")
+                result["ok"] = True
+                result["message"] = "VLAN deleted via SNMP."
+                result["transcript"] = "\n".join(transcript_parts)
+                return result
+        except Exception as exc:
+            last_error = str(exc)
+    result["message"] = f"SNMP VLAN delete failed: {last_error or 'no response'}"
+    result["transcript"] = "\n".join(transcript_parts)
+    return result
 
-    xml_payload = f"""
-<config>
-  <vlan xmlns="urn:huawei:yang:huawei-vlan" xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0">
-    <vlans>
-      <vlan nc:operation="delete">
-        <vlanId>{vlan_id}</vlanId>
-      </vlan>
-    </vlans>
-  </vlan>
-</config>
-""".strip()
 
-    transcript_parts = [f"NETCONF edit-config delete vlanId={vlan_id}"]
-    try:
-        with nc_manager.connect(
-            host=str(olt.ip_address),
-            port=830,
-            username=str(olt.username or ""),
-            password=str(olt.password or ""),
-            hostkey_verify=False,
-            allow_agent=False,
-            look_for_keys=False,
-            timeout=12,
-            device_params={"name": "huawei"},
-        ) as m:
-            edit_reply = m.edit_config(target="running", config=xml_payload)
-            reply_xml = str(getattr(edit_reply, "xml", "") or "").strip()
-            if reply_xml:
-                transcript_parts.append(reply_xml)
-            m.close_session()
-        result["ok"] = True
-        result["message"] = "VLAN deleted via NETCONF."
-        result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-        return result
-    except Exception as exc:
-        result["message"] = f"NETCONF delete failed: {exc}"
-        result["transcript"] = "\n\n".join([part for part in transcript_parts if part])
-        return result
+def delete_vlan_netconf(olt, vlan_id):
+    return delete_vlan_snmp(olt, vlan_id)
 
 
 def fetch_dba_profile_snapshot(olt):
@@ -4699,6 +6544,7 @@ def fetch_pon_ports_snapshot(olt):
 
 
 DASHBOARD_STATUS_SAMPLE_SECONDS = 600
+PON_TRAFFIC_SAMPLE_SECONDS = 120
 
 
 def _current_dashboard_sample_boundary(now=None):
@@ -4706,6 +6552,217 @@ def _current_dashboard_sample_boundary(now=None):
     epoch = int(now.timestamp())
     bucket_epoch = (epoch // DASHBOARD_STATUS_SAMPLE_SECONDS) * DASHBOARD_STATUS_SAMPLE_SECONDS
     return datetime.datetime.fromtimestamp(bucket_epoch, tz=datetime.timezone.utc)
+
+
+def _current_pon_traffic_sample_boundary(now=None):
+    now = now or timezone.now()
+    epoch = int(now.timestamp())
+    bucket_epoch = (epoch // PON_TRAFFIC_SAMPLE_SECONDS) * PON_TRAFFIC_SAMPLE_SECONDS
+    return datetime.datetime.fromtimestamp(bucket_epoch, tz=datetime.timezone.utc)
+
+
+def record_pon_traffic_samples(force=False):
+    from .models import OLT, PONTrafficSample
+
+    now = timezone.now()
+    boundary = _current_pon_traffic_sample_boundary(now)
+    latest = PONTrafficSample.objects.filter(olt__isnull=True).order_by("-sampled_at").first()
+    if latest and not force and latest.sampled_at >= boundary:
+        return latest
+
+    per_olt_samples = []
+    total_in_octets = 0
+    total_out_octets = 0
+    total_in_packets = 0
+    total_out_packets = 0
+    for olt in OLT.objects.only("id", "name", "ip_address", "snmp_port", "snmp_community").all():
+        snapshot = fetch_snmp_pon_aggregate_counters(olt)
+        if not snapshot.get("ok"):
+            continue
+        in_octets = int(snapshot.get("in_octets") or 0)
+        out_octets = int(snapshot.get("out_octets") or 0)
+        in_packets = int(snapshot.get("in_packets") or 0)
+        out_packets = int(snapshot.get("out_packets") or 0)
+        total_in_octets += in_octets
+        total_out_octets += out_octets
+        total_in_packets += in_packets
+        total_out_packets += out_packets
+        per_olt_samples.append(
+            PONTrafficSample(
+                olt=olt,
+                in_octets=in_octets,
+                out_octets=out_octets,
+                in_packets=in_packets,
+                out_packets=out_packets,
+            )
+        )
+    aggregate_sample = PONTrafficSample(
+        olt=None,
+        in_octets=total_in_octets,
+        out_octets=total_out_octets,
+        in_packets=total_in_packets,
+        out_packets=total_out_packets,
+    )
+    samples = [aggregate_sample, *per_olt_samples]
+    if not samples:
+        return None
+    PONTrafficSample.objects.bulk_create(samples, batch_size=200)
+    return aggregate_sample
+
+
+def record_pon_traffic_sample_for_olt(olt, force=False):
+    from .models import PONTrafficSample
+
+    now = timezone.now()
+    boundary = _current_pon_traffic_sample_boundary(now)
+    latest = PONTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
+    if latest and not force and latest.sampled_at >= boundary:
+        return latest
+
+    snapshot = fetch_snmp_pon_aggregate_counters(olt)
+    if not snapshot.get("ok"):
+        return None
+
+    return PONTrafficSample.objects.create(
+        olt=olt,
+        in_octets=int(snapshot.get("in_octets") or 0),
+        out_octets=int(snapshot.get("out_octets") or 0),
+        in_packets=int(snapshot.get("in_packets") or 0),
+        out_packets=int(snapshot.get("out_packets") or 0),
+    )
+
+
+def record_pon_port_traffic_samples(force=False):
+    from .models import OLT, PONPortTrafficSample
+
+    now = timezone.now()
+    boundary = _current_pon_traffic_sample_boundary(now)
+    if not force:
+        latest = PONPortTrafficSample.objects.order_by("-sampled_at").first()
+        if latest and latest.sampled_at >= boundary:
+            return latest
+
+    samples = []
+    for olt in OLT.objects.only("id", "ip_address", "snmp_port", "snmp_community").all():
+        snapshot = fetch_snmp_pon_port_counters(olt)
+        if not snapshot.get("ok"):
+            continue
+        for row in snapshot.get("rows") or []:
+            samples.append(
+                PONPortTrafficSample(
+                    olt=olt,
+                    slot=int(row.get("slot") or 0),
+                    port=int(row.get("port") or 0),
+                    in_octets=int(row.get("in_octets") or 0),
+                    out_octets=int(row.get("out_octets") or 0),
+                    in_packets=int(row.get("in_packets") or 0),
+                    out_packets=int(row.get("out_packets") or 0),
+                )
+            )
+    if not samples:
+        return None
+    PONPortTrafficSample.objects.bulk_create(samples, batch_size=500)
+    return samples[0]
+
+
+def record_pon_port_traffic_sample_for_olt(olt, force=False, min_interval_seconds=15):
+    from .models import PONPortTrafficSample
+
+    latest = PONPortTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
+    if latest and not force:
+        if latest.sampled_at >= (timezone.now() - datetime.timedelta(seconds=int(min_interval_seconds or 15))):
+            return latest
+
+    snapshot = fetch_snmp_pon_port_counters(olt)
+    if not snapshot.get("ok"):
+        return None
+
+    rows = list(snapshot.get("rows") or [])
+    if not rows:
+        return None
+
+    sample_time = timezone.now()
+    samples = [
+        PONPortTrafficSample(
+            olt=olt,
+            slot=int(row.get("slot") or 0),
+            port=int(row.get("port") or 0),
+            in_octets=int(row.get("in_octets") or 0),
+            out_octets=int(row.get("out_octets") or 0),
+            in_packets=int(row.get("in_packets") or 0),
+            out_packets=int(row.get("out_packets") or 0),
+            sampled_at=sample_time,
+        )
+        for row in rows
+    ]
+    PONPortTrafficSample.objects.bulk_create(samples, batch_size=500)
+    return samples[0]
+
+
+def record_uplink_port_traffic_samples(force=False):
+    from .models import OLT, UplinkPortTrafficSample
+
+    now = timezone.now()
+    boundary = _current_pon_traffic_sample_boundary(now)
+    if not force:
+        latest = UplinkPortTrafficSample.objects.order_by("-sampled_at").first()
+        if latest and latest.sampled_at >= boundary:
+            return latest
+
+    samples = []
+    for olt in OLT.objects.only("id", "ip_address", "snmp_port", "snmp_community").all():
+        snapshot = fetch_snmp_interfaces(olt, limit=64)
+        rows = list((snapshot or {}).get("rows") or [])
+        for row in rows:
+            port_name = str(row.get("port") or "").strip()
+            if not port_name:
+                continue
+            samples.append(
+                UplinkPortTrafficSample(
+                    olt=olt,
+                    port_name=port_name,
+                    in_octets=int(str(row.get("in_octets") or "0").strip() or 0),
+                    out_octets=int(str(row.get("out_octets") or "0").strip() or 0),
+                )
+            )
+    if not samples:
+        return None
+    UplinkPortTrafficSample.objects.bulk_create(samples, batch_size=500)
+    return samples[0]
+
+
+def record_uplink_port_traffic_sample_for_olt(olt, force=False, min_interval_seconds=15):
+    from .models import UplinkPortTrafficSample
+
+    latest = UplinkPortTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
+    if latest and not force:
+        if latest.sampled_at >= (timezone.now() - datetime.timedelta(seconds=int(min_interval_seconds or 15))):
+            return latest
+
+    snapshot = fetch_snmp_interfaces(olt, limit=64)
+    rows = list((snapshot or {}).get("rows") or [])
+    if not rows:
+        return None
+
+    sample_time = timezone.now()
+    samples = []
+    for row in rows:
+        port_name = str(row.get("port") or "").strip()
+        if not port_name:
+            continue
+        samples.append(
+            UplinkPortTrafficSample(
+                olt=olt,
+                port_name=port_name,
+                in_octets=int(str(row.get("in_octets") or "0").strip() or 0),
+                out_octets=int(str(row.get("out_octets") or "0").strip() or 0),
+                sampled_at=sample_time,
+            )
+        )
+    if not samples:
+        return None
+    UplinkPortTrafficSample.objects.bulk_create(samples, batch_size=500)
+    return samples[0]
 
 
 def _dashboard_status_counts_from_queryset(qs):
@@ -4750,6 +6807,9 @@ def record_dashboard_status_samples(force=False):
             total_onus=global_total,
             online_onus=global_online,
             offline_onus=max(0, global_total - global_online),
+            wait_for_authorize_total=sum(OLT.objects.values_list('autofind_onu_count', flat=True)),
+            wait_for_authorize_new_total=sum(OLT.objects.values_list('autofind_new_count', flat=True)),
+            wait_for_authorize_resync_total=sum(OLT.objects.values_list('autofind_resync_count', flat=True)),
             admin_disabled=int(global_counts.get('admin_disabled') or 0),
             power_failure=int(global_counts.get('power_failure') or 0),
             loss_of_signal=int(global_counts.get('loss_of_signal') or 0),
@@ -4758,8 +6818,9 @@ def record_dashboard_status_samples(force=False):
         )
     ]
 
-    olt_ids = list(OLT.objects.values_list('id', flat=True))
-    for olt_id in olt_ids:
+    olts = list(OLT.objects.only('id', 'autofind_onu_count', 'autofind_new_count', 'autofind_resync_count'))
+    for olt in olts:
+        olt_id = olt.id
         counts = _dashboard_status_counts_from_queryset(ConfiguredONU.objects.filter(olt_id=olt_id))
         total = int(counts.get('total_onus') or 0)
         online = int(counts.get('online_onus') or 0)
@@ -4770,6 +6831,9 @@ def record_dashboard_status_samples(force=False):
                 total_onus=total,
                 online_onus=online,
                 offline_onus=max(0, total - online),
+                wait_for_authorize_total=int(getattr(olt, 'autofind_onu_count', 0) or 0),
+                wait_for_authorize_new_total=int(getattr(olt, 'autofind_new_count', 0) or 0),
+                wait_for_authorize_resync_total=int(getattr(olt, 'autofind_resync_count', 0) or 0),
                 admin_disabled=int(counts.get('admin_disabled') or 0),
                 power_failure=int(counts.get('power_failure') or 0),
                 loss_of_signal=int(counts.get('loss_of_signal') or 0),
@@ -4787,7 +6851,8 @@ def ensure_dashboard_status_samples_for_scope(olt_id=None):
 
     latest_qs = DashboardStatusSample.objects.filter(olt_id=olt_id) if olt_id else DashboardStatusSample.objects.filter(olt__isnull=True)
     latest = latest_qs.order_by('-sampled_at').first()
-    if latest:
+    boundary = _current_dashboard_sample_boundary()
+    if latest and latest.sampled_at >= boundary:
         return latest
     record_dashboard_status_samples(force=True)
     return latest_qs.order_by('-sampled_at').first()

@@ -15,11 +15,14 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
         gap: 18px;
-        align-items: start;
+        align-items: stretch;
     }
     .summary-hero {
         position: relative;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
         border-radius: 24px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         background:
@@ -87,13 +90,25 @@
         font-weight: 700;
     }
     .summary-scope-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(90, 153, 255, 0.34);
+        background: rgba(62, 120, 255, 0.16);
         color: #9fd0ff;
         text-decoration: none;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 800;
+        line-height: 1;
+        transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, color 0.18s ease;
     }
     .summary-scope-link:hover {
         color: #d7eeff;
+        background: rgba(62, 120, 255, 0.24);
+        border-color: rgba(110, 172, 255, 0.48);
+        transform: translateY(-1px);
     }
     .summary-stamp {
         padding: 8px 12px;
@@ -337,6 +352,9 @@
     }
     .olt-uptime-box {
         width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
         border-radius: 18px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: linear-gradient(180deg, rgba(18, 31, 56, 0.96), rgba(10, 21, 40, 0.96));
@@ -363,6 +381,8 @@
     }
     .olt-uptime-list {
         display: grid;
+        align-content: start;
+        flex: 1 1 auto;
         gap: 8px;
         max-height: 260px;
         overflow-y: auto;
@@ -443,8 +463,8 @@
         color: #ff7f7f;
     }
     .olt-down-wrap {
-        margin-top: 12px;
-        padding-top: 12px;
+        margin-top: 20px;
+        padding-top: 16px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
     .olt-down-head {
@@ -469,7 +489,7 @@
     .olt-down-list {
         display: grid;
         gap: 6px;
-        max-height: 132px;
+        max-height: 172px;
         overflow-y: auto;
         padding-right: 4px;
     }
@@ -584,7 +604,7 @@
     }
     .status-graph-axis {
         fill: #8ea8cf;
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 700;
     }
     .status-graph-line-online {
@@ -617,6 +637,18 @@
     .status-graph-point-admin { fill: #7ac8ff; }
     .status-graph-point-power { fill: #ffb84d; }
     .status-graph-point-los { fill: #c084fc; }
+    .pon-traffic-line-upload {
+        fill: none;
+        stroke: #f59e0b;
+        stroke-width: 2.2;
+    }
+    .pon-traffic-line-download {
+        fill: none;
+        stroke: #60a5fa;
+        stroke-width: 2.2;
+    }
+    .pon-traffic-point-upload { fill: #f59e0b; }
+    .pon-traffic-point-download { fill: #60a5fa; }
     .status-graph-hover-point {
         fill: transparent;
         pointer-events: all;
@@ -645,6 +677,176 @@
         color: #8ea8cf;
         font-size: 13px;
         font-weight: 700;
+    }
+    .dashboard-port-traffic-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 12px;
+        align-items: stretch;
+    }
+
+    .dashboard-status-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
+        gap: 20px;
+        margin-top: 16px;
+        align-items: stretch;
+    }
+    .dashboard-history-box {
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(18, 31, 56, 0.96), rgba(10, 21, 40, 0.96));
+        box-shadow: 0 16px 34px rgba(2, 8, 20, 0.24);
+        padding: 16px 18px 18px;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+    .dashboard-history-box.is-placeholder {
+        justify-content: stretch;
+    }
+    .dashboard-history-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .dashboard-history-head.is-hidden {
+        display: none;
+    }
+    .dashboard-history-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .dashboard-history-sub {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: #99b1d4;
+    }
+    .dashboard-history-list {
+        display: grid;
+        gap: 8px;
+        max-height: 360px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+    .olt-history-list {
+        max-height: 360px;
+    }
+    .dashboard-history-list.is-empty {
+        flex: 1 1 auto;
+        max-height: none;
+        min-height: 310px;
+        border-radius: 18px;
+        border: 1px dashed rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.02);
+    }
+    .dashboard-history-item {
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .dashboard-history-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+    .dashboard-history-action {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #8fd0ff;
+    }
+    .dashboard-history-time {
+        font-size: 11px;
+        font-weight: 700;
+        color: #95accf;
+        white-space: nowrap;
+    }
+    .dashboard-history-message {
+        font-size: 12px;
+        line-height: 1.45;
+        color: #d6e3f7;
+        overflow-wrap: anywhere;
+    }
+    .dashboard-port-traffic-box {
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(18, 31, 56, 0.96), rgba(10, 21, 40, 0.96));
+        box-shadow: 0 16px 34px rgba(2, 8, 20, 0.24);
+        padding: 16px 18px 18px;
+        display: flex;
+        flex-direction: column;
+    }
+    .dashboard-port-traffic-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .dashboard-port-traffic-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .dashboard-port-traffic-sub {
+        margin: 4px 0 0;
+        min-height: 18px;
+        font-size: 12px;
+        color: #99b1d4;
+    }
+    .dashboard-port-traffic-controls {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+        position: relative;
+        z-index: 2;
+    }
+    .dashboard-port-traffic-select {
+        min-width: 150px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #29466f;
+        background: #091120;
+        color: #dbe8ff;
+        cursor: pointer;
+    }
+    .dashboard-port-traffic-canvas {
+        position: relative;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, rgba(7, 16, 29, 0.92), rgba(8, 18, 32, 0.96));
+        overflow: visible;
+        min-height: 310px;
+        padding: 14px 16px 16px;
+        display: flex;
+        flex-direction: column;
+    }
+    @media (max-width: 1120px) {
+        .dashboard-status-layout {
+            grid-template-columns: 1fr;
+        }
+        .dashboard-port-traffic-grid {
+            grid-template-columns: 1fr;
+        }
+        .dashboard-port-traffic-head {
+            grid-template-columns: 1fr;
+        }
+        .dashboard-port-traffic-controls {
+            justify-content: flex-start;
+        }
     }
     .status-graph-loading {
         opacity: 0.7;
@@ -748,13 +950,14 @@
         <section class="summary-hero">
             <div class="summary-head">
                 <div>
-                    <p class="summary-kicker">{{ dashboard_scope_kicker }}</p>
-                    <h2 class="summary-title">{{ dashboard_scope_title }}</h2>
                     {% if dashboard_selected_olt %}
+                    <h2 class="summary-title">{{ dashboard_selected_olt.name }}</h2>
                     <div class="summary-scope-row">
-                        <span class="summary-scope-chip">Focused OLT: {{ dashboard_selected_olt.name }}</span>
                         <a href="{% url 'olt_list' %}" class="summary-scope-link">Back to all OLTs</a>
                     </div>
+                    {% else %}
+                    <p class="summary-kicker">{{ dashboard_scope_kicker }}</p>
+                    <h2 class="summary-title">{{ dashboard_scope_title }}</h2>
                     {% endif %}
                 </div>
                 <div class="summary-stamp-row">
@@ -788,8 +991,8 @@
                           <div class="metric-value" data-dashboard-total>{{ dashboard_wait_for_authorize_total|default:0 }}</div>
                           <div class="metric-note">Auto-discovered ONUs awaiting authorization</div>
                           <div class="signal-breakdown">
-                              <span data-dashboard-resync-link>Resync: {{ dashboard_wait_for_authorize_resync_total|default:0 }}</span>
-                              <span data-dashboard-new-link>New: {{ dashboard_wait_for_authorize_new_total|default:0 }}</span>
+                              <a href="{% url 'unconfigured_onus' %}?category=resync{% if dashboard_selected_olt %}&olts={{ dashboard_selected_olt.pk }}{% endif %}" data-dashboard-resync-link>Resync: {{ dashboard_wait_for_authorize_resync_total|default:0 }}</a>
+                              <a href="{% url 'unconfigured_onus' %}?category=new{% if dashboard_selected_olt %}&olts={{ dashboard_selected_olt.pk }}{% endif %}" data-dashboard-new-link>New: {{ dashboard_wait_for_authorize_new_total|default:0 }}</a>
                           </div>
                       </article>
                     <article class="metric-card online" data-dashboard-online-card>
@@ -867,41 +1070,152 @@
         </section>
     </div>
 
-    <section
-        class="status-graph-box"
-        data-status-graph-url="{% url 'dashboard_status_graph' %}"
-        data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}"
-    >
-        <div class="status-graph-head">
-            <div>
-                <h3 class="status-graph-title">Network Status</h3>
-                <p class="status-graph-sub">Hourly, daily, weekly, monthly, and yearly history for the current dashboard scope.</p>
+    <div class="dashboard-status-layout">
+        <section
+            class="status-graph-box"
+            data-status-graph-url="{% url 'dashboard_status_graph' %}"
+            data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}"
+        >
+            <div class="status-graph-head">
+                <div>
+                    <h3 class="status-graph-title">Network Status</h3>
+                    <p class="status-graph-sub">Hourly, daily, weekly, monthly, and yearly history for the current dashboard scope.</p>
+                </div>
+                <div class="status-graph-controls">
+                    <button type="button" class="status-graph-btn active" data-graph-range="1h">Hour</button>
+                    <button type="button" class="status-graph-btn" data-graph-range="24h">Day</button>
+                    <button type="button" class="status-graph-btn" data-graph-range="7d">Week</button>
+                    <button type="button" class="status-graph-btn" data-graph-range="4w">Month</button>
+                    <button type="button" class="status-graph-btn" data-graph-range="12m">Year</button>
+                </div>
             </div>
-            <div class="status-graph-controls">
-                <button type="button" class="status-graph-btn active" data-graph-range="1h">Hour</button>
-                <button type="button" class="status-graph-btn" data-graph-range="24h">Day</button>
-                <button type="button" class="status-graph-btn" data-graph-range="7d">Week</button>
-                <button type="button" class="status-graph-btn" data-graph-range="4w">Month</button>
-                <button type="button" class="status-graph-btn" data-graph-range="12m">Year</button>
+            <div class="status-graph-canvas" data-status-graph-canvas>
+                <div class="status-graph-meta">
+                    <span class="status-graph-range" data-status-graph-range>{{ dashboard_graph.range_label }}</span>
+                    <div class="status-graph-latest" data-status-graph-latest></div>
+                </div>
+                <div data-status-graph-inner></div>
+                <div class="status-graph-tooltip" data-status-graph-tooltip></div>
+                <div class="status-graph-legend">
+                    <span class="legend-item" data-series-toggle="online"><span class="legend-dot online"></span>Online</span>
+                    <span class="legend-item" data-series-toggle="offline"><span class="legend-dot offline"></span>Offline</span>
+                    <span class="legend-item" data-series-toggle="admin_disabled"><span class="legend-dot" style="background:#7ac8ff;"></span>Admin Disabled</span>
+                    <span class="legend-item" data-series-toggle="power_failure"><span class="legend-dot" style="background:#ffb84d;"></span>Power Failure</span>
+                    <span class="legend-item" data-series-toggle="loss_of_signal"><span class="legend-dot" style="background:#c084fc;"></span>LOS</span>
+                </div>
             </div>
-        </div>
-        <div class="status-graph-canvas" data-status-graph-canvas>
-            <div class="status-graph-meta">
-                <span class="status-graph-range" data-status-graph-range>{{ dashboard_graph.range_label }}</span>
-                <div class="status-graph-latest" data-status-graph-latest></div>
+            {{ dashboard_graph|json_script:"dashboardStatusGraphData" }}
+        </section>
+        {% if dashboard_selected_olt %}
+        <aside class="dashboard-history-box">
+            <div class="dashboard-history-head">
+                <div>
+                    <h3 class="dashboard-history-title">OLT History</h3>
+                    <p class="dashboard-history-sub">Recent activity for {{ dashboard_selected_olt.name }}</p>
+                </div>
             </div>
-            <div data-status-graph-inner></div>
-            <div class="status-graph-tooltip" data-status-graph-tooltip></div>
-            <div class="status-graph-legend">
-                <span class="legend-item" data-series-toggle="online"><span class="legend-dot online"></span>Online</span>
-                <span class="legend-item" data-series-toggle="offline"><span class="legend-dot offline"></span>Offline</span>
-                <span class="legend-item" data-series-toggle="admin_disabled"><span class="legend-dot" style="background:#7ac8ff;"></span>Admin Disabled</span>
-                <span class="legend-item" data-series-toggle="power_failure"><span class="legend-dot" style="background:#ffb84d;"></span>Power Failure</span>
-                <span class="legend-item" data-series-toggle="loss_of_signal"><span class="legend-dot" style="background:#c084fc;"></span>LOS</span>
+            <div class="dashboard-history-list olt-history-list{% if not dashboard_history_rows %} is-empty{% endif %}">
+                {% for row in dashboard_history_rows %}
+                <article class="dashboard-history-item">
+                    <div class="dashboard-history-topline">
+                        <span class="dashboard-history-action">{{ row.action|default:"Activity" }}</span>
+                        <span class="dashboard-history-time">{{ row.logged_in_at|date:"Y-m-d h:i A" }}</span>
+                    </div>
+                    <div class="dashboard-history-message">{{ row.details|default:"No additional details available." }}</div>
+                </article>
+                {% empty %}
+                <article class="dashboard-history-item">
+                    <div class="dashboard-history-topline">
+                        <span class="dashboard-history-action">No history</span>
+                    </div>
+                    <div class="dashboard-history-message">Is selected OLT ke liye abhi koi recent history available nahi hai.</div>
+                </article>
+                {% endfor %}
             </div>
-        </div>
-        {{ dashboard_graph|json_script:"dashboardStatusGraphData" }}
+        </aside>
+        {% endif %}
+    </div>
+
+    {% if dashboard_selected_olt %}
+    <section class="dashboard-port-traffic-grid">
+        <section class="dashboard-port-traffic-box" data-dashboard-pon-traffic-box data-traffic-url="{{ dashboard_pon_traffic_graph_url|default:'' }}">
+            <div class="dashboard-port-traffic-head">
+                <div>
+                    <h3 class="dashboard-port-traffic-title">PON Traffic</h3>
+                    <p class="dashboard-port-traffic-sub" data-traffic-port-title>
+                        {% if dashboard_pon_traffic_port_choices %}{{ dashboard_pon_traffic_port_choices.0.label }}{% else %}No PON port selected{% endif %}
+                    </p>
+                </div>
+                <div class="dashboard-port-traffic-controls">
+                    <div class="status-graph-controls" data-traffic-range-buttons>
+                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="live">Live</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="1h">Hour</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="24h">Day</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="7d">Week</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="4w">Month</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="12m">Year</button>
+                    </div>
+                    <select class="dashboard-port-traffic-select" data-traffic-port-select>
+                        {% for item in dashboard_pon_traffic_port_choices %}
+                        <option value="{{ item.value }}">{{ item.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="dashboard-port-traffic-canvas">
+                <div class="status-graph-meta">
+                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_pon_traffic_graph.range_label|default:"Hourly" }} view</span>
+                    <div class="status-graph-latest" data-traffic-latest></div>
+                </div>
+                <div data-traffic-inner></div>
+                <div class="status-graph-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>Download</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span>Upload</span>
+                </div>
+            </div>
+            {{ dashboard_pon_traffic_graph|json_script:"dashboardPONTrafficGraphData" }}
+        </section>
+
+        <section class="dashboard-port-traffic-box" data-dashboard-uplink-traffic-box data-traffic-url="{{ dashboard_uplink_traffic_graph_url|default:'' }}">
+            <div class="dashboard-port-traffic-head">
+                <div>
+                    <h3 class="dashboard-port-traffic-title">Uplink Traffic</h3>
+                    <p class="dashboard-port-traffic-sub" data-traffic-port-title>
+                        {% if dashboard_uplink_traffic_port_choices %}{{ dashboard_uplink_traffic_port_choices.0.label }}{% else %}No uplink port selected{% endif %}
+                    </p>
+                </div>
+                <div class="dashboard-port-traffic-controls">
+                    <div class="status-graph-controls" data-traffic-range-buttons>
+                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="live">Live</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="1h">Hour</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="24h">Day</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="7d">Week</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="4w">Month</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="12m">Year</button>
+                    </div>
+                    <select class="dashboard-port-traffic-select" data-traffic-port-select>
+                        {% for item in dashboard_uplink_traffic_port_choices %}
+                        <option value="{{ item.value }}">{{ item.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="dashboard-port-traffic-canvas">
+                <div class="status-graph-meta">
+                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_uplink_traffic_graph.range_label|default:"Hourly" }} view</span>
+                    <div class="status-graph-latest" data-traffic-latest></div>
+                </div>
+                <div data-traffic-inner></div>
+                <div class="status-graph-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>Download</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span>Upload</span>
+                </div>
+            </div>
+            {{ dashboard_uplink_traffic_graph|json_script:"dashboardUplinkTrafficGraphData" }}
+        </section>
     </section>
+    {% endif %}
+
   </div>
   <div class="snmp-toast-stack" data-snmp-toast-stack></div>
   {% endblock %}
@@ -937,6 +1251,7 @@
               .map((node) => String(node.textContent || '').trim())
               .filter((name) => name && name !== 'All OLTs reachable')
       );
+      const downToastTimestamps = new Map();
 
       const showSnmpToast = (row) => {
           if (!toastStack || !row) return;
@@ -945,14 +1260,13 @@
           item.innerHTML = `
               <span class="snmp-toast-title">SNMP Down</span>
               <span class="snmp-toast-name">${String(row.name || 'Unknown OLT')}</span>
-              <span class="snmp-toast-text">${String(row.status || 'SNMP timeout/no response detected.')}</span>
           `;
           toastStack.appendChild(item);
           requestAnimationFrame(() => item.classList.add('visible'));
           window.setTimeout(() => {
               item.classList.remove('visible');
               window.setTimeout(() => item.remove(), 260);
-          }, 6000);
+          }, 5000);
       };
       const renderRows = (rows) => {
         list.innerHTML = (rows || []).map((row) => {
@@ -988,8 +1302,11 @@
             safeRows.forEach((row) => {
                 const name = String(row.name || '').trim();
                 if (!name) return;
-                if (!knownDownNames.has(name)) {
+                const now = Date.now();
+                const lastToastAt = downToastTimestamps.get(name) || 0;
+                if (!knownDownNames.has(name) || (now - lastToastAt) >= 60000) {
                     showSnmpToast(row);
+                    downToastTimestamps.set(name, now);
                 }
             });
             knownDownNames = nextNames;
@@ -1045,6 +1362,8 @@
               if (force) {
                   params.set('force', '1');
               }
+              const activeGraphRange = window.__dashboardStatusGraphApi?.getActiveRange?.() || '1h';
+              params.set('graph_range', activeGraphRange);
               const queryUrl = params.toString() ? `${url}?${params.toString()}` : url;
               const response = await fetch(queryUrl, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -1056,6 +1375,9 @@
                 renderRows(payload.rows || []);
                 renderDownRows(payload.down_rows || []);
                 renderSummary(payload.summary || {});
+                if (payload.status_graph && window.__dashboardStatusGraphApi) {
+                    window.__dashboardStatusGraphApi.render(payload.status_graph);
+                }
                 const dashboardUpdated = payload.dashboard_last_updated || payload.refreshed_at || 'Updated';
                   stamp.textContent = payload.updating
                      ? `Last dashboard update: ${dashboardUpdated} (Updating...)`
@@ -1076,7 +1398,7 @@
 
         refresh();
         window.setTimeout(refresh, 1500);
-        window.setInterval(refresh, 15000);
+        window.setInterval(refresh, 60000);
     })();
 
 (() => {
@@ -1092,7 +1414,7 @@
     const buttons = Array.from(panel.querySelectorAll('[data-graph-range]'));
     const legendItems = Array.from(panel.querySelectorAll('[data-series-toggle]'));
     const initialNode = document.getElementById('dashboardStatusGraphData');
-    let activeRange = '24h';
+    let activeRange = 'live';
     let activeSeries = '';
     let busy = false;
 
@@ -1110,6 +1432,7 @@
 
     const renderGraph = (payload) => {
         if (!inner) return;
+        activeRange = payload?.range_key || activeRange;
         const points = Array.isArray(payload?.points) ? payload.points : [];
         if (rangeLabel) {
             rangeLabel.textContent = `${payload?.range_label || 'Hourly'} view`;
@@ -1240,6 +1563,21 @@
         panel.querySelector('[data-status-graph-canvas]')?.classList.toggle('status-graph-loading', value);
     };
 
+    window.__dashboardStatusGraphApi = {
+        render(payload) {
+            if (!payload) return;
+            activeRange = payload.range_key || activeRange;
+            buttons.forEach((button) => button.classList.toggle('active', button.dataset.graphRange === activeRange));
+            renderGraph(payload);
+        },
+        getActiveRange() {
+            return activeRange;
+        },
+        refresh(rangeKey) {
+            refresh(rangeKey || activeRange);
+        },
+    };
+
     const refresh = async (rangeKey) => {
         if (busy || !url) return;
         busy = true;
@@ -1295,5 +1633,202 @@
         }
     }
 })();
+
+(() => {
+    const mountDashboardPortTraffic = (panelSelector, initialId, portParamName) => {
+        const panel = document.querySelector(panelSelector);
+        if (!panel) return;
+        const url = panel.getAttribute('data-traffic-url') || '';
+        const inner = panel.querySelector('[data-traffic-inner]');
+        const rangeNode = panel.querySelector('[data-traffic-range-label]');
+        const latestNode = panel.querySelector('[data-traffic-latest]');
+        const titleNode = panel.querySelector('[data-traffic-port-title]');
+        const rangeButtons = Array.from(panel.querySelectorAll('[data-traffic-range-btn]'));
+        const portSelect = panel.querySelector('[data-traffic-port-select]');
+        const initialNode = document.getElementById(initialId);
+        if (!url || !inner || !rangeNode || !latestNode || !titleNode || !portSelect || !rangeButtons.length) return;
+
+        let activeRange = '1h';
+        let liveInterval = null;
+        let requestToken = 0;
+        const payloadCache = new Map();
+
+        const updateTitle = () => {
+            const option = portSelect.options[portSelect.selectedIndex];
+            titleNode.textContent = option ? option.text : 'No port selected';
+        };
+
+        const setLatest = (row) => {
+            const safe = row || {};
+            latestNode.innerHTML = `
+                <span><strong>&darr; IN:</strong> ${(Number(safe.download_mbps || 0)).toFixed(2)} Mbps</span>
+                <span><strong>&uarr; OUT:</strong> ${(Number(safe.upload_mbps || 0)).toFixed(2)} Mbps</span>
+                <span><strong>IN Max:</strong> ${(Number(safe.download_max_mbps || 0)).toFixed(2)} Mbps</span>
+                <span><strong>OUT Max:</strong> ${(Number(safe.upload_max_mbps || 0)).toFixed(2)} Mbps</span>
+            `;
+        };
+
+        const renderGraph = (payload) => {
+            activeRange = payload?.range_key || activeRange;
+            const points = Array.isArray(payload?.points) ? payload.points : [];
+            const series = Array.isArray(payload?.series) ? payload.series : [];
+            rangeNode.textContent = `${payload?.range_label || 'Hourly'} view`;
+            setLatest(payload?.latest || {});
+            if (!points.length && !series.length) {
+                inner.innerHTML = '<div class="status-graph-empty">No traffic history captured yet.</div>';
+                return;
+            }
+
+            const width = 960;
+            const height = 240;
+            const topPad = 14;
+            const bottomPad = 34;
+            const leftPad = 106;
+            const rightPad = 18;
+            const plotWidth = width - leftPad - rightPad;
+            const plotHeight = height - topPad - bottomPad;
+            const activeSeriesList = series.length ? series : [
+                { key: 'selected-in', label: `${titleNode.textContent} (IN)`, color: '#35d07f', direction: 'download_mbps', points },
+                { key: 'selected-out', label: `${titleNode.textContent} (OUT)`, color: '#60a5fa', direction: 'upload_mbps', points },
+            ];
+            const basePoints = series.length ? (activeSeriesList[0]?.points || []) : points;
+            const maxValue = Math.max(
+                1,
+                ...activeSeriesList.flatMap((entry) =>
+                    (entry.points || []).map((point) =>
+                        Number(point[entry.direction || 'download_mbps'] || 0)
+                    )
+                )
+            );
+            const singlePoint = basePoints.length === 1;
+            const xStep = basePoints.length > 1 ? plotWidth / (basePoints.length - 1) : 0;
+            const yFor = (value) => topPad + plotHeight - ((Number(value || 0) / maxValue) * plotHeight);
+            const xFor = (index) => singlePoint ? (leftPad + (plotWidth / 2)) : (leftPad + (xStep * index));
+            const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                const value = (maxValue * (1 - ratio)).toFixed(1);
+                const y = topPad + (plotHeight * ratio);
+                return { value, y };
+            });
+            const xTicks = basePoints.length <= 6 ? basePoints : [basePoints[0], basePoints[Math.floor((basePoints.length - 1) / 2)], basePoints[basePoints.length - 1]];
+            const xTickMarkup = xTicks.map((point) => {
+                const index = basePoints.indexOf(point);
+                const x = xFor(index);
+                return `<text class="status-graph-axis" x="${x}" y="${height - 10}" text-anchor="${index === 0 ? 'start' : index === basePoints.length - 1 ? 'end' : 'middle'}">${point.label}</text>`;
+            }).join('');
+            const yTickMarkup = yTicks.map((tick) => `
+                <g>
+                    <line class="status-graph-grid" x1="${leftPad}" y1="${tick.y}" x2="${width - rightPad}" y2="${tick.y}"></line>
+                    <text class="status-graph-axis" x="${leftPad - 14}" y="${tick.y + 4}" text-anchor="end">${tick.value} Mbps</text>
+                </g>
+            `).join('');
+            const seriesMarkup = activeSeriesList.map((entry) => {
+                const pts = entry.points || [];
+                const pointList = pts.map((point, index) => `${xFor(index)},${yFor(point[entry.direction || 'download_mbps'])}`).join(' ');
+                const circles = pts.map((point, index) => `<circle cx="${xFor(index)}" cy="${yFor(point[entry.direction || 'download_mbps'])}" r="3.5" fill="${entry.color}"></circle>`).join('');
+                return `<polyline points="${pointList}" fill="none" stroke="${entry.color}" stroke-width="2.2"></polyline>${circles}`;
+            }).join('');
+            inner.innerHTML = `
+                <svg class="status-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+                    <text class="status-graph-axis" x="28" y="${topPad + (plotHeight / 2)}" text-anchor="middle" transform="rotate(-90 28 ${topPad + (plotHeight / 2)})">Mbps</text>
+                    ${yTickMarkup}
+                    ${seriesMarkup}
+                    ${xTickMarkup}
+                </svg>
+            `;
+            const legend = activeSeriesList.map((entry) => `<span class="legend-item"><span class="legend-dot" style="background:${entry.color};"></span>${entry.label}</span>`).join('');
+            const legendNode = panel.querySelector('.status-graph-legend');
+            if (legendNode) legendNode.innerHTML = legend;
+        };
+
+        const cacheKeyFor = (rangeKey) => `${rangeKey}::${portSelect.value || ''}`;
+
+        const syncLivePolling = () => {
+            if (liveInterval) {
+                window.clearInterval(liveInterval);
+                liveInterval = null;
+            }
+            if (activeRange === 'live') {
+                liveInterval = window.setInterval(() => refresh('live'), 15000);
+            }
+        };
+
+        const refresh = async (rangeKey = activeRange) => {
+            activeRange = rangeKey;
+            rangeButtons.forEach((button) => button.classList.toggle('active', button.dataset.trafficRangeBtn === activeRange));
+            syncLivePolling();
+            rangeNode.textContent = `${({
+                'live': 'Live',
+                '1h': 'Hourly',
+                '24h': 'Daily',
+                '7d': 'Weekly',
+                '4w': 'Monthly',
+                '12m': 'Yearly',
+            }[activeRange] || 'Hourly')} view`;
+            const cacheKey = cacheKeyFor(rangeKey);
+            if (activeRange !== 'live' && payloadCache.has(cacheKey)) {
+                renderGraph(payloadCache.get(cacheKey));
+            }
+            const currentToken = ++requestToken;
+            try {
+                const params = new URLSearchParams({ range: rangeKey });
+                params.set(portParamName, portSelect.value || '');
+                const response = await fetch(`${url}?${params.toString()}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) return;
+                const payload = await response.json();
+                if (!payload.ok) return;
+                if (currentToken !== requestToken) return;
+                activeRange = payload.range_key || rangeKey;
+                if (activeRange !== 'live') {
+                    payloadCache.set(cacheKey, payload);
+                }
+                rangeButtons.forEach((button) => button.classList.toggle('active', button.dataset.trafficRangeBtn === activeRange));
+                renderGraph(payload);
+                syncLivePolling();
+            } catch (error) {
+                // Keep rendered graph on transient failure.
+            }
+        };
+
+        rangeButtons.forEach((button) => {
+            button.addEventListener('click', () => refresh(button.dataset.trafficRangeBtn || '1h'));
+        });
+        portSelect.addEventListener('change', () => {
+            updateTitle();
+            refresh(activeRange);
+        });
+
+        updateTitle();
+        if (initialNode) {
+            try {
+                const initialPayload = JSON.parse(initialNode.textContent || '{}');
+                activeRange = initialPayload?.range_key || activeRange;
+                if (activeRange !== 'live') {
+                    payloadCache.set(cacheKeyFor(activeRange), initialPayload);
+                }
+                renderGraph(initialPayload);
+                if (!((initialPayload?.points || []).length || (initialPayload?.series || []).length)) {
+                    refresh(activeRange);
+                }
+            } catch (error) {
+                refresh(activeRange);
+            }
+        } else {
+            refresh(activeRange);
+        }
+        syncLivePolling();
+        window.setInterval(() => {
+            if (activeRange !== 'live') {
+                refresh(activeRange);
+            }
+        }, 120000);
+    };
+
+    mountDashboardPortTraffic('[data-dashboard-pon-traffic-box]', 'dashboardPONTrafficGraphData', 'pon_port');
+    mountDashboardPortTraffic('[data-dashboard-uplink-traffic-box]', 'dashboardUplinkTrafficGraphData', 'uplink_port');
+})();
+
 </script>
 {% endblock %}

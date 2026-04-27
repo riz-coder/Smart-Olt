@@ -164,6 +164,16 @@
         align-items: center;
         gap: 6px;
     }
+    .autofind-summary a {
+        color: #dbe7ff;
+        text-decoration: none;
+    }
+    .autofind-summary a:hover {
+        color: #ffffff;
+    }
+    .summary-filter-active {
+        color: #84efae !important;
+    }
     .category-chip {
         display: inline-flex;
         align-items: center;
@@ -194,6 +204,23 @@
         line-height: 1;
         border-radius: 8px;
         white-space: nowrap;
+    }
+    .previous-running {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #d7c6ef;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.35;
+        white-space: nowrap;
+    }
+    .previous-running.is-empty {
+        color: #8fa7c9;
     }
 </style>
 {% endblock %}
@@ -233,9 +260,9 @@
             <button type="submit" class="btn btn-primary">Refresh</button>
         </form>
         <div class="autofind-summary">
-            <span>Total ONUs: {{ unconfigured_total }}</span>
-            <span>Resync: {{ unconfigured_resync_total|default:0 }}</span>
-            <span>New: {{ unconfigured_new_total|default:0 }}</span>
+            <span><a href="{% url 'unconfigured_onus' %}{% if unconfigured_selected_olts or unconfigured_search_query %}?{% endif %}{% for olt in unconfigured_selected_olts %}olts={{ olt }}&{% endfor %}{% if unconfigured_search_query %}q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if not unconfigured_category_filter %}summary-filter-active{% endif %}">Total ONUs: {{ unconfigured_total }}</a></span>
+            <span><a href="{% url 'unconfigured_onus' %}?category=resync{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'resync' %}summary-filter-active{% endif %}">Resync: {{ unconfigured_resync_total|default:0 }}</a></span>
+            <span><a href="{% url 'unconfigured_onus' %}?category=new{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'new' %}summary-filter-active{% endif %}">New: {{ unconfigured_new_total|default:0 }}</a></span>
         </div>
 
         {% for group in unconfigured_groups %}
@@ -251,7 +278,7 @@
                             <th>Port</th>
                             <th>SN</th>
                             <th>Category</th>
-                            <th>Type</th>
+                            <th>Previous Running</th>
                             <th>Autofind time</th>
                             <th>Action</th>
                         </tr>
@@ -265,7 +292,9 @@
                             <td>{% if row.port is not None %}{{ row.port }}{% else %}-{% endif %}</td>
                             <td><span class="sn-pill">{{ row.sn|default:"-" }}</span></td>
                             <td><span class="category-chip {{ row.category|default:'new' }}">{{ row.category_label|default:"New" }}</span></td>
-                            <td>{{ row.type|default:"-" }}</td>
+                            <td>
+                                <span class="previous-running{% if row.previous_running == '-' %} is-empty{% endif %}">{{ row.previous_running|default:"-" }}</span>
+                            </td>
                             <td>{{ row.autofind_time|default:"-" }}</td>
                             <td>
                                 {% if row.existing_onu_url %}
