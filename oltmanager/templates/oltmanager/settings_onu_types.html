@@ -1,0 +1,63 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - ONU Types{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
+            <div>
+                <h2 style="margin:0;">ONU Types</h2>
+                <p class="subtle" style="margin:6px 0 0;">Static ONU type catalog for quick reference.</p>
+            </div>
+            <a href="{% url 'settings_home' %}" class="btn btn-secondary">Back</a>
+        </div>
+        {% if onu_types %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Serial No.</th>
+                        <th>PON type</th>
+                        <th>Channels</th>
+                        <th>ONU type</th>
+                        <th>Ethernet ports</th>
+                        <th>WiFi</th>
+                        <th>VoIP ports</th>
+                        <th>CATV</th>
+                        <th>Allow custom profiles</th>
+                        <th>Capability</th>
+                        <th>ONUs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in onu_types %}
+                    <tr>
+                        <td>{{ forloop.counter0|add:300 }}</td>
+                        <td>{{ row.pon_type }}</td>
+                        <td>{{ row.channels }}</td>
+                        <td>{{ row.onu_type }}</td>
+                        <td>{{ row.ethernet_ports }}</td>
+                        <td>{{ row.wifi }}</td>
+                        <td>{{ row.voip_ports }}</td>
+                        <td>{{ row.catv }}</td>
+                        <td>{{ row.allow_custom_profiles }}</td>
+                        <td>{{ row.capability }}</td>
+                        <td>
+                            {% if row.onus_url %}
+                            <a href="{{ row.onus_url }}">{{ row.onus_count }}</a>
+                            {% else %}
+                            0
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="subtle">No ONU types found.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

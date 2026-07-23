@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}OLT Portal{% endblock %}</title>
+    <script>
+        // Apply the saved theme before paint to avoid a flash of the wrong theme.
+        (function () {
+            try {
+                if (localStorage.getItem('oltTheme') === 'light') {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                }
+            } catch (e) {}
+        })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
@@ -36,6 +46,12 @@
         body.authenticated {
             padding-left: 244px;
         }
+        /* The dashboard is laid out for large monitors; on laptop-sized screens
+           it opens oversized. Scale the whole app down to fit like a native app.
+           (zoom keeps the fixed sidebar + content perfectly aligned.) */
+        @media (max-width: 1600px) { body.authenticated { zoom: 0.9; } }
+        @media (max-width: 1366px) { body.authenticated { zoom: 0.8; } }
+        @media (max-width: 1180px) { body.authenticated { zoom: 0.72; } }
         .main-nav {
             position: fixed;
             left: 0;
@@ -304,6 +320,298 @@
             .nav-logout { margin: 0; }
             .nav-logout-btn { width: auto; justify-content: center; }
         }
+
+        /* Theme toggle button */
+        .nav-theme {
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-start;
+            color: #deebff;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .nav-theme:hover { background: rgba(255, 255, 255, 0.14); }
+        .nav-theme .theme-ico { font-size: 16px; line-height: 1; }
+
+        /* ============================ LIGHT THEME ============================ */
+        html[data-theme="light"] {
+            --bg: #d8e6f5;
+            --card: #ffffff;
+            --text: #0c1c38;
+            --muted: #3d5270;
+            --line: #afc6e4;
+            --primary: #1a6ef5;
+            --primary-dark: #0f58d6;
+            --success-bg: #d4f5e4;
+            --success-text: #0a6b3e;
+            --error-bg: #fcdde3;
+            --error-text: #a01e30;
+            --danger: #c42535;
+        }
+        html[data-theme="light"] body {
+            background:
+                radial-gradient(circle at 90% 6%, #b6cff5 0%, transparent 38%),
+                radial-gradient(circle at 6% 92%, #b8d8f7 0%, transparent 46%),
+                var(--bg);
+        }
+        /* Sidebar: rich navy so it stands out clearly from the light content area */
+        html[data-theme="light"] .main-nav {
+            background: linear-gradient(160deg, #102045 0%, #1a3468 60%, #1e3f7c 100%);
+            border-right: 1px solid #0c1a38;
+            box-shadow: 4px 0 24px rgba(8, 20, 55, 0.32);
+        }
+        html[data-theme="light"] .nav-brand {
+            color: #ffffff;
+            border-bottom-color: rgba(255, 255, 255, 0.14);
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        html[data-theme="light"] .nav-link { color: #c8deff; }
+        html[data-theme="light"] .nav-link:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+        html[data-theme="light"] .nav-logout-btn { color: #c8deff; }
+        html[data-theme="light"] .nav-theme {
+            color: #c8deff;
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+        html[data-theme="light"] .nav-theme:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+        html[data-theme="light"] .nav-menu {
+            background: #1a3468;
+            border-color: #2a4f8a;
+            box-shadow: 0 10px 28px rgba(8, 20, 55, 0.38);
+        }
+        html[data-theme="light"] .nav-menu a { color: #c8deff; }
+        html[data-theme="light"] .nav-menu a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        html[data-theme="light"] .topbar {
+            background: rgba(255, 255, 255, 0.96);
+            border-color: #afc6e4;
+            box-shadow: 0 4px 20px rgba(20, 60, 140, 0.14);
+        }
+        html[data-theme="light"] .panel {
+            background: var(--card);
+            border-color: #afc6e4;
+            box-shadow: 0 6px 28px rgba(20, 60, 140, 0.12);
+        }
+        html[data-theme="light"] th { color: #1a4a9c; font-weight: 700; }
+        html[data-theme="light"] td { color: var(--text); }
+        html[data-theme="light"] .btn-secondary {
+            background: #e8f0fb;
+            border-color: #afc6e4;
+            color: #1a3468;
+        }
+        html[data-theme="light"] .btn-secondary:hover { background: #d8e6f5; border-color: #7aa4d4; }
+        html[data-theme="light"] .btn-danger {
+            background: #fce8eb;
+            border-color: #f0aab5;
+            color: #b01e2c;
+        }
+        html[data-theme="light"] .btn-danger:hover { background: #fad4d9; border-color: #d8808e; }
+        html[data-theme="light"] .form-control {
+            background: #f2f7ff;
+            border-color: #afc6e4;
+            color: #0c1c38;
+        }
+        html[data-theme="light"] .form-control:focus {
+            border-color: #1a6ef5;
+            box-shadow: 0 0 0 3px rgba(26, 110, 245, 0.18);
+        }
+        html[data-theme="light"] .form-grid label { color: #1a3468; }
+        html[data-theme="light"] .subtle { color: #3d5270; }
+        html[data-theme="light"] .messages li.warning {
+            background: #fff4d6; color: #7a5410; border-color: #e8c96a;
+        }
+        /* Readability pass: most pages define their own dark cards, tables and
+           small labels. These shared light-theme rules keep contrast consistent
+           without changing layout or behaviour. */
+        html[data-theme="light"] {
+            --bg: #e7eff9;
+            --card: #ffffff;
+            --text: #10213d;
+            --muted: #415673;
+            --line: #b7c9e3;
+        }
+        html[data-theme="light"] body {
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+        html[data-theme="light"] .shell,
+        html[data-theme="light"] .topbar,
+        html[data-theme="light"] .panel,
+        html[data-theme="light"] .content-card,
+        html[data-theme="light"] .menu-card,
+        html[data-theme="light"] .snap-card,
+        html[data-theme="light"] .snapshot-card,
+        html[data-theme="light"] .detail-card,
+        html[data-theme="light"] .onu-detail-card,
+        html[data-theme="light"] .filter-bar,
+        html[data-theme="light"] .settings-card,
+        html[data-theme="light"] .user-form-card,
+        html[data-theme="light"] .user-list-card,
+        html[data-theme="light"] .alerts-card,
+        html[data-theme="light"] .rep-card,
+        html[data-theme="light"] .vlan-add-card,
+        html[data-theme="light"] .profile-add-card,
+        html[data-theme="light"] .profile-config-box,
+        html[data-theme="light"] .authorize-panel,
+        html[data-theme="light"] .progress-box,
+        html[data-theme="light"] .review-panel {
+            background-color: #ffffff;
+            color: #10213d;
+            border-color: #b7c9e3;
+        }
+        html[data-theme="light"] h1,
+        html[data-theme="light"] h2,
+        html[data-theme="light"] h3,
+        html[data-theme="light"] h4,
+        html[data-theme="light"] .brand,
+        html[data-theme="light"] .summary-title,
+        html[data-theme="light"] .content-card h3,
+        html[data-theme="light"] .snap-title,
+        html[data-theme="light"] .detail-row strong,
+        html[data-theme="light"] .snapshot-meta strong,
+        html[data-theme="light"] .onu-config-table-label {
+            color: #10213d;
+            font-weight: 800;
+        }
+        html[data-theme="light"] p,
+        html[data-theme="light"] td,
+        html[data-theme="light"] li,
+        html[data-theme="light"] label,
+        html[data-theme="light"] .detail-value,
+        html[data-theme="light"] .snapshot-meta span,
+        html[data-theme="light"] .signal-line,
+        html[data-theme="light"] .metric-note,
+        html[data-theme="light"] .dashboard-history-message,
+        html[data-theme="light"] .autofind-summary,
+        html[data-theme="light"] .multi-filter-item,
+        html[data-theme="light"] .search-group label,
+        html[data-theme="light"] .authorize-field label,
+        html[data-theme="light"] .filter-label {
+            color: #1f304d;
+        }
+        html[data-theme="light"] .subtle,
+        html[data-theme="light"] .muted,
+        html[data-theme="light"] .muted-cell,
+        html[data-theme="light"] .pager-summary,
+        html[data-theme="light"] .summary-sub,
+        html[data-theme="light"] .metric-label,
+        html[data-theme="light"] .metric-note,
+        html[data-theme="light"] .status-graph-sub,
+        html[data-theme="light"] .dashboard-history-sub,
+        html[data-theme="light"] .dashboard-port-traffic-sub,
+        html[data-theme="light"] .olt-temp-label,
+        html[data-theme="light"] .dashboard-history-time,
+        html[data-theme="light"] .running-config-placeholder,
+        html[data-theme="light"] .running-config-status,
+        html[data-theme="light"] .signal-chart-empty,
+        html[data-theme="light"] .authorize-panel-note,
+        html[data-theme="light"] .multi-filter-item small {
+            color: #4b607d;
+        }
+        html[data-theme="light"] table {
+            color: #10213d;
+        }
+        html[data-theme="light"] th,
+        html[data-theme="light"] .cards-table th,
+        html[data-theme="light"] .onu-config-table th,
+        html[data-theme="light"] .rv-table th {
+            color: #254a84;
+            background: #edf4ff;
+            border-bottom-color: #b7c9e3;
+            font-weight: 800;
+        }
+        html[data-theme="light"] td,
+        html[data-theme="light"] .cards-table td,
+        html[data-theme="light"] .onu-config-table td,
+        html[data-theme="light"] .rv-table td {
+            color: #172946;
+            border-bottom-color: #d6e2f2;
+            font-weight: 600;
+        }
+        html[data-theme="light"] tr:hover td {
+            background: rgba(47, 128, 255, 0.07);
+        }
+        html[data-theme="light"] a,
+        html[data-theme="light"] .detail-link,
+        html[data-theme="light"] .detail-edit,
+        html[data-theme="light"] .sp-onu-link {
+            color: #0f5fc9;
+            font-weight: 800;
+        }
+        html[data-theme="light"] a:hover {
+            color: #073f91;
+        }
+        html[data-theme="light"] input,
+        html[data-theme="light"] select,
+        html[data-theme="light"] textarea,
+        html[data-theme="light"] .form-control,
+        html[data-theme="light"] .search-input,
+        html[data-theme="light"] .search-select,
+        html[data-theme="light"] .dashboard-port-traffic-select,
+        html[data-theme="light"] .multi-filter summary,
+        html[data-theme="light"] .multi-filter-search input {
+            background: #ffffff;
+            color: #10213d;
+            border-color: #8eabd2;
+            font-weight: 700;
+        }
+        html[data-theme="light"] input::placeholder,
+        html[data-theme="light"] textarea::placeholder {
+            color: #6c7f9a;
+            opacity: 1;
+        }
+        html[data-theme="light"] input:disabled,
+        html[data-theme="light"] select:disabled,
+        html[data-theme="light"] textarea:disabled {
+            background: #e9f0fa;
+            color: #435976;
+            -webkit-text-fill-color: #435976;
+            opacity: 1;
+        }
+        html[data-theme="light"] .running-config-output,
+        html[data-theme="light"] .progress-log,
+        html[data-theme="light"] .debug-panel {
+            background: #f8fbff;
+            color: #12345f;
+            border-color: #b7c9e3;
+        }
+        html[data-theme="light"] .status-graph-canvas,
+        html[data-theme="light"] .dashboard-port-traffic-canvas,
+        html[data-theme="light"] .signal-chart-wrap {
+            background: #fbfdff;
+            border-color: #d2dfef;
+        }
+        html[data-theme="light"] .btn-secondary,
+        html[data-theme="light"] .status-graph-btn,
+        html[data-theme="light"] .signal-range-btn,
+        html[data-theme="light"] .sp-tab,
+        html[data-theme="light"] .al-tab {
+            background: #eef5ff;
+            color: #17365f;
+            border-color: #a9c0df;
+            font-weight: 800;
+        }
+        html[data-theme="light"] .btn-primary,
+        html[data-theme="light"] .btn-success,
+        html[data-theme="light"] .status-graph-btn.active,
+        html[data-theme="light"] .signal-range-btn.active,
+        html[data-theme="light"] .sp-tab.active,
+        html[data-theme="light"] .al-tab.active {
+            color: #ffffff;
+            font-weight: 800;
+        }
+        html[data-theme="light"] .badge,
+        html[data-theme="light"] .sn-pill,
+        html[data-theme="light"] .vlan-chip,
+        html[data-theme="light"] .agg-chip,
+        html[data-theme="light"] .role-badge,
+        html[data-theme="light"] .alert-widget-count,
+        html[data-theme="light"] .olt-uptime-pill {
+            font-weight: 800;
+            border-color: rgba(22, 45, 80, 0.16);
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -316,8 +624,15 @@
                 <a href="{% url 'unconfigured_onus' %}" class="nav-link">Autofind</a>
                 <a href="{% url 'configured_onus' %}" class="nav-link">ONUs</a>
                 <a href="{% url 'olt_settings_olt' %}" class="nav-link">OLT</a>
+                <a href="{% url 'health_report' %}" class="nav-link">Report</a>
+                {% if user.is_staff or user.is_superuser %}
                 <a href="{% url 'settings_home' %}" class="nav-link">Settings</a>
+                {% endif %}
             </nav>
+            <button type="button" class="nav-link nav-theme" id="themeToggleBtn" aria-label="Toggle light or dark theme">
+                <span class="theme-ico" data-theme-ico>🌙</span>
+                <span data-theme-label>Dark</span>
+            </button>
             <form method="post" action="{% url 'logout' %}" class="nav-logout">
                 {% csrf_token %}
                 <button type="submit" class="nav-link nav-logout-btn">Log out</button>
@@ -327,5 +642,36 @@
     {% endif %}
     {% block content %}{% endblock %}
     {% block extra_js %}{% endblock %}
+    <script>
+        (function () {
+            var btn = document.getElementById('themeToggleBtn');
+            if (!btn) return;
+            var root = document.documentElement;
+            var ico = btn.querySelector('[data-theme-ico]');
+            var label = btn.querySelector('[data-theme-label]');
+            function sync() {
+                var light = root.getAttribute('data-theme') === 'light';
+                // Show the option the user will switch TO.
+                if (ico) ico.textContent = light ? '🌙' : '☀️';
+                if (label) label.textContent = light ? 'Dark' : 'Light';
+            }
+            sync();
+            btn.addEventListener('click', function () {
+                var light = root.getAttribute('data-theme') === 'light';
+                try {
+                    if (light) {
+                        root.removeAttribute('data-theme');
+                        localStorage.setItem('oltTheme', 'dark');
+                    } else {
+                        root.setAttribute('data-theme', 'light');
+                        localStorage.setItem('oltTheme', 'light');
+                    }
+                } catch (e) {
+                    if (light) { root.removeAttribute('data-theme'); } else { root.setAttribute('data-theme', 'light'); }
+                }
+                sync();
+            });
+        })();
+    </script>
 </body>
 </html>

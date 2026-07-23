@@ -1,0 +1,144 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - Alerts{% endblock %}
+
+{% block extra_css %}
+<style>
+    .alerts-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 18px;
+        margin-bottom: 18px;
+    }
+    html[data-theme="light"] .alerts-card { background: #f4f8fe; border-color: #dce6f3; }
+    .alerts-card h3 { margin: 0 0 14px; font-size: 16px; }
+    .al-row { display: grid; grid-template-columns: 200px 1fr; gap: 14px; align-items: start; margin-bottom: 14px; }
+    .al-row > label.al-label { font-weight: 700; color: #c9daff; padding-top: 6px; }
+    html[data-theme="light"] .al-row > label.al-label { color: #2b3a57; }
+    .al-toggles { display: flex; flex-wrap: wrap; gap: 16px; }
+    .al-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #dce8ff; }
+    html[data-theme="light"] .al-toggle { color: #2b3a57; }
+    .al-inline { display: flex; gap: 16px; flex-wrap: wrap; }
+    .al-num { width: 120px; }
+    .al-sev { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .al-sev.critical { color: #ff6b77; background: rgba(255,107,119,.14); }
+    .al-sev.warning  { color: #ffb347; background: rgba(255,179,71,.14); }
+    .al-sev.info     { color: #45db87; background: rgba(69,219,135,.14); }
+    .al-state-active   { color: #ff8a8a; font-weight: 800; }
+    .al-state-resolved { color: #8fa7c9; font-weight: 700; }
+    .al-tabs { display: flex; gap: 0; margin-bottom: 14px; }
+    .al-tab {
+        padding: 9px 16px; border: 1px solid var(--line); border-bottom: none;
+        border-radius: 8px 8px 0 0; text-decoration: none; color: #9db0cf; font-weight: 700;
+        background: rgba(255,255,255,.04);
+    }
+    .al-tab + .al-tab { margin-left: -1px; }
+    .al-tab.active { background: var(--card); color: #dff2ff; }
+    html[data-theme="light"] .al-tab { background: #eef3fb; color: #5a6b86; border-color: #cdd9ec; }
+    html[data-theme="light"] .al-tab.active { background: #ffffff; color: #1d4ed8; }
+    @media (max-width: 760px) { .al-row { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <h1 class="brand">Alerts</h1>
+            <p class="subtle">In-app notifications for OLT down / recovery, temperature, fiber-cut and signal-degradation events. ({{ active_alert_count }} active)</p>
+        </div>
+        <div class="topbar-actions">
+            <a href="{% url 'settings_home' %}" class="btn btn-secondary">Back</a>
+        </div>
+    </header>
+
+    {% if messages %}
+    <ul class="messages">
+        {% for message in messages %}
+        <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <section class="panel">
+        <form method="post" action="{% url 'settings_alerts' %}" class="alerts-card">
+            {% csrf_token %}
+            <h3>What to monitor</h3>
+            <div class="al-row">
+                <label class="al-label">Alert types</label>
+                <div class="al-toggles">
+                    <label class="al-toggle"><input type="checkbox" name="notify_olt_down" {% if cfg.notify_olt_down %}checked{% endif %}> 🔴 OLT Down</label>
+                    <label class="al-toggle"><input type="checkbox" name="notify_olt_recovered" {% if cfg.notify_olt_recovered %}checked{% endif %}> 🟢 OLT Recovered</label>
+                    <label class="al-toggle"><input type="checkbox" name="notify_high_temp" {% if cfg.notify_high_temp %}checked{% endif %}> 🌡️ High Temperature</label>
+                    <label class="al-toggle"><input type="checkbox" name="notify_fiber_cut" {% if cfg.notify_fiber_cut %}checked{% endif %}> ✂️ Fiber cut / mass outage</label>
+                    <label class="al-toggle"><input type="checkbox" name="notify_signal_degrade" {% if cfg.notify_signal_degrade %}checked{% endif %}> 📉 Signal degrading</label>
+                </div>
+            </div>
+            <div class="al-row">
+                <label class="al-label">Thresholds</label>
+                <div class="al-inline">
+                    <div>
+                        <label class="helptext" for="temp_threshold_c">Temp °C</label>
+                        <input class="form-control al-num" type="number" id="temp_threshold_c" name="temp_threshold_c" min="1" value="{{ cfg.temp_threshold_c }}">
+                    </div>
+                    <div>
+                        <label class="helptext" for="fiber_cut_min_onus">Fiber cut: min ONUs down</label>
+                        <input class="form-control al-num" type="number" id="fiber_cut_min_onus" name="fiber_cut_min_onus" min="2" value="{{ cfg.fiber_cut_min_onus }}">
+                    </div>
+                    <div>
+                        <label class="helptext" for="fiber_cut_ratio">Fiber cut: % down on port</label>
+                        <input class="form-control al-num" type="number" id="fiber_cut_ratio" name="fiber_cut_ratio" min="1" max="100" value="{{ cfg.fiber_cut_ratio }}">
+                    </div>
+                    <div>
+                        <label class="helptext" for="signal_degrade_drop_db">Signal: dB drop to flag</label>
+                        <input class="form-control al-num" type="number" id="signal_degrade_drop_db" name="signal_degrade_drop_db" min="1" value="{{ cfg.signal_degrade_drop_db }}">
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save settings</button>
+        </form>
+
+        <div class="alerts-card">
+            <h3>Alerts</h3>
+            <div class="al-tabs">
+                <a href="{% url 'settings_alerts' %}?show=active" class="al-tab{% if show == 'active' %} active{% endif %}">Active</a>
+                <a href="{% url 'settings_alerts' %}?show=all" class="al-tab{% if show == 'all' %} active{% endif %}">All</a>
+            </div>
+            {% if alerts %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>When</th><th>Severity</th><th>Alert</th><th>OLT</th><th>State</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for a in alerts %}
+                        <tr>
+                            <td>{{ a.created_at|date:"d-M H:i" }}</td>
+                            <td><span class="al-sev {{ a.severity }}">{{ a.severity|upper }}</span></td>
+                            <td>{{ a.title }}{% if a.message %}<div class="subtle" style="margin-top:2px;font-size:12px;">{{ a.message }}</div>{% endif %}</td>
+                            <td>{{ a.olt.name|default:"-" }}</td>
+                            <td>{% if a.is_active %}<span class="al-state-active">Active</span>{% else %}<span class="al-state-resolved">Resolved</span>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if show == 'all' %}
+            <form method="post" action="{% url 'settings_alerts' %}" style="margin-top:14px;"
+                  onsubmit="return confirm('Delete all resolved alerts from history?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="clear_resolved">
+                <input type="hidden" name="show" value="{{ show }}">
+                <button type="submit" class="btn btn-secondary">Clear resolved history</button>
+            </form>
+            {% endif %}
+            {% else %}
+            <p class="subtle">No {{ show }} alerts.</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+

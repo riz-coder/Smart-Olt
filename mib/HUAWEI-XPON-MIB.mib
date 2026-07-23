@@ -1,0 +1,1324 @@
+RAW-HUAWEI-XPON-ALIASES DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT IDENTIFIER, enterprises, Integer32, Unsigned32, Gauge32, IpAddress
+        FROM SNMPv2-SMI
+    RowStatus, DateAndTime
+        FROM SNMPv2-TC
+    ifIndex
+        FROM IF-MIB;
+
+rawHuaweiXponAliases MODULE-IDENTITY
+    LAST-UPDATED "202604100000Z"
+    ORGANIZATION "OpenAI generated from user-supplied raw text"
+    CONTACT-INFO "Custom helper/alias MIB built from uploaded raw text; not Huawei original ASN.1."
+    DESCRIPTION
+        "A helper MIB generated from user-supplied raw text representing Huawei
+         XPON/GPON/EPON OID names and trees. It is intended for symbolic OID
+         resolution and browsing. It is not the original vendor MIB and should
+         not be treated as authoritative for MAX-ACCESS, DESCRIPTION, compliance,
+         or firmware-specific write support."
+    ::= { enterprises 99998 }
+
+-- Core Huawei enterprise roots
+huawei OBJECT IDENTIFIER ::= { enterprises 2011 }
+huaweiXponBranch OBJECT IDENTIFIER ::= { huawei 6 }
+
+HwXponDynamicMacQueryPara ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Type alias reconstructed from raw text; base type Integer32."
+    SYNTAX       Integer32
+
+HwXponDynamicMacQueryType ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Enumeration placeholder reconstructed from raw text."
+    SYNTAX       INTEGER
+
+OntList ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Type alias reconstructed from raw text; base type OctetString."
+    SYNTAX       OCTET STRING
+
+PortList ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Type alias reconstructed from raw text; base type OctetString."
+    SYNTAX       OCTET STRING
+
+VlanIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Type alias reconstructed from raw text; base type Unsigned32."
+    SYNTAX       Unsigned32
+
+hwEponDeviceAlarmProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceLineProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceSrvProfMulticastVlanCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceSrvProfOntCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceSrvProfOntPortCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceSrvProfPortVlanCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponDeviceSrvProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwEponLineProfLlidCfgLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceAlarmProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceLineProfGemBundleLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceLineProfGemCfgLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceLineProfMappingCfgLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceLineProfTcontCfgLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceLineProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceSrvProfOntCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceSrvProfOntPortCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceSrvProfPortVlanCfgSrvProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceSrvProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwGponDeviceSrvProfileOntIgmpCfgNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceDbaProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceLineProfEthPortBundleCfgLineProfNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceOntPortClassProfileIdIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceOntSnmpProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceOpticsModuleAlarmProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+hwXponDeviceSLAProfileInfoNameIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION  "Implicit type placeholder reconstructed from raw text."
+    SYNTAX       Integer32
+
+-- OID aliases reconstructed from uploaded raw text
+
+hwXponDeviceMIB OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6 128 }
+hwXponDeviceObjectMIB OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128 1 }
+hwXponDeviceObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1 1 }
+hwXponDeviceGlobalObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 1 }
+hwXponDeviceAutoFindOntAge OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 1 }
+hwXponDeviceAutoFindInterval OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 2 }
+hwGponDeviceMulticastGemportId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 21 }
+hwGponDeviceBaseGemportId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 22 }
+hwGponDeviceMinimumBandwidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 23 }
+hwXponDeviceAutoDetectRogueOntNew OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 24 }
+hwGponDeviceDbaBandwidthType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 25 }
+hwGponDeviceDbaAssignmentMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 26 }
+hwXponDeviceModeCfgSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 3 }
+hwEponDeviceCtcOuiId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 41 }
+hwEponDeviceChangePasswordIntervalTime OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.1 42 }
+hwXponDeviceControlObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 2 }
+hwGponDeviceOntSnmpStaticRouteConfigTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 100 }
+hwGponDeviceOntSnmpStaticRouteConfigEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.100 1 }
+hwGponOntObjectSnmpStaticRouteIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.100.1 1 }
+hwGponOntObjectSnmpStaticRouteOutputPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.100.1 6 }
+hwGponDeviceOntRegisterExInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 101 }
+hwGponDeviceOntRegisterExInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101 1 }
+hwGponDeviceOntRegisterInfoIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 1 }
+hwGponDeviceOntRegisterInfoCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 10 }
+hwGponDeviceOntRegisterInfoAuthMethod OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 2 }
+hwGponDeviceOntRegisterInfoSN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 3 }
+hwGponDeviceOntRegisterInfoPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 4 }
+hwGponDeviceOntRegisterInfoType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 5 }
+hwGponDeviceOntRegisterInfoUpTime OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 6 }
+hwGponDeviceOntRegisterInfoDownTime OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 7 }
+hwGponDeviceOntRegisterInfoDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 8 }
+hwGponDeviceOntRegisterInfoLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.101.1 9 }
+hwEponDeviceOntSnmpStaticRouteTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 102 }
+hwEponDeviceOntSnmpStaticRouteEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.102 1 }
+hwEponOntSnmpStaticRouteIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.102.1 1 }
+hwEponDeviceOntRegisterExInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 103 }
+hwEponDeviceOntRegisterExInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103 1 }
+hwEponDeviceOntRegisterInfoIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 1 }
+hwEponDeviceOntRegisterInfoCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 10 }
+hwEponDeviceOntRegisterInfoAuthMethod OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 2 }
+hwEponDeviceOntRegisterInfoMac OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 3 }
+hwEponDeviceOntRegisterInfoPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 4 }
+hwEponDeviceOntRegisterInfoType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 5 }
+hwEponDeviceOntRegisterInfoUpTime OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 6 }
+hwEponDeviceOntRegisterInfoDownTime OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 7 }
+hwEponDeviceOntRegisterInfoDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 8 }
+hwEponDeviceOntRegisterInfoLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.103.1 9 }
+hwEponDeviceOntOpticsDdmInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 104 }
+hwEponDeviceOntOpticsDdmInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104 1 }
+hwEponOntOpticalDdmOltRxOntPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 1 }
+hwEponOntOpticalDdmTemperature OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 2 }
+hwEponOntOpticalDdmBiasCurrent OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 3 }
+hwEponOntOpticalDdmTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 4 }
+hwEponOntOpticalDdmRxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 5 }
+hwEponOntOpticalDdmVoltage OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 6 }
+hwEponOntOpticalDdmOltTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.104.1 7 }
+hwXponDeviceOltDualparentTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 120 }
+hwXponDeviceOltDualparentEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120 1 }
+hwXponDeviceOltDualparentJoin OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 1 }
+hwXponDeviceOltDualparentFreeze OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 2 }
+hwXponDeviceOltDualparentForceSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 3 }
+hwXponDeviceOltDualparentWorkState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 4 }
+hwXponDeviceOltDualparentDetectTimeLen OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 5 }
+hwXponDeviceOltDualparentDesc OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.120.1 6 }
+hwXponDynamicMacQueryTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 130 }
+hwXponDynamicMacQueryEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130 1 }
+hwXponDynamicMacVlanId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 1 }
+hwXponDynamicMacIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 2 }
+hwXponDynamicMacQueryType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 3 }
+hwXponDynamicMacQueryPara0 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 4 }
+hwXponDynamicMacQueryPara1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 5 }
+hwXponDynamicMacQueryPara2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 6 }
+hwXponDynamicMacQueryPara3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 7 }
+hwXponDynamicMacAddr OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.130.1 8 }
+hwGponDeviceUnboundGemPortQueryTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 140 }
+hwGponDeviceUnboundGemPortQueryEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140 1 }
+hwGponDeviceUnboundGemPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140.1 1 }
+hwGponDeviceUnboundGemPortServiceType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140.1 2 }
+hwGponDeviceUnboundGemPortEncrypt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140.1 3 }
+hwGponDeviceUnboundGemPortCascade OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140.1 4 }
+hwGponDeviceUnboundGemPortDescription OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.140.1 5 }
+hwGponDeviceOntGemPortBindTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 141 }
+hwGponDeviceOntGemPortBindEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141 1 }
+hwGponDeviceOntGemPortBindGemPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 1 }
+hwGponDeviceOntGemPortBindOntId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 2 }
+hwGponDeviceOntGemPortBindTcontId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 3 }
+hwGponDeviceOntGemPortBindUpPQIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 4 }
+hwGponDeviceOntGemPortBindTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 5 }
+hwGponDeviceOntGemPortBindDownPQIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 7 }
+hwGponDeviceOntGemPortBindTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.141.1 8 }
+hwGponDeviceLineProfTcontRefTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 142 }
+hwGponDeviceLineProfTcontRefEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.142 1 }
+hwGponDeviceLineProfTcontRefIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.142.1 1 }
+hwGponDeviceLineProfTcontName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.142.1 2 }
+hwGponDeviceLineProfAllocId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.142.1 3 }
+hwXponDeviceRogueOntTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 143 }
+hwXponDeviceRogueOntEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.143 1 }
+hwXponDeviceRogueOnt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.143.1 1 }
+hwEponDeviceOntLlidTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 144 }
+hwEponDeviceOntLlidEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144 1 }
+hwEponDeviceOntLlidIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144.1 1 }
+hwEponDeviceOntLlidValue OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144.1 2 }
+hwEponDeviceOntLlidDbaProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144.1 3 }
+hwEponDeviceOntLlidCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144.1 4 }
+hwEponDeviceOntLlidCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.144.1 5 }
+hwEponDeviceOntPortVlanTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 145 }
+hwEponDeviceOntPortVlanEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145 1 }
+hwEponOntPortVlanCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145.1 1 }
+hwEponOntPortVlanCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145.1 2 }
+hwEponOntPortVlanCfgCVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145.1 3 }
+hwEponOntPortVlanCfgSVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145.1 4 }
+hwEponOntPortVlanCfgType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.145.1 5 }
+hwEponDeviceAlarmProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 146 }
+hwEponDeviceAlarmProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.146 1 }
+hwEponDeviceAlarmProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.146.1 1 }
+hwGponDeviceOntPortVlanTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 147 }
+hwGponDeviceOntPortVlanEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147 1 }
+hwGponDeviceOntPortVlanPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 1 }
+hwGponDeviceOntPortVlanDscpDefaultPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 10 }
+hwGponDeviceOntPortVlanPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 2 }
+hwGponDeviceOntPortVlanCVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 3 }
+hwGponDeviceOntPortVlanCPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 4 }
+hwGponDeviceOntPortVlanEtherType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 5 }
+hwGponDeviceOntPortVlanCfgType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 6 }
+hwGponDeviceOntPortVlanSVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 7 }
+hwGponDeviceOntPortVlanSPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 8 }
+hwGponDeviceOntPortVlanSPriPolicy OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.147.1 9 }
+hwGponDeviceOltControlInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 21 }
+hwGponDeviceOltControlInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21 1 }
+hwGponDeviceOltControlNearest OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 1 }
+hwGponDeviceOltControlStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 10 }
+hwGponDeviceOltControlManualDetectRogueOnt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 11 }
+hwGponDeviceOltControlIlegalIncurRogueOntExt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 12 }
+hwGponDeviceOltControlOpticModuleStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 13 }
+hwGponDeviceOltControlAvailableBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 14 }
+hwGponDeviceOltObjectOpticAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 15 }
+hwGponDeviceOltControlOntNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 16 }
+hwGponDeviceOltLastDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 19 }
+hwGponDeviceOltControlFarthest OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 2 }
+hwGponDeviceOltControlTcontNumCombined OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 20 }
+hwGponDeviceOltControlTcontNumInCard OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 21 }
+hwGponDeviceOltControlEnergySavingFlag OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 22 }
+hwGponDeviceOltControlManualCheckRogueOnt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 23 }
+hwGponDeviceOltControlPortReset OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 24 }
+hwGponDeviceOltControlDnFecEnabled OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 3 }
+hwGponDeviceOltControlAutofindOntEnable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 4 }
+hwGponDeviceOltControlChangePasswordAge OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 5 }
+hwGponDeviceOltControlDespt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 6 }
+hwGponDeviceOltControlLeftBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 7 }
+hwGponDeviceOltControlMinBandwidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 8 }
+hwGponDeviceOltControlLaserSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.21.1 9 }
+hwGponOltOpticsModuleInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 22 }
+hwGponOltOpticsModuleInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22 1 }
+hwGponOltOpticsModuleInfoIdentifier OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 1 }
+hwGponOltOpticsModuleInfoLengthCopper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 10 }
+hwGponOltOpticsModuleInfoVendorName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 11 }
+hwGponOltOpticsModuleInfoVendorOUI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 12 }
+hwGponOltOpticsModuleInfoVendorPN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 13 }
+hwGponOltOpticsModuleInfoVendorRev OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 14 }
+hwGponOltOpticsModuleInfoWaveLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 15 }
+hwGponOltOpticsModuleInfoCcBase OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 16 }
+hwGponOltOpticsModuleInfoOptions OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 17 }
+hwGponOltOpticsModuleInfoBrMax OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 18 }
+hwGponOltOpticsModuleInfoBrMin OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 19 }
+hwGponOltOpticsModuleInfoExtID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 2 }
+hwGponOltOpticsModuleInfoVendorSN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 20 }
+hwGponOltOpticsModuleInfoDateCode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 21 }
+hwGponOltOpticsModuleInfoDiagnosticMonitoringType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 22 }
+hwGponOltOpticsModuleInfoEnhancedOptions OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 23 }
+hwGponOltOpticsModuleInfoSFF8472Compliance OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 24 }
+hwGponOltOpticsModuleInfoCcExt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 25 }
+hwGponOltOpticsModuleInfoVendorSpecific OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 26 }
+hwGponOltOpticsModuleXponType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 27 }
+hwGponOltOpticsModuleXponSubType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 28 }
+hwGponOltOpticsModuleXponUsedType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 29 }
+hwGponOltOpticsModuleInfoConnector OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 3 }
+hwGponOltOpticsModuleXponEncapsulationType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 30 }
+hwGponOltOpticsModuleInfoPartNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 31 }
+hwGponOltOpticsModuleInfoEncoding OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 4 }
+hwGponOltOpticsModuleInfoBrNominal OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 5 }
+hwGponOltOpticsModuleInfoLength9Micronkm OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 6 }
+hwGponOltOpticsModuleInfoLength9Micron OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 7 }
+hwGponOltOpticsModuleInfoLength50Micron OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 8 }
+hwGponOltOpticsModuleInfoLength62Micron5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.22.1 9 }
+hwGponOltOpticsDdmInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 23 }
+hwGponOltOpticsDdmInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23 1 }
+hwGponOltOpticsDdmInfoTemperature OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23.1 1 }
+hwGponOltOpticsDdmInfoSupplyVoltage OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23.1 2 }
+hwGponOltOpticsDdmInfoTxBiasCurrent OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23.1 3 }
+hwGponOltOpticsDdmInfoTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23.1 4 }
+hwGponOltOpticsDdmInfoRxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.23.1 5 }
+hwEponOltXFPOpticsModuleInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 24 }
+hwEponOltXFPOpticsModuleInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24 1 }
+hwEponOltXFPOpticsModuleInfoIdentifier OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 1 }
+hwEponOltXFPOpticsModuleInfoEncoding64B OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 10 }
+hwEponOltXFPOpticsModuleInfoBrMin OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 11 }
+hwEponOltXFPOpticsModuleInfoBrMax OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 12 }
+hwEponOltXFPOpticsModuleInfoSupportLenSMF OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 13 }
+hwEponOltXFPOpticsModuleInfoSupportLenE50um OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 14 }
+hwEponOltXFPOpticsModuleInfoSupportLen50um OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 15 }
+hwEponOltXFPOpticsModuleInfoSupportLen62p5um OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 16 }
+hwEponOltXFPOpticsModuleInfoSupportLenCopper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 17 }
+hwEponOltXFPOpticsModuleInfoTransmitterSupport OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 18 }
+hwEponOltXFPOpticsModuleInfoDetector OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 19 }
+hwEponOltXFPOpticsModuleInfoExtCLEICode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 2 }
+hwEponOltXFPOpticsModuleInfoWavelengthControl OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 20 }
+hwEponOltXFPOpticsModuleInfoCooledTransmitterDevice OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 21 }
+hwEponOltXFPOpticsModuleInfoTransmitterTechnologySupport OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 22 }
+hwEponOltXFPOpticsModuleInfoVendorName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 23 }
+hwEponOltXFPOpticsModuleInfoSupportXFIMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 24 }
+hwEponOltXFPOpticsModuleInfoSupportLinesideMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 25 }
+hwEponOltXFPOpticsModuleInfoMaxBitRateSupportedByCDR OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 26 }
+hwEponOltXFPOpticsModuleInfoVendorOUI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 27 }
+hwEponOltXFPOpticsModuleInfoVendorPN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 28 }
+hwEponOltXFPOpticsModuleInfoVendorRev OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 29 }
+hwEponOltXFPOpticsModuleInfoExtTXRefClock OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 3 }
+hwEponOltXFPOpticsModuleInfoF51 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 30 }
+hwEponOltXFPOpticsModuleInfoWaveTolerance OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 31 }
+hwEponOltXFPOpticsModuleInfoMaxCaseTemperature OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 32 }
+hwEponOltXFPOpticsModuleInfoCcbase OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 33 }
+hwEponOltXFPOpticsModuleInfoMaxDissipation OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 34 }
+hwEponOltXFPOpticsModuleInfoMaxDissipationPowerDownMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 35 }
+hwEponOltXFPOpticsModuleInfoMaximum5P0VSupply OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 36 }
+hwEponOltXFPOpticsModuleInfoMaximum3P3VSupply OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 37 }
+hwEponOltXFPOpticsModuleInfoMaximum1P8VSupply OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 38 }
+hwEponOltXFPOpticsModuleInfoMaximum5P2VSupply OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 39 }
+hwEponOltXFPOpticsModuleInfoExtCDRFunc OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 4 }
+hwEponOltXFPOpticsModuleInfoVendorSN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 40 }
+hwEponOltXFPOpticsModuleInfoDateCode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 41 }
+hwEponOltXFPOpticsModuleInfoDiagnoMonitorPowerMeasure OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 42 }
+hwEponOltXFPOpticsModuleInfoDiagnoMonitorTypeFECBER OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 43 }
+hwEponOltXFPOpticsModuleInfoEnhancedOptions OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 44 }
+hwEponOltXFPOpticsModuleInfoAuxInputOne OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 45 }
+hwEponOltXFPOpticsModuleInfoAuxInputTwo OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 46 }
+hwEponOltXFPOpticsModuleInfoCCEXT OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 47 }
+hwEponOltXFPOpticsModuleInfoWavelengthFor2d5G OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 48 }
+hwEponOltXFPOpticsModuleInfoWavelengthFor1d25G OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 49 }
+hwEponOltXFPOpticsModuleInfoExtPowerLevel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 5 }
+hwEponOltXFPOpticsModuleInfoVendorSpecific OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 50 }
+hwEponOltXFPOpticsModuleXponType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 51 }
+hwEponOltXFPOpticsModuleXponSubType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 52 }
+hwEponOltXFPOpticsModuleXponUsedType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 53 }
+hwEponOltXFPOpticsModuleXponEncapsulationType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 54 }
+hwEponOltXFPOpticsModuleXponTemperatureLevel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 55 }
+hwEponOltXFPOpticsModuleXponOPMprecision OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 56 }
+hwEponOltXFPOpticsModuleInfoConnector OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 6 }
+hwEponOltXFPOpticsModuleInfoEncodingRZ OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 7 }
+hwEponOltXFPOpticsModuleInfoEncodingNRZ OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 8 }
+hwEponOltXFPOpticsModuleInfoEncoding8B10B OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.24.1 9 }
+hwEponDeviceOltControlInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 31 }
+hwEponDeviceOltControlInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31 1 }
+hwEponDeviceOltControlfarthest OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 1 }
+hwEponDeviceOltEffectiveFlag OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 10 }
+hwEponOltLowTimeLapseStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 11 }
+hwEponDeviceOltControlOntNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 12 }
+hwEponDeviceOltControlVlanTagMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 13 }
+hwEponDeviceOltLastDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 16 }
+hwEponDeviceOltControlLeftBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 17 }
+hwEponDeviceOltControlAvailableBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 18 }
+hwEponDeviceOltControlManualDetectRogueOnt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 19 }
+hwEponDeviceOltControlAutofindOntEnable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 2 }
+hwEponDeviceOltRogueOntExist OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 20 }
+hwEponDeviceOltLeftBandWidth10GUpstream OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 21 }
+hwEponDeviceOltAvailableBandWidth10GUpstream OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 22 }
+hwEponDeviceOltControlAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 23 }
+hwEponDeviceOltControlWarningProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 24 }
+hwEponDeviceOltControlEnergySavingFlag OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 25 }
+hwEponDeviceOltControlManualCheckRogueOnt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 26 }
+hwEponDeviceOltControlPortReset OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 27 }
+hwEponDeviceOltControlDespt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 3 }
+hwEponDeviceOltControlLaserSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 4 }
+hwEponDeviceOltControlStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 5 }
+hwEponDeviceOltControlUpStreamBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 6 }
+hwEponDeviceOltControlDownStreamBandWidth OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 7 }
+hwEponDeviceOltControlOpticAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 8 }
+hwEponDeviceOltLowTimeLapseSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.31.1 9 }
+hwEponOltOpticsModuleInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 32 }
+hwEponOltOpticsModuleInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32 1 }
+hwEponOltOpticsModuleInfoIdentifier OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 1 }
+hwEponOltOpticsModuleInfoLengthCopper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 10 }
+hwEponOltOpticsModuleInfoVendorName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 11 }
+hwEponOltOpticsModuleInfoVendorOUI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 12 }
+hwEponOltOpticsModuleInfoVendorPN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 13 }
+hwEponOltOpticsModuleInfoVendorRev OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 14 }
+hwEponOltOpticsModuleInfoWaveLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 15 }
+hwEponOltOpticsModuleInfoCcBase OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 16 }
+hwEponOltOpticsModuleInfoOptions OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 17 }
+hwEponOltOpticsModuleInfoBrMax OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 18 }
+hwEponOltOpticsModuleInfoBrMin OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 19 }
+hwEponOltOpticsModuleInfoExtID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 2 }
+hwEponOltOpticsModuleInfoVendorSN OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 20 }
+hwEponOltOpticsModuleInfoDateCode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 21 }
+hwEponOltOpticsModuleInfoDiagnosticMonitoringType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 22 }
+hwEponOltOpticsModuleInfoEnhancedOptions OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 23 }
+hwEponOltOpticsModuleInfoSFF8472Compliance OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 24 }
+hwEponOltOpticsModuleInfoCcExt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 25 }
+hwEponOltOpticsModuleInfoVendorSpecific OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 26 }
+hwEponOltOpticsModuleXponType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 27 }
+hwEponOltOpticsModuleXponSubType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 28 }
+hwEponOltOpticsModuleXponUsedType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 29 }
+hwEponOltOpticsModuleInfoConnector OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 3 }
+hwEponOltOpticsModuleXponEncapsulationType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 30 }
+hwEponOltOpticsModuleInfoEncoding OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 4 }
+hwEponOltOpticsModuleInfoBrNominal OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 5 }
+hwEponOltOpticsModuleInfoLength9Micronkm OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 6 }
+hwEponOltOpticsModuleInfoLength9Micron OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 7 }
+hwEponOltOpticsModuleInfoLength50Micron OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 8 }
+hwEponOltOpticsModuleInfoLength62Micron5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.32.1 9 }
+hwEponOltOpticsDdmInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 33 }
+hwEponOltOpticsDdmInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33 1 }
+hwEponOltOpticsDdmInfoTemperature OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33.1 1 }
+hwEponOltOpticsDdmInfoSupplyVoltage OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33.1 2 }
+hwEponOltOpticsDdmInfoTxBiasCurrent OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33.1 3 }
+hwEponOltOpticsDdmInfoTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33.1 4 }
+hwEponOltOpticsDdmInfoRxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.33.1 5 }
+hwXponOntLoadSelectTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 41 }
+hwXponOntLoadSelectEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41 1 }
+hwXponDeviceOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41.1 1 }
+hwXponOntLoadSelectState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41.1 2 }
+hwXponOntLoadSelectProgress OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41.1 3 }
+hwXponOntLoadSelectPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41.1 5 }
+hwXponOntLoadSelectActiveMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.41.1 6 }
+hwXponOntLoadCtrlTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 42 }
+hwXponOntLoadFileType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 1 }
+hwXponOntLoadImageActiveMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 10 }
+hwXponOntLoadXmlAES128Key OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 11 }
+hwXponOntLoadServerPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 12 }
+hwXponOntLoadProtocol OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 3 }
+hwXponOntLoadFileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 4 }
+hwXponOntLoadUserName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 5 }
+hwXponOntLoadPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 6 }
+hwXponOntLoadAdminStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 7 }
+hwXponOntLoadXmlIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 8 }
+hwXponOntLoadXmlOntObjectIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.42 9 }
+hwGponDeviceOntConfigInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 43 }
+hwGponDeviceOntConfigInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43 1 }
+hwGponDeviceOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 1 }
+hwGponDeviceOntProtectSide OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 11 }
+hwGponDeviceOntPGMemberRole OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 12 }
+hwGponDeviceOntLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 13 }
+hwGponDeviceOntCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 14 }
+hwGponDeviceOntReregisterAuthMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 15 }
+hwGponDeviceOntInfoAuthEffectMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 16 }
+hwGponDeviceOntNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 17 }
+hwGponDeviceOntManualSwitchChannelIfindex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 18 }
+hwGponDeviceOntAuthMethod OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 2 }
+hwGponDeviceOntSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 3 }
+hwGponDeviceOntPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 4 }
+hwGponDeviceOntTimeOut OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 5 }
+hwGponDeviceOntManagementMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 6 }
+hwGponDeviceOntLineProfName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 7 }
+hwGponDeviceOntServiceProfName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 8 }
+hwGponDeviceOntDespt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.43.1 9 }
+hwGponDeviceOntExtendConfigTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 44 }
+hwGponDeviceOntExtendConfigEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.44 1 }
+hwGponDeviceOntCfgAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.44.1 1 }
+hwGponDeviceOntCfgSnmpProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.44.1 2 }
+hwGponDeviceOntExtCfgOpticAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.44.1 3 }
+hwGponDeviceOntVersionInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 45 }
+hwGponDeviceOntVersionInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45 1 }
+hwGponDeviceOntVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 1 }
+hwGponDeviceOntVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 2 }
+hwGponDeviceOntProductId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 3 }
+hwGponDeviceOntEquipmentId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 4 }
+hwGponDeviceOntMainSoftVer OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 5 }
+hwGponDeviceOntStandbySoftVer OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 6 }
+hwGponDeviceOntSoftwareWorkMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 7 }
+hwGponDeviceOntCustomizedInfo OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 8 }
+hwGponDeviceOntEquipmentSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.45.1 9 }
+hwGponDeviceOntControlInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 46 }
+hwGponDeviceOntControlInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46 1 }
+hwGponDeviceOntControlActive OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 1 }
+hwGponDeviceOntControlRunStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 15 }
+hwGponDeviceOntControlConfigStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 16 }
+hwGponDeviceOntControlDiscoveryStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 17 }
+hwGponDeviceOntControlMatchStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 18 }
+hwGponDeviceOntControlDbaStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 19 }
+hwGponDeviceOntControlReset OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 2 }
+hwGponDeviceOntControlRanging OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 20 }
+hwGponDeviceOntControlMacCount OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 21 }
+hwGponDeviceOntControlLastDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 24 }
+hwGponDeviceOntControlIsolationState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 26 }
+hwGponDeviceOntControlBatteryCurStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 27 }
+hwGponDeviceOntControlTcontNumCombined OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 28 }
+hwGponDeviceOntControlLastRanging OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 29 }
+hwGponDeviceOntControlReRegister OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 3 }
+hwGponDeviceOntControlActualSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 30 }
+hwGponDeviceOntControlReDiscovery OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.46.1 4 }
+hwGponDeviceOntCfgCapabilityTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 47 }
+hwGponDeviceOntCfgCapabilityEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47 1 }
+hwGponDeviceOntCfgCapManagementMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 1 }
+hwGponDeviceOntCfgCapGemNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 10 }
+hwGponDeviceOntCfgCapGemMappingMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 11 }
+hwGponDeviceOntCfgCapTcontNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 12 }
+hwGponDeviceOntCfgCapFCType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 13 }
+hwGponDeviceOntCfgCapVdslPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 14 }
+hwGponDeviceOntCfgCapEthNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 2 }
+hwGponDeviceOntCfgCapPotsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 3 }
+hwGponDeviceOntCfgCapIPSupport OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 4 }
+hwGponDeviceOntCfgCapTdmPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 5 }
+hwGponDeviceOntCfgCapTdmServiceType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 6 }
+hwGponDeviceOntCfgCapTdmNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 7 }
+hwGponDeviceOntCfgCapMocaNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 8 }
+hwGponDeviceOntCfgCapCatvUniNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.47.1 9 }
+hwGponDeviceAutoFindOntInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 48 }
+hwGponDeviceAutoFindOntInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48 1 }
+hwGponDeviceAutoFindOntInfoOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 1 }
+hwGponDeviceAutoFindOntInfoCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 10 }
+hwGponDeviceAutoFindOntInfoCustomizedInfo OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 11 }
+hwGponDeviceAutoFindOntInfoOntNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 12 }
+hwGponDeviceAutoFindOntInfoEquipmentSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 13 }
+hwGponDeviceAutoFindOntInfoSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 2 }
+hwGponDeviceAutoFindOntInfoPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 3 }
+hwGponDeviceAutoFindOntInfoOntVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 4 }
+hwGponDeviceAutoFindOntInfoOntVer OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 5 }
+hwGponDeviceAutoFindOntInfoOntMainSoftVer OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 6 }
+hwGponDeviceAutoFindOntInfoOntEquipmentId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 7 }
+hwGponDeviceAutoFindOntInfoLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.48.1 9 }
+hwGponDeviceOntIpConfigInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 49 }
+hwGponDeviceOntIpConfigInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49 1 }
+hwGponDeviceOntIpConfigMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 1 }
+hwGponDeviceOntIpIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 10 }
+hwGponDeviceOntIpconfigDscpDefaultPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 11 }
+hwGponDeviceOntIpconfigDscpProfIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 12 }
+hwGponDeviceOntIpconfigDhcpReset OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 13 }
+hwGponDeviceOntIpConfigVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 8 }
+hwGponDeviceOntIpConfigPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.49.1 9 }
+hwGponDeviceOntAlarmStateInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 50 }
+hwGponDeviceOntAlarmStateInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50 1 }
+hwGponDeviceOntAlarmSDi OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50.1 1 }
+hwGponDeviceOntAlarmSFi OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50.1 2 }
+hwGponDeviceOntAlarmDOWi OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50.1 3 }
+hwGponDeviceOntAlarmLOSi OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50.1 4 }
+hwGponDeviceOntObjAlarmStateRDIi OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.50.1 5 }
+hwGponDeviceOntOpticalDdmInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 51 }
+hwGponDeviceOntOpticalDdmInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51 1 }
+hwGponOntOpticalDdmTemperature OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 1 }
+hwGponOntOpticalDdmBiasCurrent OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 2 }
+hwGponOntOpticalDdmTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 3 }
+hwGponOntOpticalDdmRxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 4 }
+hwGponOntOpticalDdmVoltage OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 5 }
+hwGponOntOpticalDdmOltRxOntPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 6 }
+hwGponOntOpticalDdmAniCATVRxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.51.1 7 }
+hwGponDeviceOntRegisterInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 52 }
+hwGponDeviceOntRegisterInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52 1 }
+hwGponDeviceOntRegisterSerialNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 1 }
+hwGponDeviceOntRegisterOntMainSoftVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 10 }
+hwGponDeviceOntRegisterOntEquipmentId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 11 }
+hwGponDeviceOntRegisterOntLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 12 }
+hwGponDeviceOntRegisterOntCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 13 }
+hwGponDeviceOntRegisterOntNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 14 }
+hwGponDeviceOntRegisterSn OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 2 }
+hwGponDeviceOntRegisterResult OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 3 }
+hwGponDeviceOntRegisterConflictedIfindex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 5 }
+hwGponDeviceOntRegisterConflictedOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 6 }
+hwGponDeviceOntRegisterOntPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 7 }
+hwGponDeviceOntRegisterOntVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 8 }
+hwGponDeviceOntRegisterOntVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.52.1 9 }
+hwEponDeviceOntConfigInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 53 }
+hwEponDeviceOntConfigInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53 1 }
+hwEponDeviceOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 1 }
+hwEponDeviceOntProtectSide OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 11 }
+hwEponDeviceOntObjectLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 12 }
+hwEponDeviceOntObjectCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 13 }
+hwEponDeviceLineProfileServiceSlaProfileIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 14 }
+hwEponDeviceOntPGMemberRole OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 15 }
+hwEponDeviceOntAuthEffectMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 16 }
+hwEponDeviceOntNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 17 }
+hwEponDeviceOntAuthMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 2 }
+hwEponDeviceOntPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 4 }
+hwEponDeviceOntTimeout OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 5 }
+hwEponDeviceOntManagementMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 6 }
+hwEponDeviceOntLineProfName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 7 }
+hwEponDeviceOntServiceProfName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 8 }
+hwEponDeviceOntDespt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.53.1 9 }
+hwEponDeviceOntExtendConfigTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 54 }
+hwEponDeviceOntExtendConfigEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54 1 }
+hwEponDeviceOntCfgSnmpProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54.1 1 }
+hwEponDeviceOntCfgMulticastMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54.1 2 }
+hwEponDeviceOntExtCfgOpticAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54.1 3 }
+hwEponDeviceOntExtCfgAlarmProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54.1 4 }
+hwEponDeviceOntExtCfgWarningProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.54.1 5 }
+hwEponDeviceOntVersionInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 55 }
+hwEponDeviceOntVersionInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55 1 }
+hwEponDeviceOntVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 1 }
+hwEponDeviceOntFirmwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 10 }
+hwEponDeviceOntChipRevision OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 11 }
+hwEponDeviceOntSoftwareWorkMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 12 }
+hwEponDeviceOntExtendedModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 13 }
+hwEponDeviceOntOuiVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 14 }
+hwEponDeviceOntExtendedFirmwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 15 }
+hwEponDeviceOntCustomizedInfo OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 16 }
+hwEponDeviceOntModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 2 }
+hwEponDeviceOntOntIdentifier OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 3 }
+hwEponDeviceOntHardwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 4 }
+hwEponDeviceOntSoftwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 5 }
+hwEponDeviceOntChipVendorID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 6 }
+hwEponDeviceOntChipModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 7 }
+hwEponDeviceOntChipVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 8 }
+hwEponDeviceOntChipDesignDate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.55.1 9 }
+hwEponDeviceOntCfgCapabilityTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 56 }
+hwEponDeviceOntCfgCapabilityEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56 1 }
+hwEponDeviceOntCfgCapManageMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 1 }
+hwEponDeviceOntCfgCapPotsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 2 }
+hwEponDeviceOntCfgCapIPSupport OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 3 }
+hwEponDeviceOntCfgCapTdmPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 4 }
+hwEponDeviceOntCfgCapTdmNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 5 }
+hwEponDeviceOntCfgCapEthNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.56.1 6 }
+hwEponDeviceOntControlInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 57 }
+hwEponDeviceOntControlInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57 1 }
+hwEponDeviceOntActive OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 1 }
+hwEponDeviceOntRunStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 15 }
+hwEponDeviceOntConfigStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 16 }
+hwEponDeviceOntDiscoveryState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 17 }
+hwEponDeviceOntMatchStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 18 }
+hwEponDeviceOntDistance OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 19 }
+hwEponDeviceOntReset OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 2 }
+hwEponDeviceOntRtt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 20 }
+hwEponDeviceOntUpStreamBW OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 21 }
+hwEponDeviceOntDownStreamBW OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 22 }
+hwEponDeviceOntLastDownCause OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 25 }
+hwEponDeviceOntIsolationStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 27 }
+hwEponDeviceOntActualNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 28 }
+hwEponDeviceOntLastActualNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 29 }
+hwEponDeviceOntReRegister OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 3 }
+hwEponDeviceOntLastDistance OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 30 }
+hwEponDeviceOntReDiscovery OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 4 }
+hwEponDeviceOntPing OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.57.1 5 }
+hwEponDeviceAutoFindOntInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 58 }
+hwEponDeviceAutoFindOntInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58 1 }
+hwEponDeviceAutoFindOntInfoOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 1 }
+hwEponDeviceAutoFindOntInfoCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 10 }
+hwEponDeviceAutoFindOntNniType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 11 }
+hwEponDeviceAutoFindOntInfoOntExtendedModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 12 }
+hwEponDeviceAutoFindOntInfoOuiVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 13 }
+hwEponDeviceAutoFindOntInfoCustomizedInfo OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 14 }
+hwEponDeviceAutoFindOntInfoPasswordValue OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 3 }
+hwEponDeviceAutoFindOntInfoVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 4 }
+hwEponDeviceAutoFindOntInfoSoftwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 5 }
+hwEponDeviceAutoFindOntInfoHardwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 6 }
+hwEponDeviceAutoFindOntInfoOntModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 8 }
+hwEponDeviceAutoFindOntInfoLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.58.1 9 }
+hwEponDeviceOntCapabilityInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 59 }
+hwEponDeviceOntCapabilityInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59 1 }
+hwEponDeviceOntPOTSPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 1 }
+hwEponDeviceOntDownQueueNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 10 }
+hwEponDeviceOntDownQueueNumPerPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 11 }
+hwEponDeviceOntFePortList OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 12 }
+hwEponDeviceOntGePortList OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 13 }
+hwEponDeviceOntSupportMulticastQuickLeave OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 14 }
+hwEponDeviceOntDeviceType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 15 }
+hwEponDeviceOntMultiLLID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 16 }
+hwEponDeviceOntProtectionType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 17 }
+hwEponDeviceOntPonIFNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 18 }
+hwEponDeviceOntSlotNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 19 }
+hwEponDeviceOntFEPortsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 2 }
+hwEponDeviceOntADSL2plusNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 20 }
+hwEponDeviceOntVDSL2Num OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 21 }
+hwEponDeviceOntWLANNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 22 }
+hwEponDeviceOntUSBNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 23 }
+hwEponDeviceOntCATVNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 24 }
+hwEponDeviceOntSupportIPv6Aware OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 25 }
+hwEponDeviceOntSupportPowerSupplyControl OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 26 }
+hwEponDeviceOntSupportServiceSLA OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 27 }
+hwEponDeviceOnt10GEPortsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 28 }
+hwEponDeviceOntGEPortsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 3 }
+hwEponDeviceOntTDMPortsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 4 }
+hwEponDeviceOntFECSupport OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 5 }
+hwEponDeviceOntSupportbackupbattery OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 6 }
+hwEponDeviceOntUpQueueAllocationIncre OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 7 }
+hwEponDeviceOntUpQueueNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 8 }
+hwEponDeviceOntUpQueueNumPerPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.59.1 9 }
+hwEponDeviceOntIpConfigInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 60 }
+hwEponDeviceOntIpConfigInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.60 1 }
+hwEponDeviceOntIpConfigVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.60.1 1 }
+hwEponDeviceOntIpConfigPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.60.1 6 }
+hwEponDeviceOntRegInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 61 }
+hwEponDeviceOntRegInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61 1 }
+hwEponDeviceSerialNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 1 }
+hwEponDeviceRegOntHardwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 10 }
+hwEponDeviceRegOntModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 11 }
+hwEponDeviceRegOntLoid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 12 }
+hwEponDeviceRegOntCheckcode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 13 }
+hwEponDeviceRegOntRateType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 14 }
+hwEponDeviceRegOntExtendedModel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 15 }
+hwEponDeviceRegOntOuiVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 16 }
+hwEponDeviceRegOntMac OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 2 }
+hwEponDeviceRegOntResult OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 3 }
+hwEponDeviceRegConflictedIfindex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 5 }
+hwEponDeviceRegConflictedOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 6 }
+hwEponDeviceRegOntPasswordValue OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 7 }
+hwEponDeviceRegOntVendorId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 8 }
+hwEponDeviceRegOntSoftwareVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.61.1 9 }
+hwGponDeviceOntEthernetPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 62 }
+hwGponDeviceOntEthernetPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62 1 }
+hwGponDeviceOntEthernetPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 1 }
+hwGponDeviceOntEthernetNegotiate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 2 }
+hwGponDeviceOntEthernetActualPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 21 }
+hwGponDeviceOntEthernetOnlineState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 22 }
+hwGponDeviceOntEthernetUpStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 23 }
+hwGponDeviceOntEthernetDownStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 24 }
+hwGponDeviceOntEthernetPortIgmpForwardMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 25 }
+hwGponDeviceOntEthernetPortRingStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 26 }
+hwGponDeviceOntEthernetUpStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 27 }
+hwGponDeviceOntEthernetDownStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 28 }
+hwGponDeviceOntEthernetRouteSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 29 }
+hwGponDeviceOntEthernetDuplexMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 3 }
+hwGponDeviceOntEthernetMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 30 }
+hwGponDeviceOntEthernetOpticalModuleStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 31 }
+hwGponDeviceOntEthernetSpeed OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 4 }
+hwGponDeviceOntEthernetOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 5 }
+hwGponDeviceOntEthernetFlowCtrlSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 6 }
+hwGponDeviceOntEthernetVlanDefault OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 7 }
+hwGponDeviceOntEthernetVlanDefaultPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.62.1 8 }
+hwGponDeviceOntCatvPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 63 }
+hwGponDeviceOntCatvPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63 1 }
+hwGponDeviceOntCatvPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63.1 1 }
+hwGponDeviceOntCatvOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63.1 2 }
+hwGponDeviceOntCatvOnlineStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63.1 3 }
+hwGponDeviceOntCatvFrequency OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63.1 4 }
+hwGponDeviceOntCatvTxPower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.63.1 5 }
+hwGponDeviceOntMocaPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 64 }
+hwGponDeviceOntMocaPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.64 1 }
+hwGponDeviceOntMocaPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.64.1 1 }
+hwGponDeviceOntMocaPortVlanDefault OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.64.1 2 }
+hwGponDeviceOntMocaPortVlanDefaultPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.64.1 3 }
+hwGponDeviceOntIpHostPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 65 }
+hwGponDeviceOntIpHostPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.65 1 }
+hwGponDeviceOntIpHostPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.65.1 1 }
+hwGponDeviceOntIpHostPortVlanDefault OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.65.1 2 }
+hwGponDeviceOntIpHostPortVlanDefaultPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.65.1 3 }
+hwEponDeviceOntEthernetPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 81 }
+hwEponDeviceOntEthernetPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81 1 }
+hwEponDeviceOntEthernetPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 1 }
+hwEponDeviceOntEthernetRingStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 10 }
+hwEponDeviceOntEthernetNegotiate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 2 }
+hwEponDeviceOntEthernetDuplexMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 3 }
+hwEponDeviceOntEthernetOnlineState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 31 }
+hwEponDeviceOntEthernetPortCfgUpStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 32 }
+hwEponDeviceOntEthernetPortCfgDownStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 33 }
+hwEponDeviceOntEthernetPortCfgUpStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 34 }
+hwEponDeviceOntEthernetPortCfgDownStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 35 }
+hwEponDeviceOntEthernetSpeed OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 4 }
+hwEponDeviceOntEthernetVlanDefault OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 5 }
+hwEponDeviceOntEthernetOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 7 }
+hwEponDeviceOntEthernetFlowcontrolSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.81.1 8 }
+hwEponDeviceOntTDMPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 82 }
+hwEponDeviceOntTDMPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.82 1 }
+hwEponDeviceOntTDMPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.82.1 1 }
+hwEponDeviceOntTDMPortOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.82.1 2 }
+hwEponDeviceOntPOTSPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 83 }
+hwEponDeviceOntPOTSPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.83 1 }
+hwEponDeviceOntPOTSPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.83.1 1 }
+hwEponDeviceOntPOTSPortOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.83.1 2 }
+hwGponDeviceOntTDMPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 84 }
+hwGponDeviceOntTDMPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.84 1 }
+hwGponDeviceOntTDMPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.84.1 1 }
+hwGponDeviceOntTDMPortState OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.84.1 2 }
+hwGponDeviceOntTDMPortOperateStatus OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.84.1 3 }
+hwEponDeviceCtcRemoteOntPortVlanConfigTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 91 }
+hwEponDeviceCtcRemoteOntPortVlanConfigEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91 1 }
+hwEponDeviceOntPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 1 }
+hwEponDeviceOntPortId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 2 }
+hwEponDeviceCtcRemoteOntPortVlanMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 3 }
+hwEponDeviceCtcRemoteOntPortDefaultTagTPID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 4 }
+hwEponDeviceCtcRemoteOntPortDefaultTagCFI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 5 }
+hwEponDeviceCtcRemoteOntPortDefaultTagPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 6 }
+hwEponDeviceCtcRemoteOntPortDefaultTagVID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.91.1 7 }
+hwEponDeviceCtcRemoteOntPortVlanTranslationInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 92 }
+hwEponDeviceCtcRemoteOntPortVlanTranslationInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92 1 }
+hwEponDeviceOntPortVlanIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 1 }
+hwEponDeviceCtcOntPortCvlanTagTPID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 2 }
+hwEponDeviceCtcOntPortCvlanTagCFI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 3 }
+hwEponDeviceCtcOntPortCvlanTagPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 4 }
+hwEponDeviceCtcOntPortCvlanTagVID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 5 }
+hwEponDeviceCtcOntPortSvlanTagTPID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 6 }
+hwEponDeviceCtcOntPortSvlanTagCFI OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 7 }
+hwEponDeviceCtcOntPortSvlanTagPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 8 }
+hwEponDeviceCtcOntPortSvlanTagVID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.92.1 9 }
+hwEponDeviceCtcRemoteOntMultiCtrItemTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2 93 }
+hwEponDeviceCtcRemoteOntMultiCtrItemEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93 1 }
+hwEponDeviceOntMultiCtrItemIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93.1 1 }
+hwEponDeviceCtcOntMultiCtrlType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93.1 2 }
+hwEponDeviceCtcOntMultiCtrlUsrID OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93.1 3 }
+hwEponDeviceCtcOntMultiCtrlGDA OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93.1 4 }
+hwEponDeviceCtcOntMultiCtrlVlanIDorSA OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.2.93.1 5 }
+hwXponDeviceProfileObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 3 }
+hwGponDeviceLineProfMulticastGemCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 148 }
+hwGponDeviceLineProfMulticastGemCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.148 1 }
+hwGponDeviceLineProfMulticastGemCfgTcontIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.148.1 1 }
+hwGponDeviceLineProfMulticastGemCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.148.1 2 }
+hwGponDeviceLineProfMulticastGemCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.148.1 3 }
+hwXponDeviceDbaProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 21 }
+hwXponDeviceDbaProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21 1 }
+hwXponDeviceDbaProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 1 }
+hwXponDeviceDbaProfileAdditionalBW OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 10 }
+hwXponDeviceDbaProfilePriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 11 }
+hwXponDeviceDbaProfileWeight OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 12 }
+hwXponDeviceDbaProfileOperateResult OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 13 }
+hwXponDeviceDbaProfileAsynCommit OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 14 }
+hwXponDeviceDbaProfileType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 2 }
+hwXponDeviceDbaProfileFixedRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 3 }
+hwXponDeviceDbaProfileAssuredRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 4 }
+hwXponDeviceDbaProfileMaxRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 5 }
+hwXponDeviceDbaProfileReferenceNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 6 }
+hwXponDeviceDbaProfileBandwithCompensate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 7 }
+hwXponDeviceDbaProfileFixDelay OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.21.1 9 }
+hwXponDeviceOntSnmpProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 22 }
+hwXponDeviceOntSnmpProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22 1 }
+hwXponDeviceOntSnmpProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 1 }
+hwXponDeviceOntSnmpProfileAuthenticationMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 10 }
+hwXponDeviceOntSnmpProfileAuthenticationPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 11 }
+hwXponDeviceOntSnmpProfilePrivacyMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 12 }
+hwXponDeviceOntSnmpProfilePrivacyPassword OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 13 }
+hwXponDeviceOntSnmpProfileSecurityLevel OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 14 }
+hwXponDeviceOntSnmpProfileVersion OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 2 }
+hwXponDeviceOntSnmpProfileReadCommunityName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 3 }
+hwXponDeviceOntSnmpProfileWriteCommunityName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 4 }
+hwXponDeviceOntSnmpProfileTrapHostSrcUDPPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 6 }
+hwXponDeviceOntSnmpProfileSecurityName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 7 }
+hwXponDeviceOntSnmpProfileUsmUsername OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.22.1 9 }
+hwXponDeviceOntPortClassTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 23 }
+hwXponDeviceOntPortClassEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23 1 }
+hwXponDeviceOntPortClassProfileIdIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 1 }
+hwXponDeviceOntPortClassProfileMatchValue OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 10 }
+hwXponDeviceOntPortClassPrecedenceIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 2 }
+hwXponDeviceOntPortClassConditionIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 3 }
+hwXponDeviceOntPortClassProfileRefNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 4 }
+hwXponDeviceOntPortClassProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 5 }
+hwXponDeviceOntPortClassProfileQueuemapped OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 6 }
+hwXponDeviceOntPortClassProfilePriMark OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 7 }
+hwXponDeviceOntPortClassProfileFieldselect OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 8 }
+hwXponDeviceOntPortClassProfileOperator OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.23.1 9 }
+hwEponDeviceLineProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 41 }
+hwEponDeviceLineProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41 1 }
+hwEponDeviceLineProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41.1 1 }
+hwEponDeviceLineProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41.1 2 }
+hwEponDeviceLineProfileFEC OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41.1 3 }
+hwEponDeviceLineProfileCommit OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41.1 4 }
+hwEponDeviceLineProfileTr069ManagementIpIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.41.1 6 }
+hwEponDeviceLineProfLlidCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 42 }
+hwEponDeviceLineProfLlidCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42 1 }
+hwEponLineProfLlidCfgLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 1 }
+hwEponLineProfLlidCfgQueueSetIndex3ReportBitMap OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 10 }
+hwEponLineProfLlidCfgQueueSetIndex3Threshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 11 }
+hwEponLineProfLlidCfgCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 13 }
+hwEponLineProfLlidCfgLlidIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 2 }
+hwEponLineProfLlidCfgCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 3 }
+hwEponLineProfLlidCfgDbaProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 4 }
+hwEponLineProfLlidCfgEncryptMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 5 }
+hwEponLineProfLlidCfgQueueSetIndex1ReportBitMap OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 6 }
+hwEponLineProfLlidCfgQueueSetIndex1Threshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 7 }
+hwEponLineProfLlidCfgQueueSetIndex2ReportBitMap OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 8 }
+hwEponLineProfLlidCfgQueueSetIndex2Threshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.42.1 9 }
+hwEponDeviceSrvProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 43 }
+hwEponDeviceSrvProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.43 1 }
+hwEponDeviceSrvProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.43.1 1 }
+hwEponDeviceSrvProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.43.1 2 }
+hwEponDeviceSrvProfileCommit OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.43.1 3 }
+hwEponDeviceSrvProfileOntCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 44 }
+hwEponDeviceSrvProfileOntCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44 1 }
+hwEponDeviceSrvProfOntCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 1 }
+hwEponDeviceSrvProfileMaxNumOfAdapPotsPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 10 }
+hwEponDeviceSrvProfileMaxNumOfAdapEthPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 11 }
+hwEponDeviceSrvProfilePotsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 2 }
+hwEponDeviceSrvProfileEthNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 3 }
+hwEponDeviceSrvProfileTdmPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 4 }
+hwEponDeviceSrvProfileTdmPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 5 }
+hwEponDeviceSrvProfileMulticastMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 6 }
+hwEponDeviceSrvProfileMulticastQuickLeaveSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 7 }
+hwEponDeviceSrvProfileRingCheckSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 8 }
+hwEponDeviceSrvProfileRingCheckAutoShutdownSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.44.1 9 }
+hwEponDeviceSrvProfMulticastVlanCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 45 }
+hwEponDeviceSrvProfMulticastVlanCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45 1 }
+hwEponDeviceSrvProfMulticastVlanCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45.1 1 }
+hwEponDeviceSrvProfMulticastVlanCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45.1 2 }
+hwEponDeviceSrvProfMulticastVlanCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45.1 3 }
+hwEponDeviceSrvProfMulticastVlanCfgMulticastVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45.1 4 }
+hwEponDeviceSrvProfMulticastVlanCfgTranslatedVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.45.1 6 }
+hwEponDeviceSrvProfPortVlanCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 46 }
+hwEponDeviceSrvProfPortVlanCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46 1 }
+hwEponDeviceSrvProfPortVlanCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 1 }
+hwEponDeviceSrvProfPortVlanCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 2 }
+hwEponDeviceSrvProfPortVlanCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 3 }
+hwEponDeviceSrvProfPortVlanCfgPortVlanType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 4 }
+hwEponDeviceSrvProfPortVlanCfgPortCVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 5 }
+hwEponDeviceSrvProfPortVlanCfgPortSVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.46.1 6 }
+hwEponDeviceSrvProfOntPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 47 }
+hwEponDeviceSrvProfOntPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47 1 }
+hwEponDeviceSrvProfOntPortCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 1 }
+hwEponDeviceSrvProfOntPortCfgUpStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 10 }
+hwEponDeviceSrvProfOntPortCfgDownStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 11 }
+hwEponDeviceSrvProfOntPortCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 2 }
+hwEponDeviceSrvProfOntPortCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 3 }
+hwEponDeviceSrvProfOntPortCfgUpStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 4 }
+hwEponDeviceSrvProfOntPortCfgDownStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 5 }
+hwEponDeviceSrvProfOntPortCfgMaxMacAddressNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 6 }
+hwEponDeviceSrvProfOntPortCfgClassProfileIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 7 }
+hwEponDeviceSrvProfOntPortCfgMulticastStripSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 8 }
+hwEponDeviceSrvProfOntPortCfgMaxGroupNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.47.1 9 }
+hwGponDeviceLineProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 61 }
+hwGponDeviceLineProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61 1 }
+hwGponDeviceLineProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 1 }
+hwGponDeviceLineProfileCommitResult OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 11 }
+hwGponDeviceLineProfileTr069ManagementIpIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 12 }
+hwGponDeviceLineProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 2 }
+hwGponDeviceLineProfileUpFEC OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 3 }
+hwGponDeviceLineProfileMappingMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 4 }
+hwGponDeviceLineProfileQosMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 5 }
+hwGponDeviceLineProfileCommit OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 6 }
+hwGponDeviceLineProfileOMCCEncrypt OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 8 }
+hwGponDeviceLineProfileTr069ManagementSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.61.1 9 }
+hwGponDeviceLineProfTcontCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 62 }
+hwGponDeviceLineProfTcontCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.62 1 }
+hwGponDeviceLineProfTcontCfgLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.62.1 1 }
+hwGponDeviceLineProfTcontCfgTcontIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.62.1 2 }
+hwGponDeviceLineProfTcontCfgDbaProfileName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.62.1 3 }
+hwGponDeviceLineProfGemCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 63 }
+hwGponDeviceLineProfGemCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63 1 }
+hwGponDeviceLineProfGemCfgLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 1 }
+hwGponDeviceLineProfGemCfgDownPQIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 10 }
+hwGponDeviceLineProfGemCfgCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 11 }
+hwGponDeviceLineProfGemCfgGemIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 2 }
+hwGponDeviceLineProfGemCfgCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 3 }
+hwGponDeviceLineProfGemCfgTcontIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 4 }
+hwGponDeviceLineProfGemCfgServiceType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 5 }
+hwGponDeviceLineProfGemCfgEncryptMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 6 }
+hwGponDeviceLineProfGemCfgCascadeMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 7 }
+hwGponDeviceLineProfGemCfgUpPQIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.63.1 8 }
+hwGponDeviceLineProfMappingCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 64 }
+hwGponDeviceLineProfMappingCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64 1 }
+hwGponDeviceLineProfMappingCfgLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 1 }
+hwGponDeviceLineProfMappingTransparent OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 11 }
+hwGponDeviceLineProfMappingCfgCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 12 }
+hwGponDeviceLineProfMappingCfgGemIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 2 }
+hwGponDeviceLineProfMappingCfgMappingIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 3 }
+hwGponDeviceLineProfMappingCfgMappingMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 4 }
+hwGponDeviceLineProfMappingCfgCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 5 }
+hwGponDeviceLineProfMappingCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 6 }
+hwGponDeviceLineProfMappingCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 7 }
+hwGponDeviceLineProfMappingCfgVlanId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 8 }
+hwGponDeviceLineProfMappingCfgVlanPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.64.1 9 }
+hwGponDeviceSrvProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 65 }
+hwGponDeviceSrvProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.65 1 }
+hwGponDeviceSrvProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.65.1 1 }
+hwGponDeviceSrvProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.65.1 2 }
+hwGponDeviceSrvProfileCommit OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.65.1 3 }
+hwGponDeviceSrvProfileOntCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 66 }
+hwGponDeviceSrvProfileOntCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66 1 }
+hwGponDeviceSrvProfOntCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 1 }
+hwGponDeviceSrvProfileTransparentSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 10 }
+hwGponDeviceSrvProfileMultiSrvTransmitMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 11 }
+hwGponDeviceSrvProfileMulticastVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 12 }
+hwGponDeviceSrvProfileMulticastMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 13 }
+hwGponDeviceSrvProfileUpIgmpTransmitMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 14 }
+hwGponDeviceSrvProfileUpIgmpMsgTranslationVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 15 }
+hwGponDeviceSrvProfileUpIgmpMsgPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 16 }
+hwGponDeviceSrvProfileNativeVlanOption OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 17 }
+hwGponDeviceSrvProfileUpPqColorPolicy OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 18 }
+hwGponDeviceSrvProfileDownPqColorPolicy OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 19 }
+hwGponDeviceSrvProfilePotsNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 2 }
+hwGponDeviceSrvProfileVdslPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 20 }
+hwGponDeviceSrvProfileRingCheckSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 21 }
+hwGponDeviceSrvProfileRingCheckAutoShutdownSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 22 }
+hwGponDeviceSrvProfileRingCheckDetectingFrequency OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 23 }
+hwGponDeviceSrvProfileRingCheckResumeInterval OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 24 }
+hwGponDeviceSrvProfileMaxNumOfAdapPotsPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 25 }
+hwGponDeviceSrvProfileMaxNumOfAdapEthPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 26 }
+hwGponDeviceSrvProfileMaxNumOfAdapVdslPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 27 }
+hwGponDeviceSrvProfileMaxNumOfAdapCatvPort OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 28 }
+hwGponDeviceSrvProfileWifiPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 29 }
+hwGponDeviceSrvProfileEthNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 3 }
+hwGponDeviceSrvProfileMonitorLinkSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 30 }
+hwGponDeviceSrvProfileMTU OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 31 }
+hwGponDeviceSrvProfileTdmPortNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 4 }
+hwGponDeviceSrvProfileTdmPortType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 5 }
+hwGponDeviceSrvProfileTdmPortSrvType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 6 }
+hwGponDeviceSrvProfileMocaNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 7 }
+hwGponDeviceSrvProfileCatvNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 8 }
+hwGponDeviceSrvProfileMacAddressSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.66.1 9 }
+hwGponDeviceSrvProfOntPortCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 67 }
+hwGponDeviceSrvProfOntPortCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67 1 }
+hwGponDeviceSrvProfOntPortCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 1 }
+hwGponDeviceSrvProfOntPortCfgUpIgmpTransmitMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 10 }
+hwGponDeviceSrvProfOntPortCfgUpIgmpMsgTranslationVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 11 }
+hwGponDeviceSrvProfOntPortCfgUpIgmpMsgPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 12 }
+hwGponDeviceSrvProfOntPortCfgMaxMacAddressNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 13 }
+hwGponDeviceSrvProfOntPortCfgTDMPortTxClockMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 14 }
+hwGponDeviceSrvProfOntPortCfgDownstreamMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 15 }
+hwGponDeviceSrvProfOntPortCfgUpStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 16 }
+hwGponDeviceSrvProfOntPortCfgDownStreamCarTrafficTableName OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 17 }
+hwGponDeviceSrvProfOntPortCfgClassProfileIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 18 }
+hwGponDeviceSrvProfOntPortCfgUnknownUnicastRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 19 }
+hwGponDeviceSrvProfOntPortCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 2 }
+hwGponDeviceSrvProfOntPortCfgBroadcastRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 20 }
+hwGponDeviceSrvProfOntPortCfgUnknownMulticastRate OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 21 }
+hwGponDeviceSrvProfOntPortCfgL2IsolateSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 22 }
+hwGponDeviceSrvProfOntPortCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 3 }
+hwGponDeviceSrvProfOntPortCfgTDMPortCodeMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 4 }
+hwGponDeviceSrvProfOntPortCfgPortQinQMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 5 }
+hwGponDeviceSrvProfOntPortCfgPortPriorityPolicy OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 6 }
+hwGponDeviceSrvProfOntPortCfgUpStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 7 }
+hwGponDeviceSrvProfOntPortCfgDownStreamCarTrafficTableId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 8 }
+hwGponDeviceSrvProfOntPortCfgDscpProfIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.67.1 9 }
+hwGponDeviceSrvProfPortVlanCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 68 }
+hwGponDeviceSrvProfPortVlanCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68 1 }
+hwGponDeviceSrvProfPortVlanCfgSrvProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 1 }
+hwGponDeviceSrvProfPortVlanCfgEtherType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 10 }
+hwGponDeviceSrvProfPortVlanCfgPortVlanSPriPolicy OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 11 }
+hwGponDeviceSrvProfPortVlanCfgDscpDefaultPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 12 }
+hwGponDeviceSrvProfPortVlanCfgPortVlanTlsSwitch OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 13 }
+hwGponDeviceSrvProfPortVlanCfgOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 2 }
+hwGponDeviceSrvProfPortVlanCfgOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 3 }
+hwGponDeviceSrvProfPortVlanCfgPortCVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 4 }
+hwGponDeviceSrvProfPortVlanCfgPortVlanType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 6 }
+hwGponDeviceSrvProfPortVlanCfgPortVlanSPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 7 }
+hwGponDeviceSrvProfPortVlanCfgPortSVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 8 }
+hwGponDeviceSrvProfPortVlanCfgPortVlanCPri OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.68.1 9 }
+hwGponDeviceAlarmProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 69 }
+hwGponDeviceAlarmProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69 1 }
+hwGponDeviceAlarmProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 1 }
+hwGponDeviceAlarmProfileBufferOverflowsonReceiveThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 10 }
+hwGponDeviceAlarmProfileBufferOverflowsonTransmitThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 11 }
+hwGponDeviceAlarmProfileSingleCollisionFrameCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 12 }
+hwGponDeviceAlarmProfileMultipleCollisionsFrameCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 13 }
+hwGponDeviceAlarmProfileSQECounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 14 }
+hwGponDeviceAlarmProfileDeferredTransmissionCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 15 }
+hwGponDeviceAlarmProfileInternalmactransmiterrorcounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 16 }
+hwGponDeviceAlarmProfileCarrierSenseErrorCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 17 }
+hwGponDeviceAlarmProfileAlignmentErrorCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 18 }
+hwGponDeviceAlarmProfileInternalMACReceiveErrorCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 19 }
+hwGponDeviceAlarmProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 2 }
+hwGponDeviceAlarmProfilePPPoEFilteredFrameCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 20 }
+hwGponDeviceAlarmProfileDelayExceededDiscardThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 21 }
+hwGponDeviceAlarmProfileMTUExceededDiscardThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 22 }
+hwGponDeviceAlarmProfileReceivedAndDiscardedThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 23 }
+hwGponDeviceAlarmProfileCESErrorSecondsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 26 }
+hwGponDeviceAlarmProfileCESSeverelyErrorSecondsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 27 }
+hwGponDeviceAlarmProfileCESBurstyErrorSecondsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 28 }
+hwGponDeviceAlarmProfileCESUnavailableSecondsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 29 }
+hwGponDeviceAlarmProfileLostPacketsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 3 }
+hwGponDeviceAlarmProfileCESControlledSlipSecondsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 30 }
+hwGponDeviceAlarmProfileDropEventsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 31 }
+hwGponDeviceAlarmProfileUndersizepacketsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 32 }
+hwGponDeviceAlarmProfileFragmentsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 33 }
+hwGponDeviceAlarmProfileJabbersThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 34 }
+hwGponDeviceAlarmProfileFailedSignalOfOnuThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 35 }
+hwGponDeviceAlarmProfileDegradedSignalOfOnuThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 36 }
+hwGponDeviceAlarmProfileFECUncorrectCodeWordsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 37 }
+hwGponDeviceAlarmProfileFECCorrectCodeWordsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 38 }
+hwGponDeviceAlarmProfileUpstreamPQDiscardedBytesThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 39 }
+hwGponDeviceAlarmProfileMisinsertedPacketsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 4 }
+hwGponDeviceAlarmProfileDownstreamPQDiscardedBytesThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 40 }
+hwGponDeviceAlarmProfileImpairedBlocksThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 5 }
+hwGponDeviceAlarmProfileEncryptionKeyErrorsOfOnuThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 51 }
+hwGponDeviceAlarmProfileXgemKeyErrorsOfOnuThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 52 }
+hwGponDeviceAlarmProfileXgemHecErrorCountOfOnuThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 53 }
+hwGponDeviceAlarmProfileFCSErrorsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 6 }
+hwGponDeviceAlarmProfileExcessiveCollisionCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 7 }
+hwGponDeviceAlarmProfileLateCollisionCounterThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 8 }
+hwGponDeviceAlarmProfileFrameTooLongsThreshold OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.69.1 9 }
+hwXponDeviceOpticsDdmAlarmProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 70 }
+hwXponDeviceOpticsDdmAlarmProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70 1 }
+hwXponDeviceOpticsModuleAlarmProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 1 }
+hwXponDeviceOpticsDdmAlarmProfileRxOpticWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 10 }
+hwXponDeviceOpticsDdmAlarmProfileRxOpticWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 11 }
+hwXponDeviceOpticsDdmAlarmProfileBiasCurrentAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 12 }
+hwXponDeviceOpticsDdmAlarmProfileBiasCurrentAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 13 }
+hwXponDeviceOpticsDdmAlarmProfileBiasCurrentWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 14 }
+hwXponDeviceOpticsDdmAlarmProfileBiasCurrentWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 15 }
+hwXponDeviceOpticsDdmAlarmProfileSupplyVoltageAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 16 }
+hwXponDeviceOpticsDdmAlarmProfileSupplyVoltageAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 17 }
+hwXponDeviceOpticsDdmAlarmProfileSupplyVoltageWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 18 }
+hwXponDeviceOpticsDdmAlarmProfileSupplyVoltageWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 19 }
+hwXponDeviceOpticsDdmAlarmProfileBindNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 2 }
+hwXponDeviceOpticsDdmAlarmProfileTemperatureAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 20 }
+hwXponDeviceOpticsDdmAlarmProfileTemperatureAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 21 }
+hwXponDeviceOpticsDdmAlarmProfileTemperatureWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 22 }
+hwXponDeviceOpticsDdmAlarmProfileTemperatureWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 23 }
+hwXponDeviceOpticsDdmAlarmProfile10GTxOpticAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 24 }
+hwXponDeviceOpticsDdmAlarmProfile10GTxOpticAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 25 }
+hwXponDeviceOpticsDdmAlarmProfile10GTxOpticWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 26 }
+hwXponDeviceOpticsDdmAlarmProfile10GTxOpticWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 27 }
+hwXponDeviceOpticsDdmAlarmProfile10GBiasCurrentAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 28 }
+hwXponDeviceOpticsDdmAlarmProfile10GBiasCurrentAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 29 }
+hwXponDeviceOpticsDdmAlarmProfile10GBiasCurrentWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 30 }
+hwXponDeviceOpticsDdmAlarmProfile10GBiasCurrentWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 31 }
+hwXponDeviceOpticsDdmAlarmProfileOntCatvRxOpticAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 32 }
+hwXponDeviceOpticsDdmAlarmProfileOntCatvRxOpticAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 33 }
+hwXponDeviceOpticsDdmAlarmProfileTxOpticAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 4 }
+hwXponDeviceOpticsDdmAlarmProfileTxOpticAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 5 }
+hwXponDeviceOpticsDdmAlarmProfileTxOpticWarnUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 6 }
+hwXponDeviceOpticsDdmAlarmProfileTxOpticWarnLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 7 }
+hwXponDeviceOpticsDdmAlarmProfileRxOpticAlarmUpper OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 8 }
+hwXponDeviceOpticsDdmAlarmProfileRxOpticAlarmLower OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.70.1 9 }
+hwXponDeviceLineProfEthPortBundleCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 71 }
+hwXponDeviceLineProfEthPortBundleCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.71 1 }
+hwXponDeviceLineProfEthPortBundleCfgLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.71.1 1 }
+hwXponDeviceLineProfEthPortBundleCfgGroupIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.71.1 2 }
+hwXponDeviceLineProfEthPortBundleCfgPortBitMap OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.71.1 3 }
+hwXponDeviceSLAProfileInfoTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 72 }
+hwXponDeviceSLAProfileInfoEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72 1 }
+hwXponDeviceSLAProfileInfoNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 1 }
+hwXponDeviceSLAProfileFixedBandwidth2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 10 }
+hwXponDeviceSLAProfileAssuredBandwidth2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 11 }
+hwXponDeviceSLAProfileBestEffortBandwidth2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 12 }
+hwXponDeviceSLAProfileWrrWeight2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 13 }
+hwXponDeviceSLAProfileFixedPacketSize3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 14 }
+hwXponDeviceSLAProfileFixedBandwidth3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 15 }
+hwXponDeviceSLAProfileAssuredBandwidth3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 16 }
+hwXponDeviceSLAProfileBestEffortBandwidth3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 17 }
+hwXponDeviceSLAProfileWrrWeight3 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 18 }
+hwXponDeviceSLAProfileFixedPacketSize4 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 19 }
+hwXponDeviceSLAProfileCycleLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 2 }
+hwXponDeviceSLAProfileFixedBandwidth4 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 20 }
+hwXponDeviceSLAProfileAssuredBandwidth4 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 21 }
+hwXponDeviceSLAProfileBestEffortBandwidth4 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 22 }
+hwXponDeviceSLAProfileWrrWeight4 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 23 }
+hwXponDeviceSLAProfileFixedPacketSize5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 24 }
+hwXponDeviceSLAProfileFixedBandwidth5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 25 }
+hwXponDeviceSLAProfileAssuredBandwidth5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 26 }
+hwXponDeviceSLAProfileBestEffortBandwidth5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 27 }
+hwXponDeviceSLAProfileWrrWeight5 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 28 }
+hwXponDeviceSLAProfileFixedPacketSize6 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 29 }
+hwXponDeviceSLAProfileServiceNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 3 }
+hwXponDeviceSLAProfileFixedBandwidth6 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 30 }
+hwXponDeviceSLAProfileAssuredBandwidth6 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 31 }
+hwXponDeviceSLAProfileBestEffortBandwidth6 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 32 }
+hwXponDeviceSLAProfileWrrWeight6 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 33 }
+hwXponDeviceSLAProfileFixedPacketSize7 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 34 }
+hwXponDeviceSLAProfileFixedBandwidth7 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 35 }
+hwXponDeviceSLAProfileAssuredBandwidth7 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 36 }
+hwXponDeviceSLAProfileBestEffortBandwidth7 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 37 }
+hwXponDeviceSLAProfileWrrWeight7 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 38 }
+hwXponDeviceSLAProfileFixedPacketSize8 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 39 }
+hwXponDeviceSLAProfileFixedPacketSize1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 4 }
+hwXponDeviceSLAProfileFixedBandwidth8 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 40 }
+hwXponDeviceSLAProfileAssuredBandwidth8 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 41 }
+hwXponDeviceSLAProfileBestEffortBandwidth8 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 42 }
+hwXponDeviceSLAProfileWrrWeight8 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 43 }
+hwXponDeviceSLAProfileFixedBandwidth1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 5 }
+hwXponDeviceSLAProfileAssuredBandwidth1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 6 }
+hwXponDeviceSLAProfileBestEffortBandwidth1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 7 }
+hwXponDeviceSLAProfileWrrWeight1 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 8 }
+hwXponDeviceSLAProfileFixedPacketSize2 OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.72.1 9 }
+hwGponDeviceSrvProfileOntUpIgmpMsgCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 73 }
+hwGponDeviceSrvProfileOntUpIgmpMsgCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73 1 }
+hwGponDeviceSrvProfileOntIgmpCfgNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73.1 1 }
+hwGponDeviceSrvProfileOntUpIgmpMsgUserVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73.1 2 }
+hwGponDeviceSrvProfileOntUpIgmpTransmitMode OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73.1 3 }
+hwGponDeviceSrvProfileOntUpIgmpMsgTranslationVlan OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73.1 4 }
+hwGponDeviceSrvProfileOntUpIgmpMsgPriority OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.73.1 5 }
+hwGponDeviceLineProfGemBundleCfgTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3 74 }
+hwGponDeviceLineProfGemBundleCfgEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.74 1 }
+hwGponDeviceLineProfGemBundleLineProfNameIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.74.1 1 }
+hwGponDeviceLineProfGemBundleCfgMaster OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.74.1 2 }
+hwGponDeviceLineProfGemBundleCfgSlaveList OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.3.74.1 3 }
+hwXponDeviceStatisticObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 4 }
+hwGponOltEthernetStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 21 }
+hwGponOltEthernetStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.21 1 }
+hwGponOltEthernetStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.21.1 50 }
+hwGponOltGemStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 22 }
+hwGponOltGemStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.22 1 }
+hwGponOltGemStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.22.1 30 }
+hwGponOntStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 23 }
+hwGponOntStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.23 1 }
+hwGponOntStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.23.1 20 }
+hwGponOltGemIndexStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 24 }
+hwGponOltGemIndexStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.24 1 }
+hwGponDeviceGemIndexObjectIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.24.1 1 }
+hwGponOltGemIndexStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.24.1 20 }
+hwGponOntEthernetStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 25 }
+hwGponOntEthernetStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.25 1 }
+hwGponOntEthernetStatisticDataSource OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.25.1 1 }
+hwGponOntEthernetStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.25.1 60 }
+hwGponOntEthernetStatisticStateChangeTimes OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.25.1 61 }
+hwGponOntGemIndexStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 26 }
+hwGponOntGemIndexStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.26 1 }
+hwGponOntGemIndexStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.26.1 20 }
+hwGponOntTrafficFlowStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 27 }
+hwGponOntTrafficFlowStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.27 1 }
+hwGponOntTrafficFlowStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.27.1 20 }
+hwEponOltEthernetStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 41 }
+hwEponOltEthernetStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.41 1 }
+hwEponOltEthernetStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.41.1 50 }
+hwEponOltLlidStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 42 }
+hwEponOltLlidStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.42 1 }
+hwEponDeviceOntLlid OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.42.1 1 }
+hwEponOltLlidStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.42.1 50 }
+hwEponOntEthernetPortStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 43 }
+hwEponOntEthernetPortStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.43 1 }
+hwEponOntEthernetPortStatisticStateChange OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.43.1 33 }
+hwEponOntEthernetPortStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.43.1 50 }
+hwEponOntCPUStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 44 }
+hwEponOntCPUStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.44 1 }
+hwEponOntCPUStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.44.1 20 }
+hwGponTDMPortStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 45 }
+hwGponTDMPortStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.45 1 }
+hwGponTDMPortStatisticOntIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.45.1 1 }
+hwGponTDMPortStatisticOntPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.45.1 2 }
+hwGponTDMPortStatisticClear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.45.1 20 }
+hwGponTDMPortStatisticOntPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.45.1 3 }
+hwEponOntLineQualityStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 46 }
+hwEponOntLineQualityStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.46 1 }
+hwEponOntLineQualityStatisticclear OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.46.1 5 }
+hwEponOltChannelEthernetStatisticTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4 47 }
+hwEponOltChannelEthernetStatisticEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.47 1 }
+hwEponOltChannelId OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.4.47.1 1 }
+hwXponDeviceLoopbackObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 5 }
+hwGponDeviceGemLoopbackTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5 1 }
+hwGponDeviceGemLoopbackEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.1 1 }
+hwGponGemOltLoopbackType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.1.1 1 }
+hwGponGemOntLoopbackType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.1.1 2 }
+hwXponDeviceOntUniLoopbackTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5 2 }
+hwXponDeviceOntUniLoopbackEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.2 1 }
+hwXponOntUniPhyType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.2.1 1 }
+hwXponOntUniPhyIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.2.1 2 }
+hwXponOntUniLoopbackType OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.2.1 3 }
+hwXponDeviceOltLoopbackTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5 3 }
+hwXponDeviceOltLoopbackEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.3 1 }
+hwXponOltInnerLoopback OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.3.1 1 }
+hwXponOltOuterLoopback OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.3.1 2 }
+hwXponDeviceOntExtLoopbackTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5 4 }
+hwXponDeviceOntExtLoopbackEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.4 1 }
+hwXponOntNniInnerLoopback OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.4.1 1 }
+hwXponOntTdmLocalInnerLoopback OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.4.1 2 }
+hwXponOntTdmLocalOuterLoopback OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.5.4.1 3 }
+hwXponDeviceLineTestObjects OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1 6 }
+hwGponDeviceGemLineTestTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6 1 }
+hwGponDeviceGemLineTestEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.1 1 }
+hwGponGemLineTestFrameLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.1.1 1 }
+hwGponGemLineTestFramesTxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.1.1 2 }
+hwGponGemLineTestFramesRxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.1.1 3 }
+hwXponDeviceOntUniLineTestTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6 2 }
+hwXponDeviceOntUniLineTestEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.2 1 }
+hwXponOntUniLineTestFrameLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.2.1 1 }
+hwXponOntUniLineTestFramesTxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.2.1 2 }
+hwXponOntUniLineTestSrvFlowIndex OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.2.1 3 }
+hwXponOntUniLineTestFramesRxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.2.1 4 }
+hwXponDeviceOntNniLineTestTable OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6 3 }
+hwXponDeviceOntNniLineTestEntry OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.3 1 }
+hwXponOntNniLineTestFrameLength OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.3.1 1 }
+hwXponOntNniLineTestFramesTxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.3.1 2 }
+hwXponOntNniLineTestFramesRxNum OBJECT IDENTIFIER ::= { 1.3.6.1.4.1.2011.6.128.1.1.6.3.1 3 }
+
+END

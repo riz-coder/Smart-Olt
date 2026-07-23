@@ -1,0 +1,50 @@
+traffic table ip index 200 name "SOLT-5M-DOWN" cir 5120 cbs 167173 pir 5120 pbs 167173 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 201 name "SOLT-5M-UP" cir 5120 cbs 167173 pir 5120 pbs 167173 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 202 name "SOLT-10M-DOWN" cir 10240 cbs 334346 pir 10240 pbs 334346 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 203 name "SOLT-10M-UP" cir 10240 cbs 334346 pir 10240 pbs 334346 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 204 name "SOLT-15M-DOWN" cir 15360 cbs 501519 pir 15360 pbs 501519 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 205 name "SOLT-15M-UP" cir 15360 cbs 501519 pir 15360 pbs 501519 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 206 name "SOLT-20M-DOWN" cir 20480 cbs 668692 pir 20480 pbs 668692 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 207 name "SOLT-20M-UP" cir 20480 cbs 668692 pir 20480 pbs 668692 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 208 name "SOLT-30M-DOWN" cir 30720 cbs 1003038 pir 30720 pbs 1003038 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 209 name "SOLT-30M-UP" cir 30720 cbs 1003038 pir 30720 pbs 1003038 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 210 name "SOLT-40M-DOWN" cir 40960 cbs 1337384 pir 40960 pbs 1337384 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 211 name "SOLT-40M-UP" cir 40960 cbs 1337384 pir 40960 pbs 1337384 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 212 name "SOLT-50M-DOWN" cir 51200 cbs 1671730 pir 51200 pbs 1671730 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 213 name "SOLT-50M-UP" cir 51200 cbs 1671730 pir 51200 pbs 1671730 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 214 name "SOLT-60M-DOWN" cir 61440 cbs 2006076 pir 61440 pbs 2006076 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 215 name "SOLT-60M-UP" cir 61440 cbs 2006076 pir 61440 pbs 2006076 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 216 name "SOLT-70M-DOWN" cir 71680 cbs 2340422 pir 71680 pbs 2340422 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 217 name "SOLT-70M-UP" cir 71680 cbs 2340422 pir 71680 pbs 2340422 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 218 name "SOLT-80M-DOWN" cir 81920 cbs 2674768 pir 81920 pbs 2674768 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 219 name "SOLT-80M-UP" cir 81920 cbs 2674768 pir 81920 pbs 2674768 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 220 name "SOLT-90M-DOWN" cir 92160 cbs 3009114 pir 92160 pbs 3009114 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 221 name "SOLT-90M-UP" cir 92160 cbs 3009114 pir 92160 pbs 3009114 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 222 name "SOLT-100M-DOWN" cir 102400 cbs 3343460 pir 102400 pbs 3343460 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 223 name "SOLT-100M-UP" cir 102400 cbs 3343460 pir 102400 pbs 3343460 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 224 name "SOLT-200M-DOWN" cir 204800 cbs 6686920 pir 204800 pbs 6686920 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 225 name "SOLT-200M-UP" cir 204800 cbs 6686920 pir 204800 pbs 6686920 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 226 name "SOLT-300M-DOWN" cir 307200 cbs 10030380 pir 307200 pbs 10030380 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 227 name "SOLT-300M-UP" cir 307200 cbs 10030380 pir 307200 pbs 10030380 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 228 name "SOLT-500M-DOWN" cir 512000 cbs 16717300 pir 512000 pbs 16717300 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 229 name "SOLT-500M-UP" cir 512000 cbs 16717300 pir 512000 pbs 16717300 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 230 name "SOLT-800M-DOWN" cir 819200 cbs 26747680 pir 819200 pbs 26747680 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 231 name "SOLT-800M-UP" cir 819200 cbs 26747680 pir 819200 pbs 26747680 color-mode color-blind priority 0 priority-policy local-setting
+
+traffic table ip index 232 name "SOLT-1000M-DOWN" cir 1024000 cbs 10240000 pir 1024000 pbs 10240000 color-mode color-blind priority 0 priority-policy local-setting
+traffic table ip index 233 name "SOLT-1000M-UP" cir 1024000 cbs 10240000 pir 1024000 pbs 10240000 color-mode color-blind priority 0 priority-policy local-setting

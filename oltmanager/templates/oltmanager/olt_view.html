@@ -9,6 +9,10 @@
         grid-template-columns: 220px minmax(0, 1fr) 250px;
         gap: 14px;
     }
+    /* Without the Device Snapshot panel the content spans the full width. */
+    .view-layout-wide {
+        grid-template-columns: 220px minmax(0, 1fr);
+    }
     .menu-card, .content-card, .snap-card {
         border: 1px solid var(--line);
         border-radius: 14px;
@@ -42,6 +46,18 @@
         padding: 9px 12px;
         font-size: 13px;
     }
+    /* Distinct colour for the CLI (terminal) launcher. */
+    .btn-cli {
+        background: #7c3aed;
+        color: #fff;
+        border: 1px solid #6d28d9;
+    }
+    .btn-cli:hover { background: #6d28d9; }
+    /* Stack Save/Backup below the Back button in the header. */
+    .olt-view-actions { flex-direction: column; align-items: flex-end; gap: 8px; }
+    .olt-sb-group { display: flex; gap: 8px; }
+    .olt-sb-group .inline { margin: 0; }
+    .btn-sb { padding: 8px 14px; font-size: 13px; }
     .content-card section + section {
         border-top: 1px solid var(--line);
         margin-top: 12px;
@@ -66,22 +82,6 @@
         text-transform: uppercase;
         letter-spacing: 0.04em;
         font-size: 11px;
-    }
-    #profiles .cards-table {
-        table-layout: fixed;
-    }
-    #profiles .cards-table td {
-        vertical-align: top;
-        white-space: normal;
-        word-break: break-word;
-    }
-    #profiles .cards-table th:nth-child(2),
-    #profiles .cards-table td:nth-child(2) {
-        width: 34%;
-    }
-    #profiles .cards-table th:nth-child(5),
-    #profiles .cards-table td:nth-child(5) {
-        width: 140px;
     }
     .kv {
         display: grid;
@@ -112,6 +112,43 @@
         line-height: 1.45;
         word-break: break-word;
     }
+    .olt-unreachable-pop {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px 16px;
+        background: rgba(5, 10, 22, 0.62);
+    }
+    .olt-unreachable-pop[hidden] {
+        display: none;
+    }
+    .olt-unreachable-card {
+        width: min(420px, 100%);
+        border: 1px solid #7a2f3a;
+        border-radius: 12px;
+        padding: 16px;
+        background: #2c1118;
+        color: #ffd9df;
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+    }
+    .olt-unreachable-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .olt-unreachable-text {
+        margin: 8px 0 14px;
+        color: #ffd9df;
+        font-weight: 700;
+    }
+    .olt-unreachable-actions {
+        display: flex;
+        justify-content: flex-end;
+    }
     .status-pill {
         display: inline-block;
         padding: 5px 8px;
@@ -130,18 +167,6 @@
         justify-content: space-between;
         gap: 12px;
         flex-wrap: wrap;
-    }
-    .profile-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-    .profile-actions .btn,
-    .profile-actions .refresh-btn {
-        min-width: 140px;
-        justify-content: center;
-        padding: 10px 14px;
     }
     .vlan-actions {
         display: flex;
@@ -170,6 +195,11 @@
         font-size: 14px;
         color: #dbe8ff;
     }
+    .vlan-add-card .vlan-subform-title {
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
     .vlan-add-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -179,12 +209,113 @@
     .vlan-submit-row {
         margin-top: 12px;
     }
+    .vlan-add-grid .field-wrap {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    .vlan-add-grid label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #c9daff;
+    }
+    .vlan-add-grid .form-control {
+        min-height: 44px;
+    }
+    .vlan-add-grid select.form-control {
+        color: #f4f8ff;
+        background: #0d1a31;
+        border: 1px solid #315a91;
+        border-radius: 8px;
+    }
+    .vlan-add-grid option.option-up {
+        color: #1f9d55;
+    }
+    .vlan-add-grid option.option-down {
+        color: #d92d3b;
+    }
+    .vlan-existing-select-wrap.is-hidden {
+        display: none;
+    }
+    .uplink-vlan-cell {
+        max-width: 520px;
+        white-space: normal;
+        line-height: 1.45;
+    }
+    .uplink-vlan-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        padding: 2px 0;
+    }
+    .vlan-chip {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: rgba(47, 128, 255, 0.14);
+        color: #8fc0ff;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.5;
+        white-space: nowrap;
+    }
+    html[data-theme="light"] .vlan-chip { background: #eaf2ff; color: #1d5fd6; }
+    .uplink-mode {
+        display: inline-block;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .mode-trunk  { background: rgba(47, 128, 255, 0.16); color: #6db3ff; }
+    .mode-hybrid { background: rgba(199, 146, 234, 0.18); color: #c792ea; }
+    .mode-access { background: rgba(69, 219, 135, 0.16); color: #45db87; }
+    html[data-theme="light"] .mode-trunk  { background: #e7f0ff; color: #1d5fd6; }
+    html[data-theme="light"] .mode-hybrid { background: #f3e8ff; color: #7c3aed; }
+    html[data-theme="light"] .mode-access { background: #e6f8ee; color: #128a4d; }
+    .uplink-agg-cell { max-width: 200px; }
+    .agg-chip {
+        display: inline-block;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+        background: rgba(255, 179, 71, 0.16);
+        color: #ffb347;
+    }
+    .agg-chip.agg-master { background: rgba(69, 219, 135, 0.18); color: #45db87; }
+    .agg-meta { font-size: 11px; color: #9db0cf; margin-top: 3px; line-height: 1.45; }
+    .agg-note { font-size: 11px; font-weight: 800; color: #45db87; margin-top: 3px; }
+    html[data-theme="light"] .agg-chip { background: #fff3e0; color: #b5651d; }
+    html[data-theme="light"] .agg-chip.agg-master { background: #e6f8ee; color: #128a4d; }
+    html[data-theme="light"] .agg-meta { color: #5a6b86; }
+    html[data-theme="light"] .agg-note { color: #128a4d; }
+    .uplink-pvid {
+        display: inline-block;
+        margin-top: 5px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(47, 128, 255, 0.18);
+        color: #7db5ff;
+        font-size: 11px;
+        font-weight: 800;
+    }
     .vlan-cli-output {
         margin-top: 12px;
         border: 1px solid #3f5f8f;
         border-radius: 12px;
         padding: 12px;
         background: #09111f;
+    }
+    .vlan-cli-output {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #d9f7d0;
     }
     .vlan-cli-output pre {
         margin: 8px 0 0;
@@ -266,6 +397,28 @@
     .profile-add-error {
         margin: 0 0 10px;
     }
+    .vlan-notice {
+        margin-top: -4px;
+        margin-bottom: 12px;
+        font-weight: 800;
+    }
+    .vlan-notice.good {
+        color: #62e59a;
+    }
+    .vlan-notice.bad {
+        color: #ff8d98;
+    }
+    .vlan-notice a {
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+    .messages a {
+        color: inherit;
+        font-weight: 900;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
     .profile-cli-output {
         margin-top: 14px;
         padding: 12px;
@@ -337,6 +490,96 @@
         animation: spin 0.7s linear infinite;
         vertical-align: middle;
     }
+    .sync-config-form {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+    }
+    .sync-config-report {
+        margin-top: 14px;
+        border: 1px solid #2c5e91;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: linear-gradient(135deg, rgba(47, 128, 255, 0.15), rgba(20, 219, 125, 0.08));
+    }
+    .sync-config-report[hidden] {
+        display: none;
+    }
+    .sync-config-report.bad {
+        border-color: #7a2f3a;
+        background: rgba(88, 21, 35, 0.55);
+    }
+    .sync-report-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .sync-report-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .sync-report-grid span {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 9px;
+        padding: 8px 10px;
+        background: rgba(4, 10, 22, 0.35);
+        color: #d9e8ff;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .sync-report-message {
+        margin: 0;
+        color: #a9c8ff;
+        font-size: 12px;
+        line-height: 1.45;
+    }
+    .olt-wait-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1500;
+        display: grid;
+        place-items: center;
+        background: rgba(2, 8, 20, 0.72);
+        backdrop-filter: blur(5px);
+    }
+    .olt-wait-overlay[hidden] {
+        display: none;
+    }
+    .olt-wait-card {
+        width: min(360px, calc(100vw - 32px));
+        border: 1px solid #315a91;
+        border-radius: 18px;
+        padding: 24px;
+        text-align: center;
+        background: #0f1b32;
+        box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+    }
+    .olt-wait-wheel {
+        width: 62px;
+        height: 62px;
+        margin: 0 auto 14px;
+        border-radius: 50%;
+        border: 4px solid rgba(151, 180, 224, 0.26);
+        border-top-color: #2f80ff;
+        border-right-color: #66e2a0;
+        animation: spin 0.85s linear infinite;
+    }
+    .olt-wait-title {
+        margin: 0;
+        color: #fff;
+        font-size: 20px;
+        font-weight: 900;
+    }
+    .olt-wait-subtitle {
+        margin: 8px 0 0;
+        color: #a9c8ff;
+        font-size: 12px;
+        font-weight: 700;
+    }
     .cli-toolbar {
         display: flex;
         gap: 8px;
@@ -369,6 +612,7 @@
         font-size: 20px;
         color: #dbe8ff;
     }
+    html[data-theme="light"] .pon-slot-title { color: #1a3a6b; }
     .pon-status-up { color: #4edb73; font-weight: 700; }
     .pon-status-down { color: #ff5f5f; font-weight: 700; }
       .onus-box { line-height: 1.25; white-space: nowrap; }
@@ -671,6 +915,44 @@
     @media (max-width: 640px) {
         .profile-add-grid { grid-template-columns: 1fr; }
     }
+
+    /* ============================ LIGHT THEME (OLT view) ============================ */
+    html[data-theme="light"] .menu-card,
+    html[data-theme="light"] .content-card,
+    html[data-theme="light"] .snap-card {
+        background: #ffffff;
+        border-color: #dce6f3;
+        box-shadow: 0 10px 24px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .menu-card a { color: #2b3a57; }
+    html[data-theme="light"] .menu-card a:hover { background: #eaf1fb; }
+    html[data-theme="light"] .menu-card a.active { background: #2f80ff; color: #fff; }
+    html[data-theme="light"] .content-card h3,
+    html[data-theme="light"] .snap-title { color: #16233c; }
+    html[data-theme="light"] .cards-table th { color: #5a6b86; }
+    html[data-theme="light"] .kv div,
+    html[data-theme="light"] .snap-box {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .snap-box { border-style: dashed; border-color: #b9cbe6; }
+    html[data-theme="light"] .vlan-add-card,
+    html[data-theme="light"] .profile-add-card,
+    html[data-theme="light"] .profile-config-box {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .vlan-add-card h4,
+    html[data-theme="light"] .profile-add-card h4 { color: #16233c; }
+    html[data-theme="light"] .vlan-add-grid label,
+    html[data-theme="light"] .profile-add-grid label { color: #2b3a57; }
+    html[data-theme="light"] .vlan-add-grid select.form-control {
+        color: #16233c;
+        background: #f7faff;
+        border-color: #cdd9ec;
+    }
+    html[data-theme="light"] .vlan-add-card .vlan-subform-title { border-top-color: rgba(20, 40, 80, 0.10); }
+    html[data-theme="light"] .content-card section + section { border-top-color: #e0e8f4; }
 </style>
 {% endblock %}
 
@@ -691,11 +973,23 @@
                 {% endif %}
             </p>
         </div>
-        <div class="topbar-actions">
+        <div class="topbar-actions olt-view-actions">
             {% if selected_section == 'history' %}
             <a href="?section=olt-details" class="btn btn-secondary" id="backToOltSettingsBtn">Back</a>
             {% else %}
             <a href="{% url 'olt_settings_olt' %}" class="btn btn-secondary" id="backToOltSettingsBtn">Back</a>
+            {% endif %}
+            {% if user.is_staff or user.is_superuser %}
+            <div class="olt-sb-group">
+                <form class="inline js-op-form" method="post" action="{% url 'olt_save_config' olt.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success btn-sb" data-op="Save">Save</button>
+                </form>
+                <form class="inline js-op-form" method="post" action="{% url 'olt_config_backup' olt.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-secondary btn-sb" data-op="Backup">Backup</button>
+                </form>
+            </div>
             {% endif %}
         </div>
     </header>
@@ -708,22 +1002,40 @@
             {% endfor %}
         </ul>
         {% endif %}
-        <div class="view-layout">
+        <div
+            class="olt-unreachable-pop"
+            id="oltUnreachablePop"
+            data-show="{% if olt_unreachable %}1{% else %}0{% endif %}"
+            hidden
+        >
+            <div class="olt-unreachable-card" role="alertdialog" aria-modal="true" aria-labelledby="oltUnreachableTitle">
+                <h3 class="olt-unreachable-title" id="oltUnreachableTitle">{{ olt_unreachable_message }}</h3>
+                <p class="olt-unreachable-text" id="oltUnreachableText">{{ olt_unreachable_message }}</p>
+                <div class="olt-unreachable-actions">
+                    <button type="button" class="btn btn-danger" id="oltUnreachableCloseBtn">OK</button>
+                </div>
+            </div>
+        </div>
+        <div class="view-layout{% if selected_section != 'olt-details' %} view-layout-wide{% endif %}">
             <nav class="menu-card">
                 <a href="?section=olt-details" class="{% if selected_section == 'olt-details' %}active{% endif %}">Olt details</a>
                 <a href="?section=olt-cards" class="{% if selected_section == 'olt-cards' %}active{% endif %}">OLT cards</a>
                 <a href="?section=pon-ports" class="{% if selected_section == 'pon-ports' %}active{% endif %}">PON ports</a>
                 <a href="?section=uplink" class="{% if selected_section == 'uplink' %}active{% endif %}">Uplink</a>
                 <a href="?section=vlans" class="{% if selected_section == 'vlans' %}active{% endif %}">VLANs</a>
-                <a href="?section=profiles" class="{% if selected_section == 'profiles' %}active{% endif %}">Speed Profile</a>
                 <a href="?section=advanced" class="{% if selected_section == 'advanced' %}active{% endif %}">Advanced</a>
             </nav>
 
             <div class="content-card">
                 {% if selected_section == 'olt-details' %}
                 <div class="quick-actions">
+                    {% if user.is_staff or user.is_superuser %}
                     <a href="{% url 'olt_edit' olt.pk %}" class="btn btn-primary">Edit OLT settings</a>
+                    {% endif %}
                     <a href="?section=history" class="btn btn-primary">See history</a>
+                    {% if user.is_staff or user.is_superuser %}
+                    <a href="{% url 'olt_cli_window' olt.pk %}" class="btn btn-cli js-cli-btn">CLI</a>
+                    {% endif %}
                 </div>
                 {% endif %}
                 {% if selected_section == 'olt-details' %}
@@ -844,12 +1156,20 @@
                 <section id="pon-ports" data-pon-ports-section data-refresh-url="{{ pon_ports_refresh_data_url|default:'' }}">
                       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
                           <h3 style="margin:0;">PON ports</h3>
-                          <form method="post" action="{% url 'olt_refresh_pon_ports' olt.pk %}" class="refresh-form">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">
-                                <span class="refresh-label">Refresh PON Ports</span>
-                            </button>
-                        </form>
+                          <div class="vlan-actions">
+                              <form method="post" action="/view/{{ olt.pk }}/refresh-pon-sfp-tx/" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing SFP Tx...">
+                                    <span class="refresh-label">Refresh SFP Tx</span>
+                                </button>
+                              </form>
+                              <form method="post" action="{% url 'olt_refresh_pon_ports' olt.pk %}" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">
+                                    <span class="refresh-label">Refresh PON Ports</span>
+                                </button>
+                              </form>
+                          </div>
                       </div>
                       <p class="subtle" data-pon-ports-status style="margin:8px 0 12px;">{{ pon_ports_status_display|default:"No PON ports found." }}</p>
                       {% if pon_port_groups %}
@@ -867,14 +1187,13 @@
                                           <th>ONUs</th>
                                           <th>SFP Tx</th>
                                           <th>Average signal</th>
-                                          <th>Traffic</th>
                                       </tr>
                                 </thead>
                                 <tbody>
                                     {% for port in grp.ports %}
                                     <tr data-pon-port-row data-slot="{{ grp.slot }}" data-port="{{ port.port }}">
-                                        <td>GPON 0/{{ grp.slot }}/{{ port.port }}</td>
-                                        <td>{{ port.type }}</td>
+                                        <td>{% with pt=port.type|upper bt=grp.board_type|upper %}{% if "EPON" in pt or "EPON" in bt %}EPON{% elif "XGS" in pt or "XGS" in bt %}XGS-PON{% elif "XG" in pt or "XG" in bt %}XG-PON{% else %}GPON{% endif %}{% endwith %} 0/{{ grp.slot }}/{{ port.port }}</td>
+                                        <td>{% with pt=port.type|upper bt=grp.board_type|upper %}{% if "EPON" in pt or "EPON" in bt %}EPON{% elif "XGS" in pt or "XGS" in bt %}XGS-PON{% elif "XG" in pt or "XG" in bt %}XG-PON{% else %}GPON{% endif %}{% endwith %}</td>
                                         <td>{{ port.admin_state }}</td>
                                         <td class="{% if 'down' in port.status|lower %}pon-status-down{% elif 'up' in port.status|lower %}pon-status-up{% endif %}">{{ port.status }}</td>
                                           <td>
@@ -898,12 +1217,6 @@
                                             -
                                             {% endif %}
                                         </td>
-                                        <td>
-                                            <div class="pon-traffic-inline">
-                                                <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">{% if port.latest_download_mbps or port.latest_download_mbps == 0 %}{{ port.latest_download_mbps }} Mbps{% else %}-{% endif %}</span></div>
-                                                <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">{% if port.latest_upload_mbps or port.latest_upload_mbps == 0 %}{{ port.latest_upload_mbps }} Mbps{% else %}-{% endif %}</span></div>
-                                            </div>
-                                        </td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -919,10 +1232,16 @@
                 <section id="uplink">
                     <div class="section-head">
                         <h3>Uplink</h3>
-                        <form method="post" action="{% url 'olt_refresh_uplink' olt.pk %}" class="refresh-form">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Ports</button>
-                        </form>
+                        <div class="vlan-actions">
+                            <form method="post" action="{% url 'olt_refresh_uplink_vlans' olt.pk %}" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing VLANs...">Refresh VLANs</button>
+                            </form>
+                            <form method="post" action="{% url 'olt_refresh_uplink' olt.pk %}" class="refresh-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Ports</button>
+                            </form>
+                        </div>
                     </div>
                     {% if uplink_data.rows %}
                     <div class="cards-table-wrap">
@@ -934,9 +1253,10 @@
                                     <th>Admin state</th>
                                     <th>Status</th>
                                     <th>Speed</th>
-                                    <th>Negotiation</th>
+                                    <th>Aggregate</th>
+                                    <th>VLANs</th>
+                                    <th>Mode</th>
                                     <th>MTU</th>
-                                    <th>Traffic</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -947,14 +1267,24 @@
                                     <td>{{ row.admin_status }}</td>
                                     <td class="{% if row.oper_status|upper == 'UP' %}status-normal{% else %}status-failed{% endif %}">{{ row.oper_status }}</td>
                                     <td class="{% if row.speed|default:'-' != '-' %}status-normal{% endif %}">{{ row.speed|default:"-" }}</td>
-                                    <td>{{ row.negotiation }}</td>
-                                    <td>{{ row.mtu }}</td>
-                                    <td>
-                                        <div class="pon-traffic-inline">
-                                            <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">{% if row.latest_download_mbps or row.latest_download_mbps == 0 %}{{ row.latest_download_mbps }} Mbps{% else %}-{% endif %}</span></div>
-                                            <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">{% if row.latest_upload_mbps or row.latest_upload_mbps == 0 %}{{ row.latest_upload_mbps }} Mbps{% else %}-{% endif %}</span></div>
-                                        </div>
+                                    <td class="uplink-agg-cell">
+                                        {% if row.aggregate.master %}
+                                        <span class="agg-chip{% if row.aggregate.is_master %} agg-master{% endif %}">{% if row.aggregate.is_master %}&#9733; LAG master{% else %}LAG member{% endif %}</span>
+                                        <div class="agg-meta">Channel: {{ row.aggregate.master }}{% if row.aggregate.work_mode %} ({{ row.aggregate.work_mode }}){% endif %}</div>
+                                        {% if row.aggregate.description %}<div class="agg-meta">{{ row.aggregate.description }}</div>{% endif %}
+                                        {% if row.aggregate.is_master %}<div class="agg-note">Add VLANs on this port</div>{% else %}<div class="agg-meta">VLANs go on {{ row.aggregate.master }}</div>{% endif %}
+                                        {% else %}-{% endif %}
                                     </td>
+                                    <td class="uplink-vlan-cell">
+                                        <span class="uplink-vlan-list">{{ row.tagged_vlans|default:"-" }}</span>
+                                        {% if row.pvid_untag and row.pvid_untag != "-" %}
+                                        <span class="uplink-pvid">PVID: {{ row.pvid_untag }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if row.tagged_vlans and row.tagged_vlans != "-" %}{% if row.pvid_untag and row.pvid_untag != "-" %}<span class="uplink-mode mode-hybrid">Hybrid</span>{% else %}<span class="uplink-mode mode-trunk">Trunk</span>{% endif %}{% elif row.pvid_untag and row.pvid_untag != "-" %}<span class="uplink-mode mode-access">Access</span>{% else %}-{% endif %}
+                                    </td>
+                                    <td>{{ row.mtu }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -973,6 +1303,7 @@
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh VLANs</button>
                             </form>
+                            {% if user.is_staff or user.is_superuser %}
                             <button
                                 type="button"
                                 class="btn btn-primary"
@@ -980,7 +1311,7 @@
                                 aria-expanded="{% if vlan_add_form.is_bound or vlan_add_form.non_field_errors %}true{% else %}false{% endif %}"
                                 aria-controls="addVlanCard"
                             >
-                                Add VLAN
+                                Create VLAN
                             </button>
                             <button
                                 type="button"
@@ -991,12 +1322,23 @@
                             >
                                 Add Multiple VLANs
                             </button>
+                            {% endif %}
                         </div>
                     </div>
-                    <p class="subtle">Total VLANs: {{ vlan_data.rows|length }}</p>
-                    {% if vlan_notice %}
-                    <p class="subtle" style="margin-top: -4px;">{{ vlan_notice }}</p>
+                    <p class="subtle">Total VLANs: {{ vlan_data.total_count }}</p>
+                    {% if vlan_data.mgmt_vlan_id %}
+                    <p class="subtle" style="margin-top: -4px;"><strong>Mgmt VLAN: {{ vlan_data.mgmt_vlan_id }}</strong></p>
                     {% endif %}
+                    {% if vlan_notice %}
+                    <p class="vlan-notice {% if vlan_notice_ok == True %}good{% elif vlan_notice_ok == False %}bad{% elif 'created' in vlan_notice|lower and 'not created' not in vlan_notice|lower %}good{% else %}bad{% endif %}">
+                        {% if vlan_notice_url %}
+                        <a href="{{ vlan_notice_url }}">{{ vlan_notice }}</a>
+                        {% else %}
+                        {{ vlan_notice }}
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                    {% if user.is_staff or user.is_superuser %}
                     <div
                         class="vlan-add-card"
                         id="addVlanCard"
@@ -1008,25 +1350,75 @@
                             {{ vlan_add_form.non_field_errors }}
                         </div>
                         {% endif %}
-                        <form method="post" action="{% url 'olt_add_vlan' olt.pk %}">
+                        <form method="post" action="{% url 'olt_add_vlan_uplink' olt.pk %}" id="addVlanUplinkForm" novalidate>
                             {% csrf_token %}
                             <div class="vlan-add-grid">
                                 <div class="field-wrap">
                                     <label for="{{ vlan_add_form.vlan_id.id_for_label }}">{{ vlan_add_form.vlan_id.label }}</label>
                                     {{ vlan_add_form.vlan_id }}
-                                    {{ vlan_add_form.vlan_id.errors }}
                                     <div class="field-live-error" id="vlanIdLiveError"></div>
                                 </div>
                                 <div class="field-wrap">
                                     <label for="{{ vlan_add_form.description.id_for_label }}">{{ vlan_add_form.description.label }}</label>
                                     {{ vlan_add_form.description }}
-                                    {{ vlan_add_form.description.errors }}
                                     <div class="field-live-error" id="vlanDescriptionLiveError"></div>
                                 </div>
                             </div>
-                            <div class="vlan-submit-row">
-                                <button type="submit" class="btn btn-primary vlan-add-submit">Create VLAN</button>
+                        <h4 class="vlan-subform-title">Add VLAN Uplink</h4>
+                        <div class="vlan-add-grid">
+                            <div class="field-wrap vlan-existing-select-wrap">
+                                <label for="addVlanUplinkVlan">VLAN</label>
+                                <select id="addVlanUplinkVlan" name="existing_vlan_id" class="form-control">
+                                    <option value="">Select VLAN</option>
+                                    {% for row in vlan_uplink_vlan_options %}
+                                    <option value="{{ row.vlan_id }}">{{ row.vlan_id }}{% if row.description %} - {{ row.description }}{% endif %}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
+                            <div class="field-wrap">
+                                <label for="addVlanUplinkPort">Uplink port</label>
+                                <select id="addVlanUplinkPort" name="uplink_port" class="form-control">
+                                    <option value="">Select uplink port</option>
+                                    {% for row in vlan_uplink_port_options %}
+                                    <option value="{{ row.port }}" class="{% if row.status|upper == 'UP' %}option-up{% else %}option-down{% endif %}">{{ row.port }}{% if row.status %} - {{ row.status }}{% endif %}{% if row.lag_label %} &bull; {{ row.lag_label }}{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="vlan-submit-row">
+                            <button type="submit" class="btn btn-primary">Add VLAN Uplink</button>
+                        </div>
+                        </form>
+                        {% if vlan_transcript %}
+                        <div class="vlan-cli-output" id="vlanCliOutputBox">{{ vlan_transcript }}</div>
+                        {% endif %}
+                        <h4 class="vlan-subform-title">Delete VLAN Uplink</h4>
+                        <form method="post" action="{% url 'olt_remove_vlan_uplink' olt.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="vlan_id" id="deleteVlanUplinkNewVlanId" value="">
+                        <div class="vlan-add-grid">
+                            <div class="field-wrap vlan-existing-select-wrap">
+                                <label for="deleteVlanUplinkVlan">VLAN</label>
+                                <select id="deleteVlanUplinkVlan" name="vlan_id" class="form-control">
+                                    <option value="">Select VLAN</option>
+                                    {% for row in vlan_uplink_vlan_options %}
+                                    <option value="{{ row.vlan_id }}">{{ row.vlan_id }}{% if row.description %} - {{ row.description }}{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="field-wrap">
+                                <label for="deleteVlanUplinkPort">Uplink port</label>
+                                <select id="deleteVlanUplinkPort" name="uplink_port" class="form-control">
+                                    <option value="">Select uplink port</option>
+                                    {% for row in vlan_uplink_port_options %}
+                                    <option value="{{ row.port }}" class="{% if row.status|upper == 'UP' %}option-up{% else %}option-down{% endif %}">{{ row.port }}{% if row.status %} - {{ row.status }}{% endif %}{% if row.lag_label %} &bull; {{ row.lag_label }}{% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="vlan-submit-row">
+                            <button type="submit" class="btn btn-danger">Delete VLAN Uplink</button>
+                        </div>
                         </form>
                     </div>
                     <div
@@ -1046,7 +1438,6 @@
                                 <div class="field-wrap">
                                     <label for="{{ vlan_bulk_form.vlan_range.id_for_label }}">{{ vlan_bulk_form.vlan_range.label }}</label>
                                     {{ vlan_bulk_form.vlan_range }}
-                                    {{ vlan_bulk_form.vlan_range.errors }}
                                     <div class="field-live-error" id="vlanRangeLiveError"></div>
                                 </div>
                             </div>
@@ -1054,7 +1445,11 @@
                                 <button type="submit" class="btn btn-primary vlan-bulk-add-submit">Create VLANs</button>
                             </div>
                         </form>
+                        {% if vlan_bulk_transcript %}
+                        <div class="vlan-cli-output" id="vlanBulkCliOutputBox">{{ vlan_bulk_transcript }}</div>
+                        {% endif %}
                     </div>
+                    {% endif %}
                     <div
                         class="vlan-list-wrap"
                         id="vlanListWrap"
@@ -1077,11 +1472,13 @@
                                     <td>{{ row.vlan_id }}</td>
                                     <td>{{ row.description|default:"-" }}</td>
                                     <td>
+                                        {% if user.is_staff or user.is_superuser %}
                                         <form method="post" action="{% url 'olt_delete_vlan' olt.pk %}" class="inline">
                                             {% csrf_token %}
                                             <input type="hidden" name="vlan_id" value="{{ row.vlan_id }}">
                                             <button type="submit" class="btn btn-danger btn-mini">Delete</button>
                                         </form>
+                                        {% else %}&mdash;{% endif %}
                                     </td>
                                     <td>
                                         {% if row.onu_link %}
@@ -1101,165 +1498,80 @@
                     </div>
                     {{ vlan_data.rows|json_script:"existingVlanData" }}
                 </section>
-                {% elif selected_section == 'profiles' %}
-                <section id="profiles">
-                    <div class="section-head">
-                        <h3>Speed Profile</h3>
-                        <div class="profile-actions">
-                            <form method="post" action="{% url 'olt_refresh_profiles' olt.pk %}" class="refresh-form">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-primary refresh-btn" data-loading-text="Refreshing...">Refresh Profiles</button>
-                            </form>
-                            <button
-                                type="button"
-                                class="btn btn-primary"
-                                id="toggleAddProfileBtn"
-                                aria-expanded="{% if dba_profile_form.is_bound or dba_profile_form.non_field_errors or dba_profile_transcript %}true{% else %}false{% endif %}"
-                                aria-controls="addProfileCard"
-                            >
-                                Add Profile
-                            </button>
-                        </div>
-                    </div>
-                    <p class="subtle">Total Profiles: {{ dba_profile_data.rows|length }}</p>
-                    {% if dba_profile_notice %}
-                    <p class="subtle" style="margin-top: -4px;">{{ dba_profile_notice }}</p>
-                    {% endif %}
-                    <div
-                        class="profile-add-card"
-                        id="addProfileCard"
-                        {% if not dba_profile_form.is_bound and not dba_profile_form.non_field_errors and not dba_profile_transcript %}hidden{% endif %}
-                    >
-                        <h4>Add Profile</h4>
-                        {% if dba_profile_form.non_field_errors %}
-                        <div class="profile-add-error">
-                            {{ dba_profile_form.non_field_errors }}
-                        </div>
-                        {% endif %}
-                        <form method="post" action="{% url 'olt_add_profile' olt.pk %}">
-                            {% csrf_token %}
-                            <div class="profile-add-grid">
-                                <div class="field-wrap">
-                                    <label for="{{ dba_profile_form.profile_id.id_for_label }}">{{ dba_profile_form.profile_id.label }}</label>
-                                    {{ dba_profile_form.profile_id }}
-                                    {{ dba_profile_form.profile_id.errors }}
-                                    <div class="field-live-error" id="profileIdLiveError"></div>
-                                </div>
-                                <div class="field-wrap">
-                                    <label for="{{ dba_profile_form.profile_name.id_for_label }}">{{ dba_profile_form.profile_name.label }}</label>
-                                    {{ dba_profile_form.profile_name }}
-                                    {{ dba_profile_form.profile_name.errors }}
-                                    <div class="field-live-error" id="profileNameLiveError"></div>
-                                </div>
-                                <div class="field-wrap">
-                                    <label for="{{ dba_profile_form.profile_type.id_for_label }}">{{ dba_profile_form.profile_type.label }}</label>
-                                    {{ dba_profile_form.profile_type }}
-                                    <div class="field-live-error" id="profileTypeLiveError"></div>
-                                </div>
-                                <div class="field-wrap">
-                                    <label for="{{ dba_profile_form.dba_speed.id_for_label }}">{{ dba_profile_form.dba_speed.label }}</label>
-                                    {{ dba_profile_form.dba_speed }}
-                                    {% if dba_profile_form.dba_speed.help_text %}
-                                    <small class="helptext">{{ dba_profile_form.dba_speed.help_text }}</small>
-                                    {% endif %}
-                                    {{ dba_profile_form.dba_speed.errors }}
-                                    <div class="field-live-error" id="profileSpeedLiveError"></div>
-                                </div>
-                            </div>
-                            <div class="profile-submit-row">
-                                <button type="submit" class="btn btn-primary profile-add-submit">Add Profile</button>
-                            </div>
-                        </form>
-                        {% if dba_profile_transcript and not dba_profile_form.errors %}
-                        <div class="profile-cli-output" id="profileCliOutputBox">
-                            <strong>Command Output</strong>
-                            <pre>{{ dba_profile_transcript }}</pre>
-                        </div>
-                        {% endif %}
-                    </div>
-                    <div
-                        class="profile-list-wrap"
-                        id="profileListWrap"
-                        {% if dba_profile_form.is_bound or dba_profile_form.non_field_errors or dba_profile_transcript %}hidden{% endif %}
-                    >
-                    {% if dba_profile_config %}
-                    <div class="profile-config-box" id="profileConfigBox">
-                        {% if dba_profile_config.output %}
-                        <pre class="profile-config-output">{{ dba_profile_config.output }}</pre>
-                        {% elif dba_profile_config.transcript %}
-                        <pre class="profile-config-output">{{ dba_profile_config.transcript }}</pre>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                    {% if dba_profile_data.rows %}
-                    <div class="cards-table-wrap">
-                        <table class="cards-table">
-                            <thead>
-                                <tr>
-                                    <th>Profile ID</th>
-                                    <th>Profile Name</th>
-                                    <th>Type</th>
-                                    <th>DBA Speed</th>
-                                    <th>Configuration</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in dba_profile_data.rows %}
-                                <tr>
-                                    <td>{{ row.profile_id }}</td>
-                                    <td>{{ row.profile_name }}</td>
-                                    <td>{{ row.profile_type }}</td>
-                                    <td>{{ row.dba_speed }}</td>
-                                    <td>
-                                        <form method="post" action="{% url 'olt_profile_configuration' olt.pk %}" class="refresh-form">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="profile_id" value="{{ row.profile_id }}">
-                                            <input type="hidden" name="profile_name" value="{{ row.profile_name }}">
-                                            <button type="submit" class="btn btn-primary profile-config-btn" data-loading-text="Loading...">Display_Config</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <p class="subtle">{{ dba_profile_status_display|default:"No DBA profiles found." }}</p>
-                    {% endif %}
-                    </div>
-                    {{ dba_profile_data.rows|json_script:"existingDbaProfilesData" }}
-                </section>
                 {% else %}
                 <section id="advanced">
                     <h3>Advanced</h3>
-                    <p class="subtle">Coming soon.</p>
+                    <p class="subtle">Run configured ONU inventory sync manually for this OLT.</p>
+                    {% if user.is_staff or user.is_superuser %}
+                    <form class="inline js-op-form sync-config-form" id="syncConfigForm" method="post" action="{% url 'olt_sync_config' olt.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary" data-op="Sync Config">Sync Config</button>
+                    </form>
+                    {% endif %}
+                    <div class="sync-config-report" id="syncConfigReport" hidden>
+                        <p class="sync-report-title" id="syncReportTitle">Config Sync Report</p>
+                        <div class="sync-report-grid">
+                            <span>Result: <strong id="syncReportType">-</strong></span>
+                            <span>ONUs: <strong id="syncReportCount">-</strong></span>
+                            <span>Time: <strong id="syncReportTime">-</strong></span>
+                        </div>
+                        <p class="sync-report-message" id="syncReportMessage"></p>
+                    </div>
                 </section>
                 {% endif %}
             </div>
 
+            {% if selected_section == 'olt-details' %}
             <aside class="snap-card">
                 <h3 class="snap-title">Device Snapshot</h3>
-                <span class="status-pill" id="snapshotStatusPill">
-                    {% if 'snmp' in snapshot_status_display|lower %}
-                        Live SNMP fetched
-                    {% else %}
-                        {{ snapshot_status_display }}
-                    {% endif %}
-                </span>
+                <span class="status-pill" id="snapshotStatusPill">{% if olt_unreachable %}{{ olt_unreachable_message }}{% elif 'snmp' in snapshot_status_display|lower %}Live SNMP fetched{% else %}{{ snapshot_status_display }}{% endif %}</span>
                 <div class="snap-box" style="margin-top: 10px;">
                     <p><strong>Sys Name:</strong> <span id="snapshotSysName">{{ snapshot.sys_name }}</span></p>
                     <p><strong>Model:</strong> <span id="snapshotModel">{{ snapshot.model }}</span></p>
                     <p><strong>SW Version:</strong> <span id="snapshotSwVersion">{{ snapshot.sw_version }}</span></p>
                 </div>
             </aside>
+            {% endif %}
         </div>
     </section>
+</div>
+<div class="olt-wait-overlay" id="syncConfigOverlay" hidden>
+    <div class="olt-wait-card" role="status" aria-live="polite">
+        <div class="olt-wait-wheel"></div>
+        <p class="olt-wait-title">Waiting for OLT</p>
+        <p class="olt-wait-subtitle">Reading configured ONUs and updating the database...</p>
+    </div>
 </div>
 <script>
 (() => {
     const refreshForms = document.querySelectorAll('form.refresh-form');
     const openCliWindowBtn = document.getElementById('openCliWindowBtn');
     const backToOltSettingsBtn = document.getElementById('backToOltSettingsBtn');
+    const unreachablePop = document.getElementById('oltUnreachablePop');
+    const unreachableCloseBtn = document.getElementById('oltUnreachableCloseBtn');
+    const unreachableText = document.getElementById('oltUnreachableText');
+    const showUnreachablePop = () => {
+        if (!unreachablePop) return;
+        unreachablePop.removeAttribute('hidden');
+        if (unreachableCloseBtn) {
+            unreachableCloseBtn.focus();
+        }
+    };
+    if (unreachablePop && unreachablePop.dataset.show === '1') {
+        window.setTimeout(showUnreachablePop, 120);
+    }
+    if (unreachableCloseBtn) {
+        unreachableCloseBtn.addEventListener('click', () => {
+            unreachablePop.setAttribute('hidden', '');
+        });
+    }
+    if (unreachablePop) {
+        unreachablePop.addEventListener('click', (event) => {
+            if (event.target === unreachablePop) {
+                unreachablePop.setAttribute('hidden', '');
+            }
+        });
+    }
     if (refreshForms.length) {
         refreshForms.forEach((form) => {
             form.addEventListener('submit', (event) => {
@@ -1274,135 +1586,37 @@
             });
         });
     }
-    const addProfileCard = document.getElementById('addProfileCard');
-    const toggleAddProfileBtn = document.getElementById('toggleAddProfileBtn');
-    const profileListWrap = document.getElementById('profileListWrap');
-    const addProfileForm = addProfileCard ? addProfileCard.querySelector('form[action$="add-profile/"]') : null;
-    if (addProfileCard && toggleAddProfileBtn) {
-        toggleAddProfileBtn.addEventListener('click', () => {
-            const isHidden = addProfileCard.hasAttribute('hidden');
-            if (isHidden) {
-                addProfileCard.removeAttribute('hidden');
-                if (profileListWrap) {
-                    profileListWrap.setAttribute('hidden', '');
-                }
-                toggleAddProfileBtn.setAttribute('aria-expanded', 'true');
-                const firstField = addProfileCard.querySelector('input, select');
-                if (firstField) {
-                    firstField.focus();
-                }
-            } else {
-                addProfileCard.setAttribute('hidden', '');
-                if (profileListWrap) {
-                    profileListWrap.removeAttribute('hidden');
-                }
-                toggleAddProfileBtn.setAttribute('aria-expanded', 'false');
-            }
-        });
-    }
-    if (addProfileForm) {
-        const existingProfilesNode = document.getElementById('existingDbaProfilesData');
-        const existingProfiles = existingProfilesNode ? JSON.parse(existingProfilesNode.textContent) : [];
-        const reservedIds = new Set(existingProfiles.map((row) => String(row.profile_id || '').trim()).filter(Boolean));
-        const reservedNames = new Set(existingProfiles.map((row) => String(row.profile_name || '').trim().toLowerCase()).filter(Boolean));
-        const profileIdInput = document.getElementById('{{ dba_profile_form.profile_id.id_for_label }}');
-        const profileNameInput = document.getElementById('{{ dba_profile_form.profile_name.id_for_label }}');
-        const profileTypeInput = document.getElementById('{{ dba_profile_form.profile_type.id_for_label }}');
-        const profileSpeedInput = document.getElementById('{{ dba_profile_form.dba_speed.id_for_label }}');
-        const submitButton = addProfileForm.querySelector('button[type="submit"]');
-        const profileCliOutputBox = document.getElementById('profileCliOutputBox');
-        const liveFields = [
-            [profileIdInput, document.getElementById('profileIdLiveError')],
-            [profileNameInput, document.getElementById('profileNameLiveError')],
-            [profileTypeInput, document.getElementById('profileTypeLiveError')],
-            [profileSpeedInput, document.getElementById('profileSpeedLiveError')],
-        ];
-
-        const setLiveError = (input, node, message) => {
-            if (!input || !node) return;
-            const hasError = !!message;
-            input.classList.toggle('field-invalid', hasError);
-            node.textContent = message || '';
-            node.classList.toggle('active', hasError);
-        };
-
-        const validateProfileId = () => {
-            const value = String(profileIdInput?.value || '').trim();
-            if (!value) return 'Profile ID is required.';
-            if (!/^\d+$/.test(value)) return 'Profile ID must be a number between 10 and 512.';
-            const num = Number(value);
-            if (num < 10 || num > 512) return 'Profile ID must be between 10 and 512.';
-            if (reservedIds.has(String(num))) return 'This profile ID is already in use on the OLT.';
-            return '';
-        };
-
-        const validateProfileName = () => {
-            const value = String(profileNameInput?.value || '').trim();
-            if (!value) return 'Profile name is required.';
-            if (value.length > 20) return 'Profile name must be 20 characters or fewer.';
-            if (value.includes('"')) return 'Double quotes are not allowed in the profile name.';
-            if (reservedNames.has(value.toLowerCase())) return 'This profile name is already in use on the OLT.';
-            return '';
-        };
-
-        const validateProfileType = () => {
-            const value = String(profileTypeInput?.value || '').trim().toLowerCase();
-            const allowed = new Set(['type1', 'type2', 'type3', 'type4', 'type5']);
-            if (!allowed.has(value)) return 'Select a valid profile type.';
-            return '';
-        };
-
-        const validateProfileSpeed = () => {
-            const value = String(profileSpeedInput?.value || '').trim();
-            if (!value) return 'DBA speed is required.';
-            if (!/^\d+$/.test(value)) return 'DBA speed must be a positive number.';
-            const num = Number(value);
-            if (num <= 0) return 'DBA speed must be a positive number.';
-            const converted = num * 1024;
-            if (converted < 128 || converted > 10000000) return 'DBA speed is out of allowed range after conversion.';
-            return '';
-        };
-
-        const runLiveValidation = () => {
-            const idError = validateProfileId();
-            const nameError = validateProfileName();
-            const typeError = validateProfileType();
-            const speedError = validateProfileSpeed();
-            setLiveError(profileIdInput, document.getElementById('profileIdLiveError'), idError);
-            setLiveError(profileNameInput, document.getElementById('profileNameLiveError'), nameError);
-            setLiveError(profileTypeInput, document.getElementById('profileTypeLiveError'), typeError);
-            setLiveError(profileSpeedInput, document.getElementById('profileSpeedLiveError'), speedError);
-            const isValid = !(idError || nameError || typeError || speedError);
-            if (submitButton) {
-                submitButton.disabled = !isValid;
-            }
-            return isValid;
-        };
-
-        liveFields.forEach(([input]) => {
-            if (!input) return;
-            const handleFieldInteraction = () => {
-                if (profileCliOutputBox) {
-                    profileCliOutputBox.style.display = 'none';
-                }
-                runLiveValidation();
-            };
-            input.addEventListener('input', handleFieldInteraction);
-            input.addEventListener('change', handleFieldInteraction);
-            input.addEventListener('blur', runLiveValidation);
-        });
-        addProfileForm.addEventListener('submit', (event) => {
-            if (!runLiveValidation()) {
-                event.preventDefault();
-            }
-        });
-        runLiveValidation();
-    }
     const addVlanCard = document.getElementById('addVlanCard');
     const toggleAddVlanBtn = document.getElementById('toggleAddVlanBtn');
     const addBulkVlanCard = document.getElementById('addBulkVlanCard');
     const toggleAddBulkVlanBtn = document.getElementById('toggleAddBulkVlanBtn');
     const vlanListWrap = document.getElementById('vlanListWrap');
+    const vlanTogglePairs = [
+        [addVlanCard, toggleAddVlanBtn],
+        [addBulkVlanCard, toggleAddBulkVlanBtn],
+    ];
+    const showVlanCard = (targetCard, targetButton) => {
+        const isHidden = targetCard && targetCard.hasAttribute('hidden');
+        vlanTogglePairs.forEach(([card, button]) => {
+            if (!card) return;
+            if (card === targetCard && isHidden) {
+                card.removeAttribute('hidden');
+                if (button) button.setAttribute('aria-expanded', 'true');
+                const firstField = card.querySelector('input, select');
+                if (firstField) firstField.focus();
+            } else {
+                card.setAttribute('hidden', '');
+                if (button) button.setAttribute('aria-expanded', 'false');
+            }
+        });
+        if (vlanListWrap) {
+            if (isHidden) {
+                vlanListWrap.setAttribute('hidden', '');
+            } else {
+                vlanListWrap.removeAttribute('hidden');
+            }
+        }
+    };
     const setVlanLiveError = (input, node, message) => {
         if (!input || !node) return;
         const hasError = !!message;
@@ -1410,61 +1624,15 @@
         node.textContent = message || '';
         node.classList.toggle('active', hasError);
     };
-    const addVlanForm = addVlanCard ? addVlanCard.querySelector('form[action$="add-vlan/"]') : null;
+    const addVlanForm = document.getElementById('addVlanUplinkForm');
     if (addVlanCard && toggleAddVlanBtn) {
         toggleAddVlanBtn.addEventListener('click', () => {
-            const isHidden = addVlanCard.hasAttribute('hidden');
-            if (isHidden) {
-                addVlanCard.removeAttribute('hidden');
-                if (addBulkVlanCard) {
-                    addBulkVlanCard.setAttribute('hidden', '');
-                }
-                if (vlanListWrap) {
-                    vlanListWrap.setAttribute('hidden', '');
-                }
-                toggleAddVlanBtn.setAttribute('aria-expanded', 'true');
-                if (toggleAddBulkVlanBtn) {
-                    toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'false');
-                }
-                const firstField = addVlanCard.querySelector('input');
-                if (firstField) {
-                    firstField.focus();
-                }
-            } else {
-                addVlanCard.setAttribute('hidden', '');
-                if (vlanListWrap) {
-                    vlanListWrap.removeAttribute('hidden');
-                }
-                toggleAddVlanBtn.setAttribute('aria-expanded', 'false');
-            }
+            showVlanCard(addVlanCard, toggleAddVlanBtn);
         });
     }
     if (addBulkVlanCard && toggleAddBulkVlanBtn) {
         toggleAddBulkVlanBtn.addEventListener('click', () => {
-            const isHidden = addBulkVlanCard.hasAttribute('hidden');
-            if (isHidden) {
-                addBulkVlanCard.removeAttribute('hidden');
-                if (addVlanCard) {
-                    addVlanCard.setAttribute('hidden', '');
-                }
-                if (vlanListWrap) {
-                    vlanListWrap.setAttribute('hidden', '');
-                }
-                toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'true');
-                if (toggleAddVlanBtn) {
-                    toggleAddVlanBtn.setAttribute('aria-expanded', 'false');
-                }
-                const firstField = addBulkVlanCard.querySelector('input');
-                if (firstField) {
-                    firstField.focus();
-                }
-            } else {
-                addBulkVlanCard.setAttribute('hidden', '');
-                if (vlanListWrap) {
-                    vlanListWrap.removeAttribute('hidden');
-                }
-                toggleAddBulkVlanBtn.setAttribute('aria-expanded', 'false');
-            }
+            showVlanCard(addBulkVlanCard, toggleAddBulkVlanBtn);
         });
     }
     if (addVlanForm) {
@@ -1473,17 +1641,51 @@
         const reservedVlanIds = new Set(existingVlans.map((row) => String(row.vlan_id || '').trim()).filter(Boolean));
         const vlanIdInput = document.getElementById('{{ vlan_add_form.vlan_id.id_for_label }}');
         const vlanDescriptionInput = document.getElementById('{{ vlan_add_form.description.id_for_label }}');
+        const addExistingVlanSelect = document.getElementById('addVlanUplinkVlan');
+        const deleteExistingVlanSelect = document.getElementById('deleteVlanUplinkVlan');
+        const deleteNewVlanInput = document.getElementById('deleteVlanUplinkNewVlanId');
+        const existingVlanWraps = Array.from(document.querySelectorAll('.vlan-existing-select-wrap'));
         const vlanSubmitButton = addVlanForm.querySelector('button[type="submit"]');
         const vlanCliOutputBox = document.getElementById('vlanCliOutputBox');
 
         const validateVlanId = () => {
             const value = String(vlanIdInput?.value || '').trim();
-            if (!value) return 'VLAN ID is required.';
+            const selectedExisting = String(addExistingVlanSelect?.value || '').trim();
+            if (!value) return selectedExisting ? '' : 'Enter a new VLAN ID or select an existing VLAN.';
             if (!/^\d+$/.test(value)) return 'VLAN ID must be a number between 1 and 4094.';
             const num = Number(value);
             if (num < 1 || num > 4094) return 'VLAN ID must be between 1 and 4094.';
             if (reservedVlanIds.has(String(num))) return 'This VLAN already exists on the OLT.';
             return '';
+        };
+
+        const syncVlanDropdownVisibility = () => {
+            const newValue = String(vlanIdInput?.value || '').trim();
+            const isNewVlanValid = /^\d+$/.test(newValue)
+                && Number(newValue) >= 1
+                && Number(newValue) <= 4094
+                && !reservedVlanIds.has(String(Number(newValue)));
+            existingVlanWraps.forEach((wrap) => {
+                wrap.hidden = isNewVlanValid;
+                wrap.classList.toggle('is-hidden', isNewVlanValid);
+            });
+            if (isNewVlanValid) {
+                if (addExistingVlanSelect) {
+                    addExistingVlanSelect.value = '';
+                    addExistingVlanSelect.disabled = true;
+                }
+                if (deleteExistingVlanSelect) {
+                    deleteExistingVlanSelect.value = '';
+                    deleteExistingVlanSelect.disabled = true;
+                }
+            } else {
+                if (addExistingVlanSelect) addExistingVlanSelect.disabled = false;
+                if (deleteExistingVlanSelect) deleteExistingVlanSelect.disabled = false;
+            }
+            if (deleteNewVlanInput) {
+                deleteNewVlanInput.value = isNewVlanValid ? newValue : '';
+                deleteNewVlanInput.disabled = !isNewVlanValid;
+            }
         };
 
         const validateVlanDescription = () => {
@@ -1494,6 +1696,7 @@
         };
 
         const runVlanLiveValidation = () => {
+            syncVlanDropdownVisibility();
             const idError = validateVlanId();
             const descError = validateVlanDescription();
             setVlanLiveError(vlanIdInput, document.getElementById('vlanIdLiveError'), idError);
@@ -1505,7 +1708,7 @@
             return isValid;
         };
 
-        [vlanIdInput, vlanDescriptionInput].forEach((input) => {
+        [vlanIdInput, vlanDescriptionInput, addExistingVlanSelect].forEach((input) => {
             if (!input) return;
             const handleVlanFieldInteraction = () => {
                 if (vlanCliOutputBox) {
@@ -1611,7 +1814,13 @@
             const snapshot = payload.snapshot || {};
             if (statusPill) {
                 const statusText = String(payload.snapshot_status_display || '');
-                statusPill.textContent = statusText.toLowerCase().includes('snmp') ? 'Live SNMP fetched' : (statusText || 'Device data unavailable');
+                const statusLower = statusText.toLowerCase();
+                statusPill.textContent = payload.olt_unreachable
+                    ? String(payload.olt_unreachable_message || 'OLT is Unreachable')
+                    : (statusLower.includes('live snmp') ? 'Live SNMP fetched' : (statusText || 'Device data unavailable'));
+            }
+            if (unreachableText && payload && payload.olt_unreachable) {
+                unreachableText.textContent = String(payload.olt_unreachable_message || 'OLT is Unreachable');
             }
             if (hardwareValue) {
                 hardwareValue.textContent = snapshot.model || 'Unknown';
@@ -1657,6 +1866,9 @@
             .then((response) => response.json())
             .then((payload) => {
                 applySnapshot(payload);
+                if (payload && payload.olt_unreachable) {
+                    showUnreachablePop();
+                }
             })
             .catch(() => {
                 if (statusPill) {
@@ -1871,14 +2083,17 @@ terminal.addEventListener('click', () => terminal.focus());
                             <th>ONUs</th>
                             <th>SFP Tx</th>
                             <th>Average signal</th>
-                            <th>Traffic</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${(grp.ports || []).map((port) => `
+                        ${(grp.ports || []).map((port) => {
+                            const _t = String(port.type || grp.board_type || '').toUpperCase();
+                            const techPrefix = _t.includes('EPON') ? 'EPON' : _t.includes('XGS') ? 'XGS-PON' : _t.includes('XG') ? 'XG-PON' : 'GPON';
+                            const typeLabel = _t.includes('EPON') ? 'EPON' : _t.includes('XGS') ? 'XGS-PON' : _t.includes('XG') ? 'XG-PON' : 'GPON';
+                            return `
                             <tr>
-                                <td>${escapeHtml(port.port)}</td>
-                                <td>${escapeHtml(port.type || '-')}</td>
+                                <td>${techPrefix} 0/${escapeHtml(grp.slot)}/${escapeHtml(port.port)}</td>
+                                <td>${typeLabel}</td>
                                 <td>${escapeHtml(port.admin_state || '-')}</td>
                                 <td class="${String(port.status || '').toLowerCase().includes('down') ? 'pon-status-down' : String(port.status || '').toLowerCase().includes('up') ? 'pon-status-up' : ''}">${escapeHtml(port.status || '-')}</td>
                                 <td>
@@ -1899,14 +2114,8 @@ terminal.addEventListener('click', () => terminal.focus());
                                 </td>
                                 <td>${port.sfp_tx ? escapeHtml(port.sfp_tx) : '-'}</td>
                                 <td>${buildAverageSignalMarkup(oltPk, grp.slot, port.port, port.average_signal, port.average_signal_bucket)}</td>
-                                <td>
-                                    <div class="pon-traffic-inline">
-                                        <div><strong class="traffic-label in">&darr; IN</strong> <span class="traffic-value">${formatLatestTraffic(port.latest_download_mbps)}</span></div>
-                                        <div><strong class="traffic-label out">&uarr; OUT</strong> <span class="traffic-value">${formatLatestTraffic(port.latest_upload_mbps)}</span></div>
-                                    </div>
-                                </td>
                             </tr>
-                        `).join('')}
+                        `; }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -1930,7 +2139,115 @@ terminal.addEventListener('click', () => terminal.focus());
 
     window.setInterval(refreshPonPorts, 600000);
 })();
+</script>
+<script>
+(() => {
+    // Render uplink tagged-VLAN lists as compact chips instead of a long column.
+    document.querySelectorAll('.uplink-vlan-list').forEach((el) => {
+        const raw = (el.textContent || '').trim();
+        if (!raw || raw === '-') return;
+        const vlans = raw.split(',').map((v) => v.trim()).filter(Boolean);
+        if (!vlans.length) return;
+        el.innerHTML = vlans.map((v) => `<span class="vlan-chip">${v.replace(/[<>&]/g, '')}</span>`).join('');
+    });
 
+    // CLI: open the interactive telnet terminal in a PuTTY-like popup window.
+    document.querySelectorAll('.js-cli-btn').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            const url = `${btn.getAttribute('href')}?t=${Date.now()}`;
+            window.open(
+                url,
+                '_blank',
+                'popup=yes,width=1100,height=720,left=120,top=60,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes,noopener'
+            );
+        });
+    });
+
+    const syncConfigForm = document.getElementById('syncConfigForm');
+    const syncConfigOverlay = document.getElementById('syncConfigOverlay');
+    const syncConfigReport = document.getElementById('syncConfigReport');
+    const setSyncReport = (payload, ok) => {
+        if (!syncConfigReport) return;
+        syncConfigReport.hidden = false;
+        syncConfigReport.classList.toggle('bad', !ok);
+        const typeNode = document.getElementById('syncReportType');
+        const countNode = document.getElementById('syncReportCount');
+        const timeNode = document.getElementById('syncReportTime');
+        const messageNode = document.getElementById('syncReportMessage');
+        const titleNode = document.getElementById('syncReportTitle');
+        const reportType = payload.type || (ok ? 'Completed' : 'Failed');
+        const count = payload.count ?? payload.actual_count ?? '-';
+        if (titleNode) titleNode.textContent = ok ? 'Config Sync Report' : 'Config Sync Report - Attention Required';
+        if (typeNode) typeNode.textContent = reportType;
+        if (countNode) countNode.textContent = count;
+        if (timeNode) timeNode.textContent = payload.duration_seconds ? `${payload.duration_seconds}s` : '-';
+        if (messageNode) messageNode.textContent = payload.status || payload.message || '';
+    };
+    if (syncConfigForm) {
+        syncConfigForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const btn = syncConfigForm.querySelector('button[type="submit"]');
+            const originalText = btn ? btn.textContent : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Syncing config...';
+            }
+            if (syncConfigReport) syncConfigReport.hidden = true;
+            if (syncConfigOverlay) syncConfigOverlay.hidden = false;
+            try {
+                const response = await fetch(syncConfigForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    body: new FormData(syncConfigForm),
+                });
+                let payload = {};
+                try {
+                    payload = await response.json();
+                } catch (err) {
+                    payload = { message: 'Config sync finished, but the response could not be parsed.' };
+                }
+                setSyncReport(payload, response.ok && payload.ok !== false);
+            } catch (err) {
+                setSyncReport({ type: 'Failed', message: `Config sync request failed: ${err}` }, false);
+            } finally {
+                if (syncConfigOverlay) syncConfigOverlay.hidden = true;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = originalText || 'Sync Config';
+                }
+            }
+        });
+    }
+
+    // Save / Backup: busy state so the user knows the OLT is being contacted.
+    document.querySelectorAll('.js-op-form').forEach((form) => {
+        form.addEventListener('submit', () => {
+            const btn = form.querySelector('button[type="submit"]');
+            if (!btn || btn.disabled) return;
+            const op = btn.getAttribute('data-op') || 'Working';
+            const original = btn.textContent;
+            btn.disabled = true;
+            if (op === 'Backup') {
+                btn.textContent = 'Backing up...';
+            } else if (op === 'Sync Config') {
+                btn.textContent = 'Syncing config...';
+            } else {
+                btn.textContent = 'Saving...';
+            }
+            // Save redirects back (page reloads -> resets). Backup streams a file
+            // download with no navigation, so restore the button manually.
+            if (op === 'Backup') {
+                setTimeout(() => { btn.disabled = false; btn.textContent = original; }, 12000);
+            }
+        });
+    });
+})();
 </script>
 {% endblock %}
+
 

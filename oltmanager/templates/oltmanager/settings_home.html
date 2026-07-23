@@ -4,48 +4,77 @@
 
 {% block extra_css %}
 <style>
-    .coming-soon-panel {
-        min-height: 320px;
+    .settings-grid {
         display: grid;
-        place-items: center;
-        text-align: center;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 18px;
     }
-    .coming-soon-card {
-        max-width: 520px;
-        padding: 28px 30px;
+    .settings-card {
+        display: flex;
+        flex-direction: column;
+        min-height: 172px;
+        padding: 24px 24px;
         border-radius: 18px;
         border: 1px solid #28436d;
         background: linear-gradient(180deg, rgba(19, 33, 58, 0.96), rgba(13, 24, 43, 0.98));
         box-shadow: 0 16px 38px rgba(3, 8, 18, 0.34);
     }
-    .coming-soon-kicker {
+    .settings-title {
         margin: 0 0 8px;
-        color: #78b7ff;
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-    .coming-soon-title {
-        margin: 0;
-        font-size: 34px;
+        font-size: 24px;
         font-weight: 800;
         letter-spacing: -0.03em;
     }
-    .coming-soon-copy {
-        margin: 10px 0 0;
+    .settings-copy {
+        margin: 0 0 18px;
         color: var(--muted);
-        font-size: 15px;
+        font-size: 14px;
         line-height: 1.6;
     }
+    .settings-card .btn {
+        align-self: flex-start;
+        margin-top: auto;
+    }
+    html[data-theme="light"] .settings-card {
+        background: #ffffff;
+        border-color: #dce6f3;
+        box-shadow: 0 12px 30px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .settings-title { color: #16233c; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="shell">
-    <section class="panel coming-soon-panel">
-        <div class="coming-soon-card">
-            <h1 class="coming-soon-title">Coming soon</h1>
+    <section class="panel">
+        <div class="settings-grid">
+            <div class="settings-card">
+                <h2 class="settings-title">OLT</h2>
+                <p class="settings-copy">Manage OLT devices and connectivity settings.</p>
+                <a href="{% url 'olt_settings_olt' %}" class="btn btn-primary">Open OLT Settings</a>
+            </div>
+            <div class="settings-card">
+                <h2 class="settings-title">Speed Profile</h2>
+                <p class="settings-copy">Saved traffic-table profiles from file, ready for future ONU binding and on-demand push.</p>
+                <a href="{% url 'settings_speed_profiles' %}" class="btn btn-primary">Open Speed Profiles</a>
+            </div>
+            <div class="settings-card">
+                <h2 class="settings-title">ONU Types</h2>
+                <p class="settings-copy">Static ONU type catalog with ports, CATV, VoIP, WiFi, and capability references.</p>
+                <a href="{% url 'settings_onu_types' %}" class="btn btn-primary">Open ONU Types</a>
+            </div>
+            <div class="settings-card">
+                <h2 class="settings-title">Alerts</h2>
+                <p class="settings-copy">In-app alerts for OLT down/recovery, high temperature, fiber cuts and signal degradation.</p>
+                <a href="{% url 'settings_alerts' %}" class="btn btn-primary">Open Alerts</a>
+            </div>
+            {% if user.is_staff or user.is_superuser %}
+            <div class="settings-card">
+                <h2 class="settings-title">Users</h2>
+                <p class="settings-copy">Create Admin and Standard users. Standard users have read-only access.</p>
+                <a href="{% url 'settings_users' %}" class="btn btn-primary">Open Users</a>
+            </div>
+            {% endif %}
         </div>
     </section>
 </div>

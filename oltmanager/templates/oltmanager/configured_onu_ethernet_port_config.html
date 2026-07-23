@@ -1,0 +1,283 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Configure ethernet port{% endblock %}
+
+{% block extra_css %}
+<style>
+  .port-config-shell { width: min(1040px, calc(100% - 28px)); margin: 22px auto; }
+  .port-config-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+  .port-config-title { margin:0; font-size:22px; font-weight:800; color:#f4f8ff; }
+  .port-config-sub { margin:6px 0 0; color:#9db0cf; font-size:13px; }
+  .port-config-response { margin-bottom:14px; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04); color:#dce8ff; font-weight:700; min-height:44px; display:flex; align-items:center; }
+  .port-config-response:empty { display:none; }
+  .port-config-form { display:grid; gap:18px; }
+  .port-config-row { display:grid; grid-template-columns: 140px 1fr; gap:16px; align-items:center; }
+  .port-config-label { color:#dce8ff; font-weight:800; }
+  .port-config-radio-group { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .port-config-radio { display:inline-flex; align-items:center; gap:8px; color:#deebff; }
+  .port-config-select {
+    width: min(560px, 100%);
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: #111111;
+    padding: 0 12px;
+    font: inherit;
+  }
+  .port-config-trunk-box {
+    width: min(560px, 100%);
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 10px 12px;
+    display: none;
+  }
+  .port-config-trunk-box.is-visible { display: block; }
+  .port-config-check {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:#111111;
+    padding:6px 0;
+  }
+  .port-config-trunk-box::-webkit-scrollbar {
+    width: 10px;
+  }
+  .port-config-trunk-box::-webkit-scrollbar-track {
+    background: #ffffff;
+    border-radius: 999px;
+  }
+  .port-config-trunk-box::-webkit-scrollbar-thumb {
+    background: #1f365a;
+    border-radius: 999px;
+    border: 2px solid #ffffff;
+  }
+  .port-config-vlan-wrap.is-hidden,
+  .port-config-row.is-hidden {
+    display: none;
+  }
+  /* ===== LIGHT THEME (Ethernet port config) ===== */
+  html[data-theme="light"] .port-config-title { color: #16233c; }
+  html[data-theme="light"] .port-config-sub { color: #5a6b86; }
+  html[data-theme="light"] .port-config-response {
+    background: #f4f8fe;
+    border-color: #dce6f3;
+    color: #16233c;
+  }
+  html[data-theme="light"] .port-config-label { color: #16233c; }
+  html[data-theme="light"] .port-config-radio { color: #2b3a57; }
+  .port-config-actions { display:flex; justify-content:flex-end; }
+  .olt-wait-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 10, 22, 0.68);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  .olt-wait-overlay.is-visible { display:flex; }
+  .olt-wait-card {
+    min-width: 280px;
+    padding: 28px 32px;
+    border-radius: 22px;
+    border: 1px solid rgba(105, 165, 255, 0.28);
+    background: linear-gradient(180deg, rgba(16, 30, 58, 0.98) 0%, rgba(9, 18, 36, 0.98) 100%);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+    text-align: center;
+  }
+  .olt-wait-wheel {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    border: 6px solid rgba(255,255,255,0.12);
+    border-top-color: #4f8dff;
+    border-right-color: #67d39c;
+    animation: oltWaitSpin 0.9s linear infinite;
+  }
+  .olt-wait-card h3 {
+    margin: 0;
+    color: #f4f8ff;
+    font-size: 24px;
+    font-weight: 800;
+  }
+  @keyframes oltWaitSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="port-config-shell">
+  <section class="panel">
+    <div class="olt-wait-overlay" id="olt-wait-overlay" aria-hidden="true">
+      <div class="olt-wait-card">
+        <div class="olt-wait-wheel"></div>
+        <h3>Waiting for OLT</h3>
+      </div>
+    </div>
+    <div class="port-config-head">
+      <div>
+        <h2 class="port-config-title">Configure ethernet port eth_0/{{ eth_port }}</h2>
+        <p class="port-config-sub">{{ olt.name }} | 0/{{ slot }}/{{ port }} | ONT {{ ont_id }}</p>
+      </div>
+      <a href="{{ back_url }}" class="btn btn-secondary">Back</a>
+    </div>
+
+    <div class="port-config-response">{{ response_message }}</div>
+
+    <div
+        id="port-admin-disabled-banner"
+        style="
+            display:{% if selected_status == 'shutdown' %}flex{% else %}none{% endif %};
+            align-items:center;
+            gap:8px;
+            margin-bottom:12px;
+            padding:9px 14px;
+            border-radius:10px;
+            border:1px solid rgba(255,107,119,0.35);
+            background:rgba(255,107,119,0.10);
+            color:#ff6b77;
+            font-weight:800;
+            font-size:14px;
+        "
+    >
+        <span style="font-size:16px;">&#11044;</span> Port Admin Disabled
+    </div>
+
+    <form method="post" class="port-config-form" data-port-config-form>
+      {% csrf_token %}
+      <div class="port-config-row">
+        <div class="port-config-label">Status</div>
+        <div class="port-config-radio-group">
+          <label class="port-config-radio"><input type="radio" name="status" value="enabled"{% if selected_status != 'shutdown' %} checked{% endif %}> Enabled</label>
+          <label class="port-config-radio"><input type="radio" name="status" value="shutdown"{% if selected_status == 'shutdown' %} checked{% endif %}> Port shutdown</label>
+        </div>
+      </div>
+
+      <div class="port-config-row" data-mode-row{% if selected_status == 'shutdown' %} style="display:none"{% endif %}>
+        <div class="port-config-label">Mode</div>
+        <div class="port-config-radio-group">
+          <label class="port-config-radio"><input type="radio" name="mode" value="lan"{% if selected_mode == 'lan' %} checked{% endif %}> LAN</label>
+          <label class="port-config-radio"><input type="radio" name="mode" value="access"{% if selected_mode == 'access' %} checked{% endif %}> Access</label>
+          <label class="port-config-radio"><input type="radio" name="mode" value="trunk"{% if selected_mode == 'trunk' %} checked{% endif %}> Trunk</label>
+          <label class="port-config-radio"><input type="radio" name="mode" value="transparent"{% if selected_mode == 'transparent' %} checked{% endif %}> Transparent</label>
+        </div>
+      </div>
+
+      <div class="port-config-row" data-vlan-row>
+        <div class="port-config-label" data-vlan-label>VLAN-ID</div>
+        <div class="port-config-vlan-wrap" data-vlan-wrap>
+          <select name="vlan_id" class="port-config-select" data-access-vlan-select>
+            {% for vlan in vlan_options %}
+            <option value="{{ vlan }}"{% if vlan == current_vlan %} selected{% endif %}>{{ vlan }}</option>
+            {% endfor %}
+          </select>
+          <div class="port-config-trunk-box" data-trunk-vlan-box>
+            <label class="port-config-check"><input type="checkbox" data-select-all-vlans> Select All</label>
+            {% for vlan in allowed_vlans %}
+            <label class="port-config-check"><input type="checkbox" name="allowed_vlans" value="{{ vlan }}"{% if vlan in selected_allowed_vlans %} checked{% endif %}> {{ vlan }}</label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="port-config-actions">
+        <button type="submit" class="btn">Apply</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const trunkRadio = document.querySelector('input[name="mode"][value="trunk"]');
+  const transparentRadio = document.querySelector('input[name="mode"][value="transparent"]');
+  const box = document.querySelector('[data-trunk-vlan-box]');
+  const accessSelect = document.querySelector('[data-access-vlan-select]');
+  const vlanLabel = document.querySelector('[data-vlan-label]');
+  const vlanWrap = document.querySelector('[data-vlan-wrap]');
+  const vlanRow = document.querySelector('[data-vlan-row]');
+  const radios = Array.from(document.querySelectorAll('input[name="mode"]'));
+  const selectAll = document.querySelector('[data-select-all-vlans]');
+  const checks = Array.from(document.querySelectorAll('input[name="allowed_vlans"]'));
+  const form = document.querySelector('[data-port-config-form]');
+  const responseBox = document.querySelector('.port-config-response');
+  const waitOverlay = document.getElementById('olt-wait-overlay');
+  const adminDisabledBanner = document.getElementById('port-admin-disabled-banner');
+  if (!trunkRadio || !transparentRadio || !box || !accessSelect || !vlanLabel || !vlanWrap || !vlanRow || !form) return;
+
+  const modeRow = document.querySelector('[data-mode-row]');
+  const statusRadios = Array.from(document.querySelectorAll('input[name="status"]'));
+  const syncAdminBanner = () => {
+    const checked = document.querySelector('input[name="status"]:checked');
+    const isShutdown = checked && checked.value === 'shutdown';
+    if (adminDisabledBanner) {
+      adminDisabledBanner.style.display = isShutdown ? 'flex' : 'none';
+    }
+    if (modeRow) {
+      modeRow.style.display = isShutdown ? 'none' : '';
+    }
+  };
+  statusRadios.forEach((r) => r.addEventListener('change', syncAdminBanner));
+  syncAdminBanner();
+
+  const refreshModeUi = () => {
+    const isTrunk = trunkRadio.checked;
+    const selectedMode = (document.querySelector('input[name="mode"]:checked') || {}).value || 'access';
+    const hideVlanRow = selectedMode === 'transparent' || selectedMode === 'lan';
+    box.classList.toggle('is-visible', isTrunk);
+    accessSelect.style.display = isTrunk ? 'none' : 'block';
+    vlanWrap.classList.toggle('is-hidden', hideVlanRow);
+    vlanRow.classList.toggle('is-hidden', hideVlanRow);
+    vlanLabel.textContent = isTrunk ? 'Allowed VLANs list' : 'VLAN-ID';
+  };
+
+  radios.forEach((radio) => radio.addEventListener('change', refreshModeUi));
+  refreshModeUi();
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      checks.forEach((check) => {
+        check.checked = selectAll.checked;
+      });
+    });
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (waitOverlay) waitOverlay.classList.add('is-visible');
+    try {
+      const response = await fetch(window.location.href, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: new FormData(form),
+      });
+      const payload = await response.json();
+      if (responseBox) {
+        responseBox.textContent = payload.message || '';
+      }
+      if (payload.ok && payload.redirect_url) {
+        window.location.href = payload.redirect_url;
+        return;
+      }
+    } catch (error) {
+      if (responseBox) {
+        responseBox.textContent = 'OLT is busy. Please try again in a few seconds.';
+      }
+    } finally {
+      if (waitOverlay) waitOverlay.classList.remove('is-visible');
+    }
+  });
+})();
+</script>
+{% endblock %}

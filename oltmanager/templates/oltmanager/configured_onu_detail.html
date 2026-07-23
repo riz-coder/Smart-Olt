@@ -63,31 +63,69 @@
         display: grid;
         gap: 6px;
     }
-    .detail-topbar-ports {
-        width: 100%;
-        padding: 12px 14px;
+    .debug-panel {
+        margin: 0 0 18px;
+        padding: 16px;
         border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.08);
-        background: rgba(8, 15, 30, 0.35);
+        border: 1px solid rgba(82, 146, 255, 0.28);
+        background: rgba(9, 18, 36, 0.92);
     }
-    .detail-topbar-ports-grid {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 8px 12px;
-        align-items: start;
-    }
-    .detail-topbar-ports-grid strong {
-        color: #d9e6ff;
-        font-size: 12px;
+    .debug-panel h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
         font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
+        color: #f4f8ff;
     }
-    .detail-topbar-ports-grid span {
-        color: #f1f6ff;
+    .debug-panel pre {
+        margin: 0;
+        max-height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 12px;
+        background: rgba(2, 8, 22, 0.86);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 14px;
+        color: #d6e6ff;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+    .olt-unreachable-pop {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px 16px;
+        background: rgba(5, 10, 22, 0.62);
+    }
+    .olt-unreachable-pop[hidden] {
+        display: none;
+    }
+    .olt-unreachable-card {
+        width: min(420px, 100%);
+        border: 1px solid #7a2f3a;
+        border-radius: 12px;
+        padding: 16px;
+        background: #2c1118;
+        color: #ffd9df;
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+    }
+    .olt-unreachable-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        color: #fff;
+    }
+    .olt-unreachable-text {
+        margin: 8px 0 14px;
+        color: #ffd9df;
         font-weight: 700;
-        text-align: right;
-        white-space: nowrap;
+    }
+    .olt-unreachable-actions {
+        display: flex;
+        justify-content: flex-end;
     }
     .port-kind {
         display: inline-flex;
@@ -185,30 +223,148 @@
         letter-spacing: 0.08em;
     }
     .detail-topbar-actions {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+        justify-items: end;
+        min-width: 280px;
+    }
+    .detail-topbar-buttons {
         display: flex;
-        align-items: flex-start;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
         justify-content: flex-end;
+    }
+    .btn-fetch-config {
+        background: linear-gradient(135deg, #0ea5a3, #0b7d8f);
+        color: #ffffff;
+        border: none;
+        font-weight: 600;
+    }
+    .btn-fetch-config:hover {
+        background: linear-gradient(135deg, #10b8b5, #0c8ea2);
+    }
+    .btn-fetch-config:disabled {
+        opacity: 0.6;
+        cursor: progress;
+    }
+    .onu-stability-card {
+        width: 280px;
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(7, 15, 31, 0.55);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+    }
+    .onu-stability-card.good {
+        border-color: rgba(51, 208, 111, 0.34);
+        background: rgba(12, 51, 31, 0.48);
+    }
+    .onu-stability-card.warn {
+        border-color: rgba(255, 179, 71, 0.38);
+        background: rgba(62, 44, 16, 0.44);
+    }
+    .onu-stability-card.bad {
+        border-color: rgba(255, 107, 119, 0.38);
+        background: rgba(63, 19, 28, 0.44);
+    }
+    .onu-stability-title {
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #eaf2ff;
+    }
+    .onu-stability-score {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .onu-stability-score strong {
+        font-size: 24px;
+        line-height: 1;
+        color: #fff;
+    }
+    .onu-stability-score span {
+        font-size: 11px;
+        font-weight: 800;
+        color: #9fb4d4;
+    }
+    .onu-stability-meter {
+        height: 7px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.12);
+    }
+    .onu-stability-fill {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #33d06f, #54e1a4);
+    }
+    .onu-stability-card.warn .onu-stability-fill {
+        background: linear-gradient(90deg, #ffb347, #ffd166);
+    }
+    .onu-stability-card.bad .onu-stability-fill {
+        background: linear-gradient(90deg, #ff5364, #ff8a73);
+    }
+    .onu-stability-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 5px 10px;
+        font-size: 11px;
+        color: #a9bad6;
+    }
+    .onu-stability-grid strong {
+        color: #f3f7ff;
+        text-align: right;
+    }
+    .onu-disabled-banner {
+        margin: 0 0 14px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 107, 119, 0.32);
+        background: rgba(74, 21, 30, 0.52);
+        color: #ffd5da;
+        font-weight: 800;
+    }
+    .onu-disabled-banner[hidden] {
+        display: none;
     }
     .onu-view {
         display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
-        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) minmax(380px, 1fr);
+        gap: 18px;
+        align-items: start;
     }
     .detail-list {
         display: grid;
         gap: 10px;
         align-content: start;
+        min-width: 0;
     }
     .snapshot-stack {
         display: grid;
-        gap: 18px;
+        gap: 14px;
         align-content: start;
+        min-width: 0;
     }
     .snapshot-grid {
         display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+        align-items: start;
+    }
+    .graphs-grid {
+        grid-column: 1 / -1;
+        display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 18px;
-        align-items: start;
+        align-items: stretch;
     }
     .running-config-card {
         display: grid;
@@ -266,8 +422,157 @@
         font-size: 12px;
         line-height: 1.65;
     }
+    .running-config-output:has(.mac-output-view) {
+        padding-top: 10px;
+    }
     .running-config-placeholder {
         color: #9cb0cf;
+    }
+    /* Running-config syntax colouring */
+    .rc-kw   { color: #6db3ff; font-weight: 700; }   /* commands / keywords */
+    .rc-vlan { color: #45db87; font-weight: 800; }   /* vlan / user-vlan */
+    .rc-mac  { color: #ffb347; font-weight: 700; }   /* MAC / serial */
+    .rc-num  { color: #c792ea; }                     /* numbers / indices */
+    html[data-theme="light"] .rc-kw   { color: #1d4ed8; }
+    html[data-theme="light"] .rc-vlan { color: #128a4d; }
+    html[data-theme="light"] .rc-mac  { color: #b5651d; }
+    html[data-theme="light"] .rc-num  { color: #7c3aed; }
+    .mac-output-view {
+        display: grid;
+        gap: 18px;
+        white-space: normal;
+    }
+    .mac-output-section {
+        display: grid;
+        gap: 8px;
+    }
+    .mac-output-title {
+        color: #6ee7ff;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .mac-output-line {
+        color: #f4f8ff;
+        font-size: 13px;
+        font-weight: 800;
+    }
+    .mac-output-line strong {
+        color: #3ddc97;
+    }
+    .mac-output-line em {
+        color: #ffcf73;
+        font-style: normal;
+    }
+    /* WAN interface card */
+    .wan-iface {
+        border: 1px solid rgba(122, 200, 255, 0.16);
+        border-radius: 10px;
+        background: rgba(5, 11, 24, 0.45);
+        padding: 8px 12px;
+        margin-bottom: 8px;
+    }
+    .wan-iface-head {
+        color: #6db3ff;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .wan-row {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 10px;
+        font-size: 12.5px;
+        line-height: 1.7;
+    }
+    .wan-label { color: #9db0cf; }
+    .wan-value { color: #eef5ff; font-weight: 700; word-break: break-word; }
+    .wan-ok  { color: #45db87; font-weight: 800; }
+    .wan-bad { color: #ff6b77; font-weight: 800; }
+    .wan-ip  { color: #6ee7ff; font-weight: 700; }
+    html[data-theme="light"] .wan-iface { background: #f4f8fe; border-color: #dce6f3; }
+    html[data-theme="light"] .wan-iface-head { color: #1d4ed8; }
+    html[data-theme="light"] .wan-label { color: #5a6b86; }
+    html[data-theme="light"] .wan-value { color: #16233c; }
+    html[data-theme="light"] .wan-ok  { color: #128a4d; }
+    html[data-theme="light"] .wan-bad { color: #d23644; }
+    html[data-theme="light"] .wan-ip  { color: #0e7490; }
+    /* Imported-ONU red neon notice (shown for ONUs not configured via OptiVerse) */
+    .imported-onu-note {
+        margin-top: 10px;
+        width: 280px;
+        max-width: 100%;
+        padding: 11px 13px;
+        border: 1.5px solid rgba(255, 64, 88, 0.65);
+        border-radius: 12px;
+        background: rgba(38, 4, 11, 0.55);
+        color: #ff5d6c;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.03em;
+        line-height: 1.7;
+        text-transform: uppercase;
+        text-shadow: 0 0 6px rgba(255, 60, 80, 0.85), 0 0 13px rgba(255, 36, 56, 0.55), 0 1px 0 rgba(120, 0, 12, 0.9);
+        box-shadow: 0 0 16px rgba(255, 50, 70, 0.3), inset 0 0 9px rgba(255, 50, 70, 0.14);
+        animation: importedNeonPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes importedNeonPulse {
+        0%, 100% { box-shadow: 0 0 14px rgba(255, 50, 70, 0.26), inset 0 0 8px rgba(255, 50, 70, 0.12); }
+        50%      { box-shadow: 0 0 22px rgba(255, 60, 84, 0.5), inset 0 0 12px rgba(255, 60, 84, 0.2); }
+    }
+    .imported-delete-link {
+        background: none;
+        border: none;
+        color: #ff9aa4;
+        font: inherit;
+        font-weight: 900;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+        padding: 0;
+        text-shadow: 0 0 9px rgba(255, 70, 90, 0.95);
+    }
+    .imported-delete-link:hover { color: #ff5d6c; }
+    html[data-theme="light"] .imported-onu-note {
+        background: #fff1f2;
+        border-color: #f3b6bb;
+        color: #d11a35;
+        text-shadow: 0 0 4px rgba(255, 90, 110, 0.35);
+    }
+    html[data-theme="light"] .imported-delete-link { color: #b3132c; text-shadow: none; }
+    .mac-port-table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 10px;
+        background: rgba(5, 11, 24, 0.45);
+    }
+    .mac-port-table th,
+    .mac-port-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        text-align: left;
+        color: #dfeaff;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .mac-port-table th {
+        color: #9fd0ff;
+        background: rgba(47, 128, 255, 0.08);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .mac-port-table tr:last-child td {
+        border-bottom: 0;
+    }
+    .mac-port-up {
+        color: #4ee594 !important;
+    }
+    .mac-port-down {
+        color: #ff7b86 !important;
     }
     .detail-row {
         display: grid;
@@ -286,8 +591,9 @@
         line-height: 1.1;
     }
     .detail-value {
-        color: #dce8ff;
+        color: #9bd6ff;
         font-size: 15px;
+        font-weight: 800;
         word-break: break-word;
     }
     .detail-edit {
@@ -341,6 +647,9 @@
         border-radius: 16px;
         padding: 18px;
         background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
     }
     .snapshot-meta {
         display: grid;
@@ -355,6 +664,24 @@
     .snapshot-meta span {
         color: #dbe7ff;
         white-space: nowrap;
+    }
+    .snapshot-meta .vlan-value-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .onu-add-vlan-btn {
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        background: #2f80ff;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 900;
+        line-height: 1;
+        box-shadow: 0 8px 20px rgba(47, 128, 255, 0.28);
     }
     .signal-line {
         display: inline-flex;
@@ -441,6 +768,9 @@
         background: #ffb347;
         box-shadow: 0 0 0 3px rgba(255,179,71,0.16);
     }
+    .inline-state.refreshing .signal-spinner {
+        display: inline-block;
+    }
     .signal-spinner {
         display: none;
         width: 14px;
@@ -501,11 +831,15 @@
         display: inline-block;
     }
     .signal-history {
-        margin-top: 18px;
+        margin-top: 10px;
         border: 1px solid var(--line);
         border-radius: 16px;
         padding: 14px 16px;
         background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    }
+    .graphs-grid .signal-history {
+        margin-top: 0;
+        min-width: 0;
     }
     .signal-history-head {
         display: flex;
@@ -513,6 +847,7 @@
         justify-content: space-between;
         gap: 12px;
         margin-bottom: 10px;
+        flex-wrap: wrap;
     }
     .signal-history-title {
         margin: 0;
@@ -525,7 +860,28 @@
         font-size: 12px;
         font-weight: 700;
     }
+    .signal-history-controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .signal-range-btn {
+        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.04);
+        color: #dce8ff;
+        border-radius: 999px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+    }
+    .signal-range-btn.active {
+        background: #2f7cff;
+        border-color: #2f7cff;
+        color: #fff;
+    }
     .signal-chart-wrap {
+        position: relative;
         border-radius: 12px;
         background: rgba(8, 17, 33, 0.62);
         border: 1px solid rgba(255,255,255,0.06);
@@ -547,6 +903,70 @@
         stroke-linejoin: round;
         stroke-linecap: round;
     }
+    .signal-chart-path-olt {
+        fill: none;
+        stroke: #ffb347;
+        stroke-width: 3;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+    }
+    .signal-chart-dot-olt {
+        fill: #ffb347;
+        stroke: #fff4da;
+        stroke-width: 1.2;
+        cursor: pointer;
+    }
+    .signal-chart-dot-olt:hover {
+        r: 4.8;
+        fill: #ffd27b;
+    }
+    .traffic-chart-path-up {
+        fill: none;
+        stroke: #3ddc97;
+        stroke-width: 3;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+    }
+    .traffic-chart-path-down {
+        fill: none;
+        stroke: #38bdf8;
+        stroke-width: 3;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+    }
+    .traffic-chart-dot-up {
+        fill: #3ddc97;
+        stroke: #d8fff0;
+        stroke-width: 1.2;
+        cursor: pointer;
+    }
+    .traffic-chart-dot-down {
+        fill: #38bdf8;
+        stroke: #dff7ff;
+        stroke-width: 1.2;
+        cursor: pointer;
+    }
+    .signal-chart-tooltip {
+        position: absolute;
+        z-index: 5;
+        transform: translate(-50%, -116%);
+        padding: 7px 9px;
+        border-radius: 9px;
+        border: 1px solid rgba(255, 179, 71, 0.5);
+        background: rgba(6, 13, 27, 0.96);
+        color: #fff4da;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.35;
+        pointer-events: none;
+        box-shadow: 0 10px 24px rgba(0,0,0,0.32);
+        white-space: nowrap;
+    }
+    .signal-chart-tooltip strong {
+        display: block;
+        color: #ffb347;
+        font-size: 12px;
+    }
     .signal-chart-axis {
         fill: #a9bddf;
         font-size: 11px;
@@ -562,6 +982,108 @@
         font-size: 12px;
         font-weight: 700;
     }
+    .traffic-chart-legend {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 7px;
+    }
+    .traffic-legend-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .catv-toggle-card {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(61, 220, 151, 0.28);
+        border-radius: 999px;
+        background: rgba(61, 220, 151, 0.08);
+        color: #dfffee;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .catv-action-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-top: 2px;
+    }
+    .catv-toggle-card input {
+        width: 16px;
+        height: 16px;
+        accent-color: #31d889;
+    }
+    .tv-mini-card {
+        max-width: 220px;
+        padding: 12px;
+    }
+    .tv-mini-title {
+        margin: 0 0 10px;
+        color: #d9e6ff;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .catv-toast-stack {
+        position: fixed;
+        right: 18px;
+        top: 88px;
+        z-index: 1200;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+    }
+    .catv-toast {
+        min-width: 250px;
+        max-width: 340px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 152, 83, 0.34);
+        background: linear-gradient(180deg, rgba(56, 24, 16, 0.96), rgba(36, 15, 10, 0.96));
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+        color: #ffe6d6;
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 0.22s ease, transform 0.22s ease;
+    }
+    .catv-toast.visible {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .catv-toast-title {
+        display: block;
+        font-size: 12px;
+        font-weight: 900;
+        color: #ffd1b1;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .catv-toast-name {
+        display: block;
+        font-size: 15px;
+        font-weight: 900;
+        color: #fff4ea;
+    }
+    .config-toast {
+        border-color: rgba(45, 212, 191, 0.34);
+        background: linear-gradient(180deg, rgba(11, 46, 51, 0.96), rgba(8, 30, 36, 0.96));
+        color: #d6fff6;
+    }
+    .config-toast .catv-toast-title { color: #7af0dd; }
+    .config-toast .catv-toast-name { color: #eafffb; }
+    .config-toast.error {
+        border-color: rgba(255, 99, 110, 0.40);
+        background: linear-gradient(180deg, rgba(56, 16, 20, 0.96), rgba(36, 10, 13, 0.96));
+        color: #ffe0e2;
+    }
+    .config-toast.error .catv-toast-title { color: #ff9aa2; }
+    .config-toast.error .catv-toast-name { color: #ffecee; }
     .legend-swatch {
         width: 12px;
         height: 12px;
@@ -569,12 +1091,124 @@
         background: linear-gradient(180deg, #ffbe5c, #ff8a00);
         display: inline-block;
     }
+    .legend-swatch-olt {
+        background: linear-gradient(180deg, #ffd07a, #ff9800);
+    }
+    .legend-swatch-up {
+        background: linear-gradient(180deg, #5df0b0, #19b76f);
+    }
+    .legend-swatch-down {
+        background: linear-gradient(180deg, #7dd3fc, #0284c7);
+    }
     .signal-chart-empty {
         color: #9db0cf;
         font-size: 13px;
         font-weight: 700;
         padding: 18px 0 10px;
         text-align: center;
+    }
+    .onu-config-table-card {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        align-items: start;
+    }
+    .onu-config-table-label {
+        color: #dce8ff;
+        font-size: 13px;
+        font-weight: 800;
+        padding-top: 0;
+    }
+    .onu-config-table-wrap {
+        min-width: 0;
+        overflow-x: hidden;
+        overflow-y: hidden;
+    }
+    .onu-config-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        min-width: 0;
+    }
+    .onu-config-table th,
+    .onu-config-table td {
+        padding: 11px 10px;
+        border: 1px solid rgba(255,255,255,0.08);
+        text-align: left;
+        white-space: nowrap;
+        word-break: normal;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .onu-config-table th:nth-child(1),
+    .onu-config-table td:nth-child(1) { width: 20%; }
+    .onu-config-table th:nth-child(2),
+    .onu-config-table td:nth-child(2) { width: 10%; }
+    .onu-config-table th:nth-child(3),
+    .onu-config-table td:nth-child(3) { width: 15%; }
+    .onu-config-table th:nth-child(4),
+    .onu-config-table td:nth-child(4),
+    .onu-config-table th:nth-child(5),
+    .onu-config-table td:nth-child(5) { width: 17%; }
+    .onu-config-table th:nth-child(6),
+    .onu-config-table td:nth-child(6),
+    .onu-config-table th:last-child,
+    .onu-config-table td:last-child {
+        width: 21%;
+        overflow: visible;
+    }
+    .onu-config-table th {
+        color: #dce8ff;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: none;
+        background: rgba(255,255,255,0.03);
+    }
+    .onu-config-table td {
+        color: #eef5ff;
+        font-size: 14px;
+    }
+    .onu-config-action-btn {
+        display: inline-flex;
+        align-items: center;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #79b8ff;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-wrap: nowrap;
+        text-decoration: underline;
+    }
+    .onu-config-action-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        white-space: nowrap;
+        flex-wrap: nowrap;
+        min-width: max-content;
+    }
+    .onu-config-action-cell .inline { display: inline-flex; margin: 0; }
+    .onu-config-delete-btn {
+        border: 0;
+        background: transparent;
+        color: #ff6b77;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 0;
+        text-decoration: underline;
+    }
+    html[data-theme="light"] .onu-config-delete-btn { color: #d23b48; }
+    @media (max-width: 980px) {
+        .onu-config-table-wrap {
+            overflow-x: auto;
+        }
+        .onu-config-table {
+            min-width: 560px;
+            table-layout: auto;
+        }
     }
     @keyframes signal-spin {
         from { transform: rotate(0deg); }
@@ -598,7 +1232,152 @@
         .snapshot-grid {
             grid-template-columns: 1fr;
         }
+        .graphs-grid {
+            grid-template-columns: 1fr;
+        }
     }
+
+    /* ============================ LIGHT THEME (View ONU) ============================ */
+    html[data-theme="light"] .detail-topbar.good {
+        background: linear-gradient(180deg, #eafaf0, #ffffff);
+        border-color: rgba(51, 208, 111, 0.40);
+        box-shadow: 0 10px 26px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .detail-topbar.bad {
+        background: linear-gradient(180deg, #fdecee, #ffffff);
+        border-color: rgba(255, 107, 119, 0.40);
+        box-shadow: 0 10px 26px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .detail-topbar.warn {
+        background: linear-gradient(180deg, #fdf4e3, #ffffff);
+        border-color: rgba(255, 179, 71, 0.40);
+        box-shadow: 0 10px 26px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .detail-topbar-live {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .detail-topbar-label { color: #5a6b86; }
+    html[data-theme="light"] .detail-row strong,
+    html[data-theme="light"] .snapshot-meta strong,
+    html[data-theme="light"] .onu-config-table-label { color: #16233c; }
+    html[data-theme="light"] .detail-value { color: #1f4f8f; }
+    html[data-theme="light"] .snapshot-meta span,
+    html[data-theme="light"] .signal-line { color: #2b3a57; }
+    html[data-theme="light"] .detail-link,
+    html[data-theme="light"] .detail-edit { color: #1f65d1; }
+    html[data-theme="light"] .detail-edit-form { background: #f4f8fe; }
+    html[data-theme="light"] .detail-edit-field label { color: #2b3a57; }
+    html[data-theme="light"] .detail-edit-field input {
+        background: #f7faff; border-color: #cdd9ec; color: #16233c;
+    }
+    html[data-theme="light"] .snapshot-card {
+        background: #ffffff;
+        border-color: #dce6f3;
+        box-shadow: 0 8px 22px rgba(40, 70, 120, 0.07);
+    }
+    html[data-theme="light"] .running-config-status { color: #5a6b86; }
+    html[data-theme="light"] .running-config-output {
+        background: #f3f7fd;
+        border-color: #d6e0ee;
+        color: #1c2a44;
+    }
+    html[data-theme="light"] .running-config-placeholder { color: #5a6b86; }
+    html[data-theme="light"] .mac-output-title { color: #0e8aa0; }
+    html[data-theme="light"] .mac-output-line { color: #16233c; }
+    html[data-theme="light"] .onu-config-table th {
+        color: #16233c;
+        background: #eef3fb;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .onu-config-table td {
+        color: #1c2a44;
+        border-color: #e0e8f4;
+    }
+    html[data-theme="light"] .onu-stability-card {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+        box-shadow: none;
+    }
+    html[data-theme="light"] .onu-stability-card.good { background: #eafaf0; border-color: rgba(51, 208, 111, 0.40); }
+    html[data-theme="light"] .onu-stability-card.warn { background: #fdf4e3; border-color: rgba(255, 179, 71, 0.42); }
+    html[data-theme="light"] .onu-stability-card.bad { background: #fdecee; border-color: rgba(255, 107, 119, 0.42); }
+    html[data-theme="light"] .onu-stability-title { color: #16233c; }
+    html[data-theme="light"] .onu-stability-score strong { color: #16233c; }
+    html[data-theme="light"] .onu-stability-score span { color: #5a6b86; }
+    html[data-theme="light"] .onu-stability-meter { background: rgba(20, 40, 80, 0.12); }
+    html[data-theme="light"] .onu-stability-grid { color: #5a6b86; }
+    html[data-theme="light"] .onu-stability-grid strong { color: #16233c; }
+    html[data-theme="light"] .debug-panel {
+        background: #f4f8fe;
+        border-color: #cdd9ec;
+    }
+    html[data-theme="light"] .catv-toggle-card {
+        color: #0f7a4a;
+        background: rgba(61, 220, 151, 0.14);
+        border-color: rgba(61, 220, 151, 0.40);
+    }
+    html[data-theme="light"] .tv-mini-title { color: #16233c; }
+    html[data-theme="light"] .onu-disabled-banner { color: #b3243b; }
+    html[data-theme="light"] .running-config-head h3 { color: #16233c; }
+    /* ONU graphs (signal + traffic) */
+    html[data-theme="light"] .signal-history-title { color: #16233c; }
+    html[data-theme="light"] .signal-history-note,
+    html[data-theme="light"] .signal-chart-empty { color: #5a6b86; }
+    html[data-theme="light"] .signal-range-btn {
+        background: #eef3fb;
+        border-color: #cdd9ec;
+        color: #2b3a57;
+    }
+    html[data-theme="light"] .signal-range-btn.active {
+        background: #2f7cff;
+        border-color: #2f7cff;
+        color: #fff;
+    }
+    html[data-theme="light"] .signal-chart-wrap {
+        background: #f7faff;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .signal-chart-grid { stroke: rgba(20, 40, 80, 0.10); }
+    html[data-theme="light"] .signal-chart-axis { fill: #5a6b86; }
+    html[data-theme="light"] .signal-chart-legend { color: #2b3a57; }
+    html[data-theme="light"] .signal-chart-tooltip {
+        background: #ffffff;
+        border-color: #e0c089;
+        color: #4a3a12;
+        box-shadow: 0 10px 24px rgba(40, 70, 120, 0.18);
+    }
+    html[data-theme="light"] .signal-chart-tooltip strong { color: #b5730a; }
+
+    /* "Waiting for OLT" overlay (service-port delete) */
+    .olt-wait-overlay {
+        position: fixed; inset: 0; z-index: 1200;
+        display: grid; place-items: center;
+        background: rgba(3, 9, 22, 0.72); backdrop-filter: blur(6px);
+    }
+    .olt-wait-overlay[hidden] { display: none; }
+    .olt-wait-box {
+        width: min(420px, calc(100vw - 32px));
+        border: 1px solid rgba(105, 165, 255, 0.28);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(16, 30, 58, 0.98) 0%, rgba(9, 18, 36, 0.98) 100%);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+        padding: 28px 32px; text-align: center;
+    }
+    .olt-wait-wheel {
+        width: 72px; height: 72px; margin: 0 auto 18px; border-radius: 50%;
+        border: 6px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #4f8dff; border-right-color: #67d39c;
+        animation: oltWaitSpin 0.9s linear infinite;
+    }
+    .olt-wait-title { color: #f4f8ff; font-size: 22px; font-weight: 900; margin: 0 0 8px; }
+    .olt-wait-log { color: #b9cceb; font-size: 13px; font-weight: 700; min-height: 18px; white-space: pre-wrap; }
+    @keyframes oltWaitSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    html[data-theme="light"] .olt-wait-box {
+        background: linear-gradient(180deg, #ffffff, #f1f6fd); border-color: #dce6f3;
+    }
+    html[data-theme="light"] .olt-wait-title { color: #16233c; }
+    html[data-theme="light"] .olt-wait-log { color: #5a6b86; }
 </style>
 {% endblock %}
 
@@ -615,20 +1394,12 @@
                     <div class="detail-topbar-live">
                         <div class="detail-topbar-meta">
                             <span class="detail-topbar-label">Status</span>
-                            <span class="inline-state">
+                            <span class="inline-state" data-detail-status-line>
+                                <span class="signal-spinner" aria-hidden="true"></span>
                                 <span class="status-dot {{ onu.status_class }}"></span>
                                 <span class="state-{{ onu.status_class }}" data-detail-status-text>{{ onu.status_text }}{% if onu.status_age_text %} {{ onu.status_age_text }}{% endif %}</span>
                             </span>
                         </div>
-                        {% if onu.status_since_text %}
-                        <div class="detail-topbar-meta">
-                            <span class="detail-topbar-label" data-detail-status-since-label>{{ onu.status_since_label }}</span>
-                            <span class="status-since-line {{ onu.status_class }}" data-detail-status-since-line>
-                                <span data-detail-status-since-text>{{ onu.status_since_text }}</span>
-                            </span>
-                        </div>
-                        {% endif %}
-                        {% if onu_signal_visible %}
                         <div class="detail-topbar-meta">
                             <span class="detail-topbar-label">ONU/OLT Rx signal</span>
                             <span class="signal-line {{ onu.signal_class|default:'' }}" data-detail-signal-line>
@@ -644,32 +1415,56 @@
                                 <span data-detail-distance-text>{{ onu.signal_distance_text|default:"-" }}</span>
                             </span>
                         </div>
-                        {% endif %}
-                    </div>
-                    <div class="detail-topbar-ports">
-                        <div class="detail-topbar-meta" style="margin-bottom:10px;">
-                            <span class="detail-topbar-label">ONU Ports</span>
-                        </div>
-                        <div class="detail-topbar-ports-grid">
-                            <strong><span class="port-kind"><span class="port-icon port-icon-uplink" aria-hidden="true"></span>Uplink PON</span></strong>
-                            <span>{{ onu.uplink_pon_ports|default:"-" }}</span>
-                            <strong><span class="port-kind"><span class="port-icon port-icon-rj11" aria-hidden="true"></span>POTS</span></strong>
-                            <span>{{ onu.pots_ports|default:"-" }}</span>
-                            <strong><span class="port-kind"><span class="port-icon port-icon-rj45" aria-hidden="true"></span>ETH</span></strong>
-                            <span>{{ onu.eth_ports|default:"-" }}</span>
-                            <strong><span class="port-kind"><span class="port-icon port-icon-catv" aria-hidden="true"></span>CATV UNI</span></strong>
-                            <span>{{ onu.catv_uni_ports|default:"-" }}</span>
-                        </div>
                     </div>
                 </div>
             </div>
         </div>
         <div class="detail-topbar-actions">
-            <a href="{% url 'configured_onus' %}" class="btn btn-secondary">Back</a>
+            <div class="detail-topbar-buttons">
+                <button type="button" class="btn btn-fetch-config" data-fetch-config-button>Fetch Current Config</button>
+                <a href="{% url 'configured_onus' %}" class="btn btn-secondary">Back</a>
+            </div>
+            {% if not onu.configured_via_app %}
+            <div class="imported-onu-note">
+                THIS ONU WAS IMPORTED &mdash; NOT CONFIGURED VIA OPTIVERSE.<br>
+                To configure it through OptiVerse, <button type="button" class="imported-delete-link" data-imported-delete>DELETE ONU</button> and reconfigure it.
+            </div>
+            {% endif %}
+            <div class="onu-stability-card {{ onu_stability.state|default:'warn' }}">
+                <div class="onu-stability-title">{{ onu_stability.label|default:"Stability" }}</div>
+                <div class="onu-stability-score">
+                    <strong>{{ onu_stability.stability|default:"0" }}%</strong>
+                    <span>stable</span>
+                </div>
+                <div class="onu-stability-meter" aria-hidden="true">
+                    <span class="onu-stability-fill" style="width: {{ onu_stability.stability|default:'0' }}%;"></span>
+                </div>
+                <div class="onu-stability-grid">
+                    <span>Down risk</span><strong>{{ onu_stability.down_risk|default:"0" }}%</strong>
+                    <span>Flaps</span><strong>{{ onu_stability.flaps|default:"0" }}</strong>
+                    <span>ONU avg</span><strong>{{ onu_stability.onu_avg|default:"-" }}</strong>
+                    <span>PON avg</span><strong>{{ onu_stability.pon_avg|default:"-" }}</strong>
+                </div>
+            </div>
         </div>
     </header>
 
-    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
+    <div
+        class="olt-unreachable-pop"
+        id="oltUnreachablePop"
+        data-show="{% if olt_unreachable %}1{% else %}0{% endif %}"
+        hidden
+    >
+        <div class="olt-unreachable-card" role="alertdialog" aria-modal="true" aria-labelledby="oltUnreachableTitle">
+            <h3 class="olt-unreachable-title" id="oltUnreachableTitle">{{ olt_unreachable_message }}</h3>
+            <p class="olt-unreachable-text">{{ olt.name }} is not reachable via SNMP.</p>
+            <div class="olt-unreachable-actions">
+                <button type="button" class="btn btn-danger" id="oltUnreachableCloseBtn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
@@ -690,7 +1485,7 @@
                 <div class="detail-row">
                     <strong>ONU</strong>
                     <span></span>
-                    <div class="detail-value">{{ onu.onu_label }}</div>
+                    <div class="detail-value">{{ onu.onu_label|default:onu_label }}</div>
                 </div>
                 <div class="detail-row">
                     <strong>SN</strong>
@@ -705,18 +1500,19 @@
                 <div class="detail-row">
                     <strong>ONU Type</strong>
                     <span></span>
-                    <div class="detail-value">{{ onu.onu_type|default:"-" }}</div>
+                    <div class="detail-value">{{ onu.onu_type_display|default:"-" }}</div>
                 </div>
                 <div class="detail-row">
                     <strong>Address</strong>
                     <span></span>
-                    <div class="detail-value"><a href="#" class="detail-edit" data-contact-edit-open>{{ onu.address|default:"None" }}</a></div>
+                    <div class="detail-value">{% if user.is_staff or user.is_superuser %}<a href="#" class="detail-edit" data-contact-edit-open>{{ onu.address|default:"None" }}</a>{% else %}{{ onu.address|default:"None" }}{% endif %}</div>
                 </div>
                 <div class="detail-row">
                     <strong>Contact</strong>
                     <span></span>
-                    <div class="detail-value"><a href="#" class="detail-edit" data-contact-edit-open>{{ onu.contact|default:"None" }}</a></div>
+                    <div class="detail-value">{% if user.is_staff or user.is_superuser %}<a href="#" class="detail-edit" data-contact-edit-open>{{ onu.contact|default:"None" }}</a>{% else %}{{ onu.contact|default:"None" }}{% endif %}</div>
                 </div>
+                {% if user.is_staff or user.is_superuser %}
                 <form method="post" class="detail-edit-form" data-contact-edit-form>
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save_contact_info">
@@ -735,6 +1531,7 @@
                         <button type="button" class="btn btn-secondary btn-mini" data-contact-edit-close>Cancel</button>
                     </div>
                 </form>
+                {% endif %}
                 <div class="snapshot-card running-config-card running-config-top">
                     <div class="running-config-head">
                         <div>
@@ -750,6 +1547,7 @@
                         <pre class="running-config-output running-config-placeholder" data-running-config-output>Press Mac-address or Show running-config to fetch ONU details.</pre>
                     </div>
                 </div>
+                {% if user.is_staff or user.is_superuser %}
                 <div class="snapshot-card running-config-card">
                     <div class="running-config-head">
                         <div>
@@ -757,12 +1555,20 @@
                             <div class="running-config-status" data-onu-action-status></div>
                         </div>
                     </div>
+                    <div class="onu-disabled-banner" data-onu-disabled-banner {% if onu.status_value != 'admin_disabled' %}hidden{% endif %}>ONU is disabled</div>
                     <div class="running-config-actions">
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-disable-button>{% if onu.status_value == 'admin_disabled' %}Enable ONU{% else %}Disable ONU{% endif %}</button>
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-restart-button>Restart ONU</button>
-                        <button type="button" class="btn btn-primary btn-pappu" data-onu-reset-button>Reset ONU</button>
+                        <button type="button" class="btn btn-danger btn-pappu" data-onu-delete-button>Delete ONU</button>
+                        {% if onu_has_catv %}
+                        <label class="catv-toggle-card">
+                            <input type="checkbox" data-catv-toggle checked>
+                            <span>CATV</span>
+                        </label>
+                        {% endif %}
                     </div>
                 </div>
+                {% endif %}
             </div>
 
             <div class="snapshot-stack">
@@ -770,31 +1576,184 @@
                 <div class="snapshot-card">
                     <div class="snapshot-meta">
                         <strong>Attached VLANs</strong>
-                        <span data-detail-attached-vlans>{{ onu.attached_vlans|default:"-" }}</span>
+                        <span class="vlan-value-row">
+                            <span data-detail-attached-vlans>{{ onu.attached_vlans|default:"-" }}</span>
+                            {% if user.is_staff or user.is_superuser %}
+                            <a href="{{ onu_add_vlan_url }}" class="onu-add-vlan-btn" title="Add VLAN">+</a>
+                            {% endif %}
+                        </span>
                         <strong>ONU Mode</strong>
                         <span>{{ onu.onu_mode|default:"-" }}</span>
                     </div>
                 </div>
+                <div class="snapshot-card onu-config-table-card">
+                    <div class="onu-config-table-label">Speed profiles</div>
+                    <div class="onu-config-table-wrap">
+                        <table class="onu-config-table">
+                            <thead>
+                                <tr>
+                                    <th>Service-port ID</th>
+                                    <th>SVLAN</th>
+                                    <th>User-VLAN</th>
+                                    <th>Download</th>
+                                    <th>Upload</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in onu_speed_profile_rows %}
+                                <tr>
+                                    <td>{{ row.service_port_id }}</td>
+                                    <td>{{ row.service_vlan }}</td>
+                                    <td>{{ row.user_vlan }}</td>
+                                    <td>{{ row.download }}</td>
+                                    <td>{{ row.upload }}</td>
+                                    <td>
+                                        {% if user.is_staff or user.is_superuser %}
+                                        <span class="onu-config-action-cell">
+                                            <a href="{{ row.configure_url }}" class="onu-config-action-btn">Configure</a>
+                                            {% if row.service_port_id and row.service_port_id != "-" %}
+                                            <form method="post" action="{% url 'configured_onu_service_port_delete' olt_pk=olt.pk slot=slot port=port ont_id=ont_id %}" class="inline"
+                                                  data-sp-delete-form
+                                                  data-confirm="Delete service-port {{ row.service_port_id }} (VLAN {{ row.service_vlan }})? This removes the VLAN from this ONU.">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="service_port_id" value="{{ row.service_port_id }}">
+                                                <button type="submit" class="onu-config-delete-btn">Delete</button>
+                                            </form>
+                                            {% endif %}
+                                        </span>
+                                        {% else %}&mdash;{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="snapshot-card onu-config-table-card">
+                    <div class="onu-config-table-label">Ethernet ports</div>
+                    <div class="onu-config-table-wrap">
+                        <table class="onu-config-table">
+                            <thead>
+                                <tr>
+                                    <th>Port</th>
+                                    <th>Admin state</th>
+                                    <th>Mode</th>
+                                    <th>DHCP</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in onu_ethernet_port_rows %}
+                                <tr>
+                                    <td>{{ row.port_name }}</td>
+                                    <td>
+                                        {% if row.admin_state == "Port shutdown" %}
+                                        <span style="color:#ff6b77;font-weight:800;">Admin Disabled</span>
+                                        {% else %}
+                                        {{ row.admin_state }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ row.mode }}</td>
+                                    <td>{{ row.dhcp }}</td>
+                                    <td>{% if user.is_staff or user.is_superuser %}<a href="{{ row.configure_url }}" class="onu-config-action-btn">Configure</a>{% else %}&mdash;{% endif %}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5">No Ethernet ports available.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                </div>
+            </div>
+            <div class="graphs-grid">
+                <div class="signal-history">
+                    <div class="signal-history-head">
+                        <h2 class="signal-history-title">ONU Traffic</h2>
+                        <div class="signal-history-controls">
+                            <button type="button" class="signal-range-btn active" data-traffic-range="1h">Hour</button>
+                            <button type="button" class="signal-range-btn" data-traffic-range="1d">Day</button>
+                            <button type="button" class="signal-range-btn" data-traffic-range="1w">Week</button>
+                            <button type="button" class="signal-range-btn" data-traffic-range="1m">Month</button>
+                            <button type="button" class="signal-range-btn" data-traffic-range="1y">Year</button>
+                        </div>
+                        <div class="signal-history-note" data-traffic-history-note>Live SNMP</div>
+                    </div>
+                    <div class="signal-chart-wrap">
+                        <svg class="signal-chart" viewBox="0 0 760 160" preserveAspectRatio="none" data-traffic-chart></svg>
+                        <div class="signal-chart-empty" data-traffic-chart-empty style="display:none;">Waiting for traffic samples...</div>
+                        <div class="signal-chart-tooltip" data-traffic-chart-tooltip hidden></div>
+                    </div>
+                    <div class="signal-chart-legend traffic-chart-legend">
+                        <div class="traffic-legend-row">
+                            <span class="legend-swatch legend-swatch-up" aria-hidden="true"></span>
+                            <span>Upload</span>
+                            <span>Current: <span data-traffic-current-up>--</span></span>
+                            <span>Maximum: <span data-traffic-maximum-up>--</span></span>
+                        </div>
+                        <div class="traffic-legend-row">
+                            <span class="legend-swatch legend-swatch-down" aria-hidden="true"></span>
+                            <span>Download</span>
+                            <span>Current: <span data-traffic-current-down>--</span></span>
+                            <span>Maximum: <span data-traffic-maximum-down>--</span></span>
+                        </div>
+                    </div>
                 </div>
                 <div class="signal-history">
                     <div class="signal-history-head">
-                        <h2 class="signal-history-title">24-Hour Signal History</h2>
-                        <div class="signal-history-note">Last 24 hours</div>
+                        <h2 class="signal-history-title">Signal History</h2>
+                        <div class="signal-history-controls">
+                            <button type="button" class="signal-range-btn active" data-signal-range="1h">Hour</button>
+                            <button type="button" class="signal-range-btn" data-signal-range="1d">Day</button>
+                            <button type="button" class="signal-range-btn" data-signal-range="1w">Week</button>
+                            <button type="button" class="signal-range-btn" data-signal-range="1m">Month</button>
+                            <button type="button" class="signal-range-btn" data-signal-range="1y">Year</button>
+                        </div>
+                        <div class="signal-history-note" data-signal-history-note>Last 1 hour</div>
                     </div>
                     <div class="signal-chart-wrap">
                         <svg class="signal-chart" viewBox="0 0 760 160" preserveAspectRatio="none" data-signal-chart></svg>
                         <div class="signal-chart-empty" data-signal-chart-empty style="display:none;">Waiting for signal samples...</div>
+                        <div class="signal-chart-tooltip" data-signal-chart-tooltip hidden></div>
                     </div>
                     <div class="signal-chart-legend">
-                        <span class="legend-swatch" aria-hidden="true"></span>
+                        <span class="legend-swatch legend-swatch-olt" aria-hidden="true"></span>
                         <span>OLT Rx</span>
-                        <span>Current: <span data-signal-current>{{ onu.olt_rx|default:"--" }}</span></span>
-                        <span>Peak: <span data-signal-maximum>{{ onu.olt_rx|default:"--" }}</span></span>
+                        <span>Current: <span data-signal-current-olt>{{ onu.olt_rx|default:"--" }}</span></span>
+                        <span>Peak: <span data-signal-maximum-olt>{{ onu.olt_rx|default:"--" }}</span></span>
                     </div>
                 </div>
             </div>
         </div>
     </section>
+</div>
+<div class="catv-toast-stack" data-catv-toast-stack></div>
+
+<div class="olt-wait-overlay" data-sp-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">Waiting for OLT</div>
+        <div class="olt-wait-log" data-sp-wait-log>Deleting service-port...</div>
+    </div>
+</div>
+
+<div class="olt-wait-overlay" data-onu-delete-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">ONU Deleting</div>
+        <div class="olt-wait-log" data-onu-delete-wait-log>Removing ONU from the OLT...</div>
+    </div>
+</div>
+
+<div class="olt-wait-overlay" data-fetch-config-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">Fetching Current Config</div>
+        <div class="olt-wait-log" data-fetch-config-wait-log>Connecting to OLT...</div>
+    </div>
 </div>
 {% endblock %}
 
@@ -810,32 +1769,61 @@
     const statusSinceLabelNode = document.querySelector('[data-detail-status-since-label]');
     const statusSinceTextNode = document.querySelector('[data-detail-status-since-text]');
     const statusDotNode = document.querySelector('.inline-state .status-dot');
+    const statusLineNode = document.querySelector('[data-detail-status-line]');
     const chartNode = document.querySelector('[data-signal-chart]');
     const chartEmptyNode = document.querySelector('[data-signal-chart-empty]');
-    const currentNode = document.querySelector('[data-signal-current]');
-    const maximumNode = document.querySelector('[data-signal-maximum]');
+    const chartTooltipNode = document.querySelector('[data-signal-chart-tooltip]');
+    const currentOltNode = document.querySelector('[data-signal-current-olt]');
+    const maximumOltNode = document.querySelector('[data-signal-maximum-olt]');
+    const signalHistoryNoteNode = document.querySelector('[data-signal-history-note]');
+    const signalRangeButtons = Array.from(document.querySelectorAll('[data-signal-range]'));
+    const trafficChartNode = document.querySelector('[data-traffic-chart]');
+    const trafficChartEmptyNode = document.querySelector('[data-traffic-chart-empty]');
+    const trafficTooltipNode = document.querySelector('[data-traffic-chart-tooltip]');
+    const trafficCurrentUpNode = document.querySelector('[data-traffic-current-up]');
+    const trafficCurrentDownNode = document.querySelector('[data-traffic-current-down]');
+    const trafficMaximumUpNode = document.querySelector('[data-traffic-maximum-up]');
+    const trafficMaximumDownNode = document.querySelector('[data-traffic-maximum-down]');
+    const trafficHistoryNoteNode = document.querySelector('[data-traffic-history-note]');
+    const trafficRangeButtons = Array.from(document.querySelectorAll('[data-traffic-range]'));
     const attachedVlansNode = document.querySelector('[data-detail-attached-vlans]');
     const runningConfigButton = document.querySelector('[data-running-config-button]');
+    const fetchConfigButton = document.querySelector('[data-fetch-config-button]');
     const getStatusButton = document.querySelector('[data-get-status-button]');
     const onuDisableButton = document.querySelector('[data-onu-disable-button]');
     const onuRestartButton = document.querySelector('[data-onu-restart-button]');
     const onuResetButton = document.querySelector('[data-onu-reset-button]');
+    const onuDeleteButton = document.querySelector('[data-onu-delete-button]');
     const onuActionStatus = document.querySelector('[data-onu-action-status]');
+    const onuDisabledBanner = document.querySelector('[data-onu-disabled-banner]');
+    const catvToggle = document.querySelector('[data-catv-toggle]');
+    const catvToastStack = document.querySelector('[data-catv-toast-stack]');
     const runningConfigOutput = document.querySelector('[data-running-config-output]');
     const runningConfigStatus = document.querySelector('[data-running-config-status]');
     const runningConfigPanel = document.querySelector('[data-running-config-panel]');
     const contactEditOpenButtons = Array.from(document.querySelectorAll('[data-contact-edit-open]'));
     const contactEditForm = document.querySelector('[data-contact-edit-form]');
     const contactEditClose = document.querySelector('[data-contact-edit-close]');
-    if (!panel || !chartNode || !chartEmptyNode || !currentNode || !maximumNode) return;
+    if (!panel || !chartNode || !chartEmptyNode || !currentOltNode || !maximumOltNode) return;
     const refreshUrl = panel.getAttribute('data-signal-refresh-url');
+    const signalGraphUrl = panel.getAttribute('data-signal-graph-url');
+    const trafficGraphUrl = panel.getAttribute('data-traffic-graph-url');
+    const catvUrl = panel.getAttribute('data-catv-url');
     const macAddressUrl = panel.getAttribute('data-mac-address-url');
     const runningConfigUrl = panel.getAttribute('data-running-config-url');
+    const fetchConfigUrl = panel.getAttribute('data-fetch-config-url');
     const onuDisableUrl = panel.getAttribute('data-onu-disable-url');
     const onuEnableUrl = panel.getAttribute('data-onu-enable-url');
     const onuRestartUrl = panel.getAttribute('data-onu-restart-url');
     const onuResetUrl = panel.getAttribute('data-onu-reset-url');
-    const history = [];
+    const onuDeleteUrl = panel.getAttribute('data-onu-delete-url');
+    const oltUnreachable = panel.getAttribute('data-olt-unreachable') === '1';
+    const unreachablePop = document.getElementById('oltUnreachablePop');
+    const unreachableCloseBtn = document.getElementById('oltUnreachableCloseBtn');
+    let currentSignalRange = '1h';
+    let currentTrafficRange = '1h';
+    let signalGraphHistory = [];
+    let signalRefreshPending = false;
     const payload = {
         detail: true,
         onus: [{
@@ -844,6 +1832,22 @@
             port: panel.dataset.port,
             ont_id: panel.dataset.ontId,
         }]
+    };
+
+    const showCatvToast = (message) => {
+        if (!catvToastStack) return;
+        const item = document.createElement('div');
+        item.className = 'catv-toast';
+        item.innerHTML = `
+            <span class="catv-toast-title">CATV</span>
+            <span class="catv-toast-name">${String(message || 'CATV Updated')}</span>
+        `;
+        catvToastStack.appendChild(item);
+        requestAnimationFrame(() => item.classList.add('visible'));
+        window.setTimeout(() => {
+            item.classList.remove('visible');
+            window.setTimeout(() => item.remove(), 260);
+        }, 5000);
     };
 
     const getCookie = (name) => {
@@ -862,7 +1866,129 @@
 
     const formatDbm = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} dBm` : '--');
 
-    const setRunningConfigState = (statusText, outputText, isError = false) => {
+    const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (match) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[match]));
+
+    const colorWanValue = (label, value) => {
+        const v = String(value || '').trim();
+        const lv = v.toLowerCase();
+        const ll = String(label || '').toLowerCase();
+        if (/^([0-9a-f]{4}-){2}[0-9a-f]{4}$/i.test(v)) return `<span class="rc-mac">${escapeHtml(v)}</span>`;
+        if (['connected', 'enable', 'online', 'up'].includes(lv)) return `<span class="wan-ok">${escapeHtml(v)}</span>`;
+        if (['invalid', 'disconnected', 'disable', 'down'].includes(lv)) return `<span class="wan-bad">${escapeHtml(v)}</span>`;
+        if (ll.includes('vlan')) return `<span class="rc-vlan">${escapeHtml(v)}</span>`;
+        if ((ll.includes('address') || ll.includes('gateway')) && /\d+\.\d+\.\d+\.\d+/.test(v)) return `<span class="wan-ip">${escapeHtml(v)}</span>`;
+        return escapeHtml(v);
+    };
+
+    const formatMacOutput = (outputText) => {
+        const lines = String(outputText || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const wanIfaces = [];
+        const macRows = [];
+        const portRows = [];
+        let section = '';
+        let curWan = null;
+        lines.forEach((line) => {
+            const lower = line.toLowerCase();
+            if (lower === 'onu wan interfaces') { section = 'wan'; return; }
+            if (lower === 'macs on olt from this onu' || lower === 'mac address') { section = 'mac'; return; }
+            if (lower === 'ethernet ports') { section = 'eth'; return; }
+            if (/^-{5,}$/.test(line) || lower.startsWith('ont-id') || lower.startsWith('port-id') || lower.startsWith('ont port-id')) return;
+
+            if (section === 'wan') {
+                const ifMatch = line.match(/^Interface\s+(.+)$/i);
+                if (ifMatch) { curWan = { index: ifMatch[1].trim(), fields: [] }; wanIfaces.push(curWan); return; }
+                const fMatch = line.match(/^([^:]+):\s*(.*)$/);
+                if (fMatch && curWan) { curWan.fields.push([fMatch[1].trim(), fMatch[2].trim()]); }
+                return;
+            }
+            if (section === 'mac') {
+                if (line.startsWith('MACROW|')) {
+                    const parts = line.split('|');
+                    macRows.push({
+                        mac: (parts[1] || '').toUpperCase(), vlan: parts[2] || '-',
+                        gem: parts[3] || '-', srvp: parts[4] || '-',
+                    });
+                    return;
+                }
+                const vlanMatch = line.match(/\s(\d+)\s*$/);
+                const macMatch = line.match(/(?:^|\s)([0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}|[0-9a-f]{2}(?::[0-9a-f]{2}){5})(?:\s|$)/i);
+                if (macMatch) {
+                    macRows.push({ mac: macMatch[1].toUpperCase(), vlan: vlanMatch ? vlanMatch[1] : '-', gem: '-', srvp: '-' });
+                }
+                return;
+            }
+            if (section === 'eth') {
+                const parts = line.split(/\s+/);
+                if (parts.length >= 7 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+                    portRows.push({
+                        ont: parts[0], port: parts[1], type: parts[2] || '-', speed: parts[3] || '-',
+                        duplex: parts[4] || '-', link: parts[5] || '-', ring: parts[6] || '-',
+                    });
+                }
+            }
+        });
+        if (!wanIfaces.length && !macRows.length && !portRows.length) return '';
+
+        const wanHtml = wanIfaces.length
+            ? wanIfaces.map((iface) => `<div class="wan-iface"><div class="wan-iface-head">Interface ${escapeHtml(iface.index)}</div>${
+                iface.fields.map(([label, value]) => `<div class="wan-row"><span class="wan-label">${escapeHtml(label)}</span><span class="wan-value">${colorWanValue(label, value)}</span></div>`).join('')
+            }</div>`).join('')
+            : '';
+        const macHtml = macRows.length
+            ? macRows.map((row) => {
+                const gem = (row.gem && row.gem !== '-') ? ` <em>GEM/Port</em> <span class="rc-num">${escapeHtml(row.gem)}</span>` : '';
+                const srvp = (row.srvp && row.srvp !== '-') ? ` <em>Srv-Port</em> <span class="rc-num">${escapeHtml(row.srvp)}</span>` : '';
+                return `<div class="mac-output-line"><strong>MAC:</strong> <span class="rc-mac">${escapeHtml(row.mac)}</span> <em>VLAN</em> <span class="rc-vlan">${escapeHtml(row.vlan)}</span>${gem}${srvp}</div>`;
+            }).join('')
+            : '<div class="mac-output-line">No MAC address found.</div>';
+        const portHtml = portRows.length
+            ? `<table class="mac-port-table"><thead><tr><th>ONT</th><th>Port</th><th>Type</th><th>Speed</th><th>Duplex</th><th>Link</th><th>Ring</th></tr></thead><tbody>${portRows.map((row) => {
+                const linkClass = String(row.link || '').toLowerCase() === 'up' ? 'mac-port-up' : String(row.link || '').toLowerCase() === 'down' ? 'mac-port-down' : '';
+                return `<tr><td>${escapeHtml(row.ont)}</td><td>${escapeHtml(row.port)}</td><td>${escapeHtml(row.type)}</td><td>${escapeHtml(row.speed)}</td><td>${escapeHtml(row.duplex)}</td><td class="${linkClass}">${escapeHtml(row.link)}</td><td>${escapeHtml(row.ring)}</td></tr>`;
+            }).join('')}</tbody></table>`
+            : '<div class="mac-output-line">No Ethernet port status found.</div>';
+
+        const sections = [];
+        if (wanHtml) {
+            sections.push(`<section class="mac-output-section"><div class="mac-output-title">ONU WAN Interfaces</div>${wanHtml}</section>`);
+        }
+        sections.push(`<section class="mac-output-section"><div class="mac-output-title">MACs on OLT from this ONU</div>${macHtml}</section>`);
+        sections.push(`<section class="mac-output-section"><div class="mac-output-title">Ethernet Ports</div>${portHtml}</section>`);
+        return `<div class="mac-output-view">${sections.join('')}</div>`;
+    };
+
+    const RC_KEYWORDS = new Set([
+        'interface', 'gpon', 'epon', 'xgpon', 'ont', 'add', 'port', 'mac-auth', 'sn-auth',
+        'oam', 'omci', 'ont-lineprofile-id', 'ont-srvprofile-id', 'desc', 'service-port',
+        'multi-service', 'tag-transform', 'translate', 'transparent', 'default', 'inbound',
+        'outbound', 'traffic-table', 'gemport', 'index', 'priority', 'native-vlan', 'eth',
+        'ipconfig', 'tr069-server-config', 'wan-config',
+    ]);
+    const RC_VLAN_KEYWORDS = new Set(['vlan', 'user-vlan']);
+    // Syntax-colour a running-config block: keywords, VLANs, MAC/serial and numbers.
+    // Tokenises the RAW text and escapes each token, so spans never get re-matched.
+    const formatRunningConfig = (text) => String(text || '').replace(
+        /([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})|(\b\d+\b)|([A-Za-z][\w.-]*)|([^A-Za-z0-9]+)/g,
+        (match, mac, num, word, other) => {
+            if (mac) return `<span class="rc-mac">${escapeHtml(mac)}</span>`;
+            if (num) return `<span class="rc-num">${escapeHtml(num)}</span>`;
+            if (word) {
+                const w = word.toLowerCase();
+                if (RC_VLAN_KEYWORDS.has(w)) return `<span class="rc-vlan">${escapeHtml(word)}</span>`;
+                if (RC_KEYWORDS.has(w)) return `<span class="rc-kw">${escapeHtml(word)}</span>`;
+                return escapeHtml(word);
+            }
+            return escapeHtml(other || '');
+        }
+    );
+
+    const setRunningConfigState = (statusText, outputText, isError = false, outputMode = 'text') => {
         if (runningConfigPanel) {
             runningConfigPanel.hidden = false;
         }
@@ -871,15 +1997,57 @@
             runningConfigStatus.classList.toggle('error', Boolean(isError && statusText));
         }
         if (runningConfigOutput && typeof outputText === 'string') {
-            runningConfigOutput.textContent = outputText;
-            runningConfigOutput.classList.toggle('running-config-placeholder', !outputText || outputText.startsWith('Press '));
+            const macHtml = outputMode === 'mac' ? formatMacOutput(outputText) : '';
+            const isPlaceholder = !outputText || outputText.startsWith('Press ');
+            if (macHtml) {
+                runningConfigOutput.innerHTML = macHtml;
+            } else if (isPlaceholder || isError) {
+                runningConfigOutput.textContent = outputText;
+            } else {
+                // Colourise the live running-config like the MAC view.
+                runningConfigOutput.innerHTML = formatRunningConfig(outputText);
+            }
+            runningConfigOutput.classList.toggle('running-config-placeholder', isPlaceholder);
         }
     };
+
+    const showUnreachablePop = () => {
+        if (!unreachablePop) return;
+        unreachablePop.removeAttribute('hidden');
+        if (unreachableCloseBtn) {
+            unreachableCloseBtn.focus();
+        }
+    };
+
+    if (unreachablePop && unreachablePop.dataset.show === '1') {
+        window.setTimeout(showUnreachablePop, 120);
+    }
+    if (unreachableCloseBtn) {
+        unreachableCloseBtn.addEventListener('click', () => {
+            unreachablePop.setAttribute('hidden', '');
+        });
+    }
+    if (unreachablePop) {
+        unreachablePop.addEventListener('click', (event) => {
+            if (event.target === unreachablePop) {
+                unreachablePop.setAttribute('hidden', '');
+            }
+        });
+    }
 
     const setOnuActionState = (statusText, isError = false) => {
         if (!onuActionStatus) return;
         onuActionStatus.textContent = statusText || '';
         onuActionStatus.classList.toggle('error', Boolean(isError && statusText));
+    };
+
+    const setOnuDisabledBanner = (statusValue) => {
+        if (!onuDisabledBanner) return;
+        if (String(statusValue || '').trim().toLowerCase() === 'admin_disabled') {
+            onuDisabledBanner.hidden = false;
+        } else {
+            onuDisabledBanner.hidden = true;
+        }
     };
 
     const applyImmediateStatus = (statusValue, statusLabel, statusClass) => {
@@ -894,6 +2062,16 @@
             card.classList.remove('good', 'warn', 'bad');
             card.classList.add(statusClass || 'bad');
         }
+        if (statusValue && statusValue !== 'online') {
+            if (textNode) {
+                textNode.textContent = '-- / --';
+            }
+            if (line) {
+                line.classList.remove('good', 'warn', 'bad');
+            }
+            currentOltNode.textContent = '--';
+        }
+        setOnuDisabledBanner(statusValue);
         if (statusValue === 'admin_disabled') {
             if (onuDisableButton) {
                 onuDisableButton.textContent = 'Enable ONU';
@@ -910,8 +2088,11 @@
             if (!url) return;
             button.disabled = true;
             const originalText = button.textContent;
-            button.textContent = 'Sending...';
-            setOnuActionState(`${originalText} command sending...`, false);
+            const isDeleteAction = originalText.trim().toLowerCase() === 'delete onu';
+            const deleteOverlay = isDeleteAction ? document.querySelector('[data-onu-delete-wait]') : null;
+            if (deleteOverlay) deleteOverlay.hidden = false;
+            button.textContent = isDeleteAction ? 'Deleting...' : 'Sending...';
+            setOnuActionState(isDeleteAction ? 'ONU Deleting...' : `${originalText} command sending...`, false);
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -927,13 +2108,25 @@
                     else if (actionName === 'enable') shortMessage = 'ONU Enabled';
                     else if (actionName === 'restart') shortMessage = 'ONU Restarted';
                     else if (actionName === 'reset') shortMessage = 'ONU Reset';
+                    else if (actionName === 'delete') shortMessage = 'ONU Deleted';
                 }
                 setOnuActionState(shortMessage, !response.ok || !data.ok);
                 if (response.ok && data.ok) {
+                    if (data.redirect_url) {
+                        // Keep the "ONU Deleting" wheel up while we navigate to autofind.
+                        if (deleteOverlay) {
+                            const dlog = deleteOverlay.querySelector('[data-onu-delete-wait-log]');
+                            if (dlog) dlog.textContent = 'Deleted. Opening Autofind...';
+                        }
+                        window.location.href = data.redirect_url;
+                        return;
+                    }
                     applyImmediateStatus(data.status_value, data.status_label, data.status_class);
                 }
+                if (deleteOverlay) deleteOverlay.hidden = true;
             } catch (error) {
-                setOnuActionState('SNMP action failed.', true);
+                setOnuActionState('ONU action failed.', true);
+                if (deleteOverlay) deleteOverlay.hidden = true;
             } finally {
                 button.disabled = false;
                 if (button === onuDisableButton) {
@@ -945,34 +2138,32 @@
         });
     };
 
-    const pushHistoryPoint = (timeValue, value) => {
-        if (typeof value !== 'number' || !Number.isFinite(value)) return;
-        const pointTime = timeValue instanceof Date ? timeValue : new Date(timeValue);
-        if (Number.isNaN(pointTime.getTime())) return;
-        history.push({ time: pointTime, value });
-        const cutoff = Date.now() - (24 * 60 * 60 * 1000);
-        while (history.length && history[0].time.getTime() < cutoff) {
-            history.shift();
-        }
+    const parseSignalPoint = (item) => {
+        const pointTime = new Date(item.sampled_at);
+        if (Number.isNaN(pointTime.getTime())) return null;
+        return {
+            time: pointTime,
+            label: item.label || formatTime(pointTime),
+            onu_rx: typeof item.onu_rx === 'number' ? item.onu_rx : parseDbm(item.onu_rx),
+            olt_rx: typeof item.olt_rx === 'number' ? item.olt_rx : parseDbm(item.olt_rx),
+        };
     };
 
     const renderChart = () => {
-        const sortedHistory = history
-            .filter((point) => point.time instanceof Date && !Number.isNaN(point.time.getTime()))
+        const visibleHistory = signalGraphHistory
+            .filter((point) => point && point.time instanceof Date && !Number.isNaN(point.time.getTime()))
             .sort((a, b) => a.time - b.time);
-        const latestPoint = sortedHistory.length ? sortedHistory[sortedHistory.length - 1] : null;
-        const windowEnd = latestPoint ? latestPoint.time : new Date();
-        const windowStart = new Date(windowEnd.getTime() - (24 * 60 * 60 * 1000));
-        const visibleHistory = sortedHistory
-            .filter((point) => point.time >= windowStart && point.time <= windowEnd);
 
-        if (!visibleHistory.length) {
+        const allValues = visibleHistory.map((point) => point.olt_rx).filter((value) => typeof value === 'number' && Number.isFinite(value));
+        if (!visibleHistory.length || !allValues.length) {
             chartNode.innerHTML = '';
             chartEmptyNode.style.display = 'block';
-            currentNode.textContent = '--';
-            maximumNode.textContent = '--';
+            currentOltNode.textContent = '--';
+            maximumOltNode.textContent = '--';
             return;
         }
+
+        chartEmptyNode.style.display = 'block';
         chartEmptyNode.style.display = 'none';
         const width = 760;
         const height = 160;
@@ -982,30 +2173,42 @@
         const bottom = 24;
         const plotWidth = width - left - right;
         const plotHeight = height - top - bottom;
-        const values = visibleHistory.map((point) => point.value);
-        const minValue = Math.min(...values);
-        const maxValue = Math.max(...values);
-        const paddedMin = Math.floor((minValue - 0.08) * 10) / 10;
-        const paddedMax = Math.ceil((maxValue + 0.08) * 10) / 10;
-        const range = Math.max(0.4, paddedMax - paddedMin);
+        const minValue = Math.min(...allValues);
+        const maxValue = Math.max(...allValues);
+        const paddedMin = Math.floor((minValue - 0.2) * 10) / 10;
+        const paddedMax = Math.ceil((maxValue + 0.2) * 10) / 10;
+        const range = Math.max(0.6, paddedMax - paddedMin);
 
         const yForValue = (value) => {
             const ratio = (value - paddedMin) / range;
             return top + plotHeight - (ratio * plotHeight);
         };
 
-        const xForTime = (pointTime) => {
-            const elapsed = pointTime.getTime() - windowStart.getTime();
-            const total = windowEnd.getTime() - windowStart.getTime();
-            const ratio = total > 0 ? Math.min(1, Math.max(0, elapsed / total)) : 0;
-            return left + (ratio * plotWidth);
+        const xForIndex = (index) => {
+            if (visibleHistory.length <= 1) return left + (plotWidth / 2);
+            return left + ((plotWidth * index) / (visibleHistory.length - 1));
         };
 
-        const points = visibleHistory.map((point) => {
-            const x = xForTime(point.time);
-            const y = yForValue(point.value);
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-        }).join(' ');
+        const buildPoints = (fieldName) => visibleHistory
+            .map((point, index) => {
+                if (typeof point[fieldName] !== 'number' || !Number.isFinite(point[fieldName])) return null;
+                return `${xForIndex(index).toFixed(1)},${yForValue(point[fieldName]).toFixed(1)}`;
+            })
+            .filter(Boolean)
+            .join(' ');
+
+        const oltPoints = buildPoints('olt_rx');
+        const oltDots = visibleHistory
+            .map((point, index) => {
+                if (typeof point.olt_rx !== 'number' || !Number.isFinite(point.olt_rx)) return '';
+                const x = xForIndex(index).toFixed(1);
+                const y = yForValue(point.olt_rx).toFixed(1);
+                const valueLabel = formatDbm(point.olt_rx);
+                const timeLabel = point.label || formatTime(point.time);
+                return `<circle class="signal-chart-dot-olt" cx="${x}" cy="${y}" r="3.2" data-point-time="${timeLabel}" data-point-value="${valueLabel}"><title>${timeLabel} | ${valueLabel}</title></circle>`;
+            })
+            .filter(Boolean)
+            .join('');
 
         let grid = '';
         for (let i = 0; i < 4; i += 1) {
@@ -1013,43 +2216,260 @@
             const y = top + (plotHeight * ratio);
             const labelValue = paddedMax - (range * ratio);
             grid += `<line class="signal-chart-grid" x1="${left}" y1="${y.toFixed(1)}" x2="${(width - right).toFixed(1)}" y2="${y.toFixed(1)}"></line>`;
-            grid += `<text class="signal-chart-axis" x="${left - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end">${labelValue.toFixed(1)}</text>`;
+            grid += `<text class="signal-chart-axis" x="${left - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end">${labelValue.toFixed(1)} dBm</text>`;
         }
 
         let labels = '';
-        for (let i = 0; i <= 4; i += 1) {
-            const tickTime = new Date(windowStart.getTime() + ((windowEnd.getTime() - windowStart.getTime()) * (i / 4)));
-            const x = xForTime(tickTime);
-            labels += `<text class="signal-chart-axis" x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle">${formatTime(tickTime)}</text>`;
-        }
+        const tickIndexes = visibleHistory.length <= 5
+            ? visibleHistory.map((_, index) => index)
+            : [0, Math.floor((visibleHistory.length - 1) * 0.25), Math.floor((visibleHistory.length - 1) * 0.5), Math.floor((visibleHistory.length - 1) * 0.75), visibleHistory.length - 1];
+        const used = new Set();
+        tickIndexes.forEach((index) => {
+            if (used.has(index) || !visibleHistory[index]) return;
+            used.add(index);
+            const x = xForIndex(index);
+            labels += `<text class="signal-chart-axis" x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle">${visibleHistory[index].label}</text>`;
+        });
 
         chartNode.innerHTML = `
             ${grid}
-            <polyline class="signal-chart-path" points="${points}"></polyline>
+            ${oltPoints ? `<polyline class="signal-chart-path-olt" points="${oltPoints}"></polyline>` : ''}
+            ${oltDots}
             ${labels}
         `;
 
-        currentNode.textContent = formatDbm(visibleHistory[visibleHistory.length - 1].value);
-        maximumNode.textContent = formatDbm(Math.max(...values));
-        const historyNote = document.querySelector('.signal-history-note');
-        if (historyNote) {
-            historyNote.textContent = `${formatTime(windowStart)} - ${formatTime(windowEnd)}`;
+        const latest = visibleHistory[visibleHistory.length - 1];
+        const oltValues = visibleHistory.map((point) => point.olt_rx).filter((value) => typeof value === 'number' && Number.isFinite(value));
+        currentOltNode.textContent = formatDbm(latest.olt_rx);
+        maximumOltNode.textContent = formatDbm(oltValues.length ? Math.max(...oltValues) : null);
+    };
+
+    chartNode.addEventListener('mousemove', (event) => {
+        if (!chartTooltipNode) return;
+        const dot = event.target.closest ? event.target.closest('.signal-chart-dot-olt') : null;
+        if (!dot) {
+            chartTooltipNode.hidden = true;
+            return;
+        }
+        const wrapRect = chartNode.parentElement.getBoundingClientRect();
+        chartTooltipNode.innerHTML = `<strong>OLT Rx</strong>${dot.dataset.pointTime || ''}<br>${dot.dataset.pointValue || '--'}`;
+        chartTooltipNode.style.left = `${event.clientX - wrapRect.left}px`;
+        chartTooltipNode.style.top = `${event.clientY - wrapRect.top}px`;
+        chartTooltipNode.hidden = false;
+    });
+    chartNode.addEventListener('mouseleave', () => {
+        if (chartTooltipNode) chartTooltipNode.hidden = true;
+    });
+
+    const setSignalRange = (rangeKey) => {
+        currentSignalRange = rangeKey;
+        signalRangeButtons.forEach((button) => {
+            button.classList.toggle('active', button.getAttribute('data-signal-range') === rangeKey);
+        });
+    };
+
+    const loadSignalGraph = async (rangeKey, { silent = false } = {}) => {
+        if (!signalGraphUrl) return;
+        setSignalRange(rangeKey);
+        if (!silent) {
+            chartEmptyNode.style.display = 'block';
+            chartEmptyNode.textContent = 'Loading signal history...';
+        }
+        try {
+            const response = await fetch(`${signalGraphUrl}?range=${encodeURIComponent(rangeKey)}&_=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) return;
+            const data = await response.json();
+            signalGraphHistory = (data.points || []).map(parseSignalPoint).filter(Boolean);
+            if (signalHistoryNoteNode) {
+                signalHistoryNoteNode.textContent = `${data.range_label || 'Hour'} view`;
+            }
+            renderChart();
+        } catch (error) {
+            if (!silent) {
+                chartEmptyNode.style.display = 'block';
+                chartEmptyNode.textContent = 'Signal history load failed.';
+            }
         }
     };
 
-    const initialHistory = JSON.parse('{{ onu_signal_history_json|escapejs }}');
-    initialHistory.forEach((item) => {
-        pushHistoryPoint(item.sampled_at, parseDbm(item.olt_rx));
+    signalRangeButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            loadSignalGraph(button.getAttribute('data-signal-range') || '1h');
+        });
     });
-    if (!history.length) {
-        const initialOltRx = parseDbm(`{{ onu.olt_rx|default:""|escapejs }}`);
-        pushHistoryPoint(new Date(), initialOltRx);
-    }
+
+    const initialHistory = JSON.parse('{{ onu_signal_history_json|escapejs }}');
+    signalGraphHistory = initialHistory.map(parseSignalPoint).filter(Boolean);
     renderChart();
 
+    let trafficHistory = JSON.parse('{{ onu_traffic_history_json|escapejs }}').map((item) => {
+        const pointTime = new Date(item.sampled_at);
+        if (Number.isNaN(pointTime.getTime())) return null;
+        return {
+            time: pointTime,
+            label: item.label || formatTime(pointTime),
+            up_bps: Number(item.up_bps || 0),
+            down_bps: Number(item.down_bps || 0),
+        };
+    }).filter(Boolean);
+
+    const formatBps = (value) => {
+        const number = Number(value || 0);
+        if (!Number.isFinite(number) || number <= 0) return '0 bps';
+        if (number >= 1000000000) return `${(number / 1000000000).toFixed(2)} Gbps`;
+        if (number >= 1000000) return `${(number / 1000000).toFixed(2)} Mbps`;
+        if (number >= 1000) return `${(number / 1000).toFixed(2)} Kbps`;
+        return `${number.toFixed(0)} bps`;
+    };
+
+    const renderTrafficChart = () => {
+        if (!trafficChartNode || !trafficChartEmptyNode) return;
+        const visible = trafficHistory
+            .filter((point) => point && point.time instanceof Date && !Number.isNaN(point.time.getTime()))
+            .sort((a, b) => a.time - b.time);
+        const values = visible.flatMap((point) => [point.up_bps, point.down_bps]).filter((value) => Number.isFinite(value));
+        if (!visible.length || !values.length) {
+            trafficChartNode.innerHTML = '';
+            trafficChartEmptyNode.style.display = 'block';
+            return;
+        }
+        trafficChartEmptyNode.style.display = 'none';
+        const width = 760, height = 160, left = 62, right = 12, top = 12, bottom = 24;
+        const plotWidth = width - left - right;
+        const plotHeight = height - top - bottom;
+        const maxValue = Math.max(1, ...values);
+        const yForValue = (value) => top + plotHeight - ((Number(value || 0) / maxValue) * plotHeight);
+        const xForIndex = (index) => visible.length <= 1 ? left + (plotWidth / 2) : left + ((plotWidth * index) / (visible.length - 1));
+        const buildPoints = (field) => visible.map((point, index) => `${xForIndex(index).toFixed(1)},${yForValue(point[field]).toFixed(1)}`).join(' ');
+        let grid = '';
+        for (let i = 0; i < 4; i += 1) {
+            const ratio = i / 3;
+            const y = top + (plotHeight * ratio);
+            grid += `<line class="signal-chart-grid" x1="${left}" y1="${y.toFixed(1)}" x2="${(width - right).toFixed(1)}" y2="${y.toFixed(1)}"></line>`;
+            grid += `<text class="signal-chart-axis" x="${left - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end">${formatBps(maxValue - (maxValue * ratio))}</text>`;
+        }
+        let labels = '';
+        const ticks = visible.length <= 5 ? visible.map((_, index) => index) : [0, Math.floor((visible.length - 1) / 2), visible.length - 1];
+        [...new Set(ticks)].forEach((index) => {
+            if (!visible[index]) return;
+            labels += `<text class="signal-chart-axis" x="${xForIndex(index).toFixed(1)}" y="${height - 6}" text-anchor="middle">${visible[index].label}</text>`;
+        });
+        const dots = visible.map((point, index) => {
+            const x = xForIndex(index).toFixed(1);
+            const upY = yForValue(point.up_bps).toFixed(1);
+            const downY = yForValue(point.down_bps).toFixed(1);
+            return `
+                <circle class="traffic-chart-dot-up" cx="${x}" cy="${upY}" r="3" data-point-time="${point.label}" data-point-value="Upload ${formatBps(point.up_bps)}"></circle>
+                <circle class="traffic-chart-dot-down" cx="${x}" cy="${downY}" r="3" data-point-time="${point.label}" data-point-value="Download ${formatBps(point.down_bps)}"></circle>
+            `;
+        }).join('');
+        trafficChartNode.innerHTML = `
+            ${grid}
+            <polyline class="traffic-chart-path-up" points="${buildPoints('up_bps')}"></polyline>
+            <polyline class="traffic-chart-path-down" points="${buildPoints('down_bps')}"></polyline>
+            ${dots}
+            ${labels}
+        `;
+        const latest = visible[visible.length - 1];
+        const avg = (field) => visible.reduce((total, point) => total + Number(point[field] || 0), 0) / visible.length;
+        const useAverage = currentTrafficRange !== '1h';
+        if (trafficCurrentUpNode) trafficCurrentUpNode.textContent = formatBps(useAverage ? avg('up_bps') : latest.up_bps);
+        if (trafficCurrentDownNode) trafficCurrentDownNode.textContent = formatBps(useAverage ? avg('down_bps') : latest.down_bps);
+        if (trafficMaximumUpNode) trafficMaximumUpNode.textContent = formatBps(Math.max(...visible.map((point) => Number(point.up_bps || 0))));
+        if (trafficMaximumDownNode) trafficMaximumDownNode.textContent = formatBps(Math.max(...visible.map((point) => Number(point.down_bps || 0))));
+    };
+
+    if (trafficChartNode) {
+        trafficChartNode.addEventListener('mousemove', (event) => {
+            if (!trafficTooltipNode) return;
+            const dot = event.target.closest ? event.target.closest('.traffic-chart-dot-up, .traffic-chart-dot-down') : null;
+            if (!dot) {
+                trafficTooltipNode.hidden = true;
+                return;
+            }
+            const wrapRect = trafficChartNode.parentElement.getBoundingClientRect();
+            trafficTooltipNode.innerHTML = `<strong>ONU Traffic</strong>${dot.dataset.pointTime || ''}<br>${dot.dataset.pointValue || '--'}`;
+            trafficTooltipNode.style.left = `${event.clientX - wrapRect.left}px`;
+            trafficTooltipNode.style.top = `${event.clientY - wrapRect.top}px`;
+            trafficTooltipNode.hidden = false;
+        });
+        trafficChartNode.addEventListener('mouseleave', () => {
+            if (trafficTooltipNode) trafficTooltipNode.hidden = true;
+        });
+    }
+    renderTrafficChart();
+
+    const setTrafficRange = (rangeKey) => {
+        currentTrafficRange = rangeKey;
+        trafficRangeButtons.forEach((button) => {
+            button.classList.toggle('active', button.getAttribute('data-traffic-range') === rangeKey);
+        });
+    };
+
+    const loadTrafficGraph = async (rangeKey, { sample = false } = {}) => {
+        if (!trafficGraphUrl || oltUnreachable) return;
+        setTrafficRange(rangeKey);
+        try {
+            const response = await fetch(`${trafficGraphUrl}?range=${encodeURIComponent(rangeKey)}&sample=${sample ? '1' : '0'}&_=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) return;
+            const data = await response.json();
+            trafficHistory = (data.points || []).map((item) => {
+                const pointTime = new Date(item.sampled_at);
+                if (Number.isNaN(pointTime.getTime())) return null;
+                return { time: pointTime, label: item.label || formatTime(pointTime), up_bps: Number(item.up_bps || 0), down_bps: Number(item.down_bps || 0) };
+            }).filter(Boolean);
+            if (trafficHistoryNoteNode) trafficHistoryNoteNode.textContent = `${data.range_label || 'Hour'} view`;
+            renderTrafficChart();
+        } catch (error) {}
+    };
+
+    const refreshTraffic = async () => {
+        await loadTrafficGraph(currentTrafficRange, { sample: currentTrafficRange === '1h' });
+    };
+
+    trafficRangeButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            loadTrafficGraph(button.getAttribute('data-traffic-range') || '1h');
+        });
+    });
+
+    if (catvToggle && catvUrl) {
+        catvToggle.addEventListener('change', async () => {
+            const enabled = catvToggle.checked;
+            catvToggle.disabled = true;
+            setOnuActionState(enabled ? 'CATV Enabling...' : 'CATV Disabling...', false);
+            try {
+                const response = await fetch(catvUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({ enabled }),
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    catvToggle.checked = !enabled;
+                    setOnuActionState(data.message || 'CATV command failed.', true);
+                    return;
+                }
+                setOnuActionState(data.message || (enabled ? 'CATV Enabled' : 'CATV Disabled'), false);
+                showCatvToast(data.message || (enabled ? 'CATV Enabled' : 'CATV Disabled'));
+            } catch (error) {
+                catvToggle.checked = !enabled;
+                setOnuActionState('CATV command failed.', true);
+            } finally {
+                catvToggle.disabled = false;
+            }
+        });
+    }
+
     const refreshSignal = async () => {
+        if (signalRefreshPending) return;
+        signalRefreshPending = true;
         if (card) card.classList.add('refreshing');
         if (line) line.classList.add('refreshing');
+        if (statusLineNode) statusLineNode.classList.add('refreshing');
         try {
             const response = await fetch(refreshUrl, {
                 method: 'POST',
@@ -1063,9 +2483,24 @@
             const data = await response.json();
             const key = `${panel.dataset.oltId}:${panel.dataset.slot}:${panel.dataset.port}:${panel.dataset.ontId}`;
             const signal = (data.items || {})[key];
-            if (!signal || !signal.signal_visible) {
-                if (card) card.classList.remove('refreshing');
-                if (line) line.classList.remove('refreshing');
+            if (!signal) {
+                return;
+            }
+            if (signal.status_value || signal.status_label || signal.status_class) {
+                applyImmediateStatus(signal.status_value, signal.status_label, signal.status_class);
+                if (statusTextNode && signal.status_age_text) {
+                    const label = signal.status_label || statusTextNode.textContent.split(/\s+\(/)[0] || '';
+                    statusTextNode.textContent = `${label} ${signal.status_age_text}`;
+                }
+            }
+            if (!signal.signal_visible) {
+                if (textNode) {
+                    textNode.textContent = '-- / --';
+                }
+                if (line) {
+                    line.classList.remove('good', 'warn', 'bad');
+                }
+                currentOltNode.textContent = '--';
                 return;
             }
             if (textNode) {
@@ -1085,24 +2520,41 @@
             if (statusSinceTextNode && signal.status_since_text) {
                 statusSinceTextNode.textContent = signal.status_since_text;
             }
-            pushHistoryPoint(new Date(), parseDbm(signal.olt_rx));
-            renderChart();
-            if (line) {
-                line.classList.remove('good', 'warn', 'bad');
-                if (signal.signal_class) {
-                    line.classList.add(signal.signal_class);
-                }
+            const freshOltValue = parseDbm(signal.olt_rx);
+            const freshOnuValue = parseDbm(signal.onu_rx);
+            if (currentSignalRange === '1h' && typeof freshOltValue === 'number' && Number.isFinite(freshOltValue)) {
+                const now = new Date();
+                signalGraphHistory.push({
+                    time: now,
+                    label: formatTime(now),
+                    onu_rx: freshOnuValue,
+                    olt_rx: freshOltValue,
+                });
+                const cutoff = now.getTime() - (60 * 60 * 1000);
+                signalGraphHistory = signalGraphHistory.filter((point) => point.time && point.time.getTime() >= cutoff);
+                renderChart();
             }
-            if (card) card.classList.remove('refreshing');
-            if (line) line.classList.remove('refreshing');
+              if (line) {
+                  line.classList.remove('good', 'warn', 'bad');
+                  if (signal.signal_class) {
+                      line.classList.add(signal.signal_class);
+                  }
+              }
         } catch (error) {
+        } finally {
+            signalRefreshPending = false;
             if (card) card.classList.remove('refreshing');
             if (line) line.classList.remove('refreshing');
+            if (statusLineNode) statusLineNode.classList.remove('refreshing');
         }
     };
 
-    window.setTimeout(refreshSignal, 250);
-    window.setInterval(refreshSignal, 15000);
+    if (!oltUnreachable) {
+        window.setTimeout(refreshSignal, 500);
+        window.setInterval(refreshSignal, 60000);
+        window.setTimeout(refreshTraffic, 900);
+        window.setInterval(refreshTraffic, 10000);
+    }
 
     if (getStatusButton && macAddressUrl) {
         getStatusButton.addEventListener('click', async () => {
@@ -1121,10 +2573,10 @@
                 if (!response.ok || !data.ok) {
                     setRunningConfigState(data.message || 'MAC address fetch failed.', data.output || '', true);
                 } else {
-                    setRunningConfigState(data.message || 'Live MAC addresses fetched.', data.output || 'No MAC addresses returned.', false);
+                    setRunningConfigState(data.message || 'Live MAC addresses fetched.', data.output || 'No MAC addresses returned.', false, 'mac');
                 }
             } catch (error) {
-                setRunningConfigState('OLT is Busy (Telnet Error)', '', true);
+                setRunningConfigState('OLT is busy. Please try again in a few seconds.', '', true);
             } finally {
                 getStatusButton.disabled = false;
                 getStatusButton.textContent = originalText;
@@ -1152,7 +2604,7 @@
                     setRunningConfigState(data.message || 'Live running configuration fetched.', data.output || 'No running configuration returned.', false);
                 }
             } catch (error) {
-                setRunningConfigState('OLT is Busy (Telnet Error)', '', true);
+                setRunningConfigState('OLT is busy. Please try again in a few seconds.', '', true);
             } finally {
                 runningConfigButton.disabled = false;
                 runningConfigButton.textContent = originalText;
@@ -1160,9 +2612,107 @@
         });
     }
 
+    const showConfigToast = (message, isError = false) => {
+        if (!catvToastStack) return;
+        const item = document.createElement('div');
+        item.className = isError ? 'catv-toast config-toast error' : 'catv-toast config-toast';
+        item.innerHTML = `
+            <span class="catv-toast-title">Config</span>
+            <span class="catv-toast-name">${escapeHtml(message || 'Done')}</span>
+        `;
+        catvToastStack.appendChild(item);
+        requestAnimationFrame(() => item.classList.add('visible'));
+        window.setTimeout(() => {
+            item.classList.remove('visible');
+            window.setTimeout(() => item.remove(), 260);
+        }, 5000);
+    };
+
+    // Show any message stashed before a reload (e.g. after a successful config fetch).
+    try {
+        const pendingMsg = sessionStorage.getItem('onuConfigToast');
+        if (pendingMsg) {
+            sessionStorage.removeItem('onuConfigToast');
+            showConfigToast(pendingMsg, false);
+        }
+    } catch (e) { /* sessionStorage unavailable — ignore */ }
+
+    if (fetchConfigButton && fetchConfigUrl) {
+        const fetchConfigOverlay = document.querySelector('[data-fetch-config-wait]');
+        const fetchConfigLog = document.querySelector('[data-fetch-config-wait-log]');
+        const setFetchLog = (text) => { if (fetchConfigLog) fetchConfigLog.textContent = text; };
+
+        fetchConfigButton.addEventListener('click', async () => {
+            fetchConfigButton.disabled = true;
+            // Show the full-page spinning wheel overlay and cycle through the real
+            // phases this fetch goes through while the OLT request is in flight.
+            if (fetchConfigOverlay) fetchConfigOverlay.hidden = false;
+            const stages = [
+                'Connecting to OLT...',
+                'Reading service-ports & VLANs...',
+                'Parsing config...',
+            ];
+            let stageIndex = 0;
+            setFetchLog(stages[0]);
+            const stageTimer = window.setInterval(() => {
+                stageIndex = Math.min(stageIndex + 1, stages.length - 1);
+                setFetchLog(stages[stageIndex]);
+            }, 1400);
+
+            const finish = () => {
+                window.clearInterval(stageTimer);
+                if (fetchConfigOverlay) fetchConfigOverlay.hidden = true;
+                fetchConfigButton.disabled = false;
+            };
+
+            try {
+                const response = await fetch(fetchConfigUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCookie('csrftoken') },
+                });
+                const data = await response.json();
+                window.clearInterval(stageTimer);
+                if (!response.ok || !data.ok) {
+                    finish();
+                    showConfigToast(data.message || 'Could not fetch current config.', true);
+                    return;
+                }
+                // Show exactly what was read from the OLT before finishing.
+                const parts = [];
+                if (data.attached_vlans) parts.push('VLAN ' + data.attached_vlans);
+                if (data.service_ports) parts.push('Service-port ' + data.service_ports);
+                if (data.download_profiles) parts.push('Download ' + data.download_profiles);
+                if (data.upload_profiles) parts.push('Upload ' + data.upload_profiles);
+                setFetchLog(parts.length ? ('Fetched — ' + parts.join(' | ')) : 'Config read complete.');
+
+                if (data.updated) {
+                    // DB changed — reload so the server re-renders the authoritative
+                    // Attached VLANs + Speed-profile table. Keep the wheel up until reload.
+                    try { sessionStorage.setItem('onuConfigToast', data.message || 'Config updated from OLT.'); } catch (e) {}
+                    window.setTimeout(() => window.location.reload(), 700);
+                } else {
+                    window.setTimeout(() => {
+                        finish();
+                        showConfigToast(data.message || 'Config already in sync — no change.', false);
+                    }, 700);
+                }
+            } catch (error) {
+                finish();
+                showConfigToast('OLT is busy. Please try again in a few seconds.', true);
+            }
+        });
+    }
+
     bindOnuAction(onuDisableButton, () => ((onuDisableButton?.textContent || '').trim() === 'Enable ONU' ? onuEnableUrl : onuDisableUrl));
     bindOnuAction(onuRestartButton, onuRestartUrl);
     bindOnuAction(onuResetButton, onuResetUrl);
+    bindOnuAction(onuDeleteButton, onuDeleteUrl);
+
+    // "DELETE ONU" link inside the imported-ONU notice triggers the real delete.
+    const importedDeleteLink = document.querySelector('[data-imported-delete]');
+    if (importedDeleteLink && onuDeleteButton) {
+        importedDeleteLink.addEventListener('click', () => { onuDeleteButton.click(); });
+    }
 
     if (contactEditForm) {
         contactEditOpenButtons.forEach((button) => {
@@ -1177,4 +2727,56 @@
     }
 })();
 </script>
+<script>
+(() => {
+    const overlay = document.querySelector('[data-sp-wait]');
+    const log = document.querySelector('[data-sp-wait-log]');
+    const forms = Array.from(document.querySelectorAll('[data-sp-delete-form]'));
+    if (!overlay || !forms.length) return;
+
+    const getCookie = (name) => {
+        const row = document.cookie.split('; ').find((r) => r.startsWith(name + '='));
+        return row ? decodeURIComponent(row.split('=')[1]) : '';
+    };
+
+    forms.forEach((form) => {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const confirmMsg = form.getAttribute('data-confirm') || 'Delete this service-port?';
+            if (!window.confirm(confirmMsg)) return;
+            overlay.hidden = false;
+            if (log) log.textContent = 'Deleting service-port...';
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: new FormData(form),
+                });
+                const data = await response.json();
+                if (response.ok && data.ok) {
+                    if (log) log.textContent = 'OK: ' + (data.message || 'Service-port deleted.');
+                    window.setTimeout(() => {
+                        window.location.href = data.redirect_url || window.location.href;
+                    }, 500);
+                } else {
+                    overlay.hidden = true;
+                    window.alert(data.message || 'Service-port delete failed.');
+                }
+            } catch (error) {
+                overlay.hidden = true;
+                window.alert('Service-port delete failed. Please try again.');
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}
+
+
+
+
+
+

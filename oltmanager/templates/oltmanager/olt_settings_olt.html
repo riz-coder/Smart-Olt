@@ -6,7 +6,6 @@
 <style>
     .btn-mini { padding: 9px 12px; font-size: 13px; }
     .view-col { width: 84px; }
-    .id-col { width: 64px; }
     .conn-badge {
         display: inline-block;
         margin-top: 8px;
@@ -24,6 +23,32 @@
         background: #ffdede;
         color: #8f1d1d;
     }
+    .status-col { width: 96px; text-align: center; }
+    .status-cell { text-align: center; }
+    .status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 66px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+    }
+    .status-pill.up {
+        color: #80ffc0;
+        border: 1px solid rgba(34, 238, 139, 0.45);
+        background: rgba(24, 176, 98, 0.14);
+        box-shadow: 0 0 18px rgba(35, 220, 128, 0.28);
+    }
+    .status-pill.down {
+        color: #ff9aa5;
+        border: 1px solid rgba(255, 88, 105, 0.45);
+        background: rgba(210, 45, 62, 0.14);
+        box-shadow: 0 0 18px rgba(255, 80, 96, 0.22);
+    }
+    .action-cell { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 </style>
 {% endblock %}
 
@@ -31,7 +56,9 @@
 <div class="shell">
     <header class="topbar">
         <div class="topbar-actions">
+            {% if user.is_staff or user.is_superuser %}
             <a href="{% url 'olt_add' %}" class="btn btn-primary">Add OLT</a>
+            {% endif %}
             <a href="{% url 'olt_export' %}" class="btn btn-success">Export OLTs list</a>
         </div>
     </header>
@@ -49,8 +76,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th class="view-col">View</th>
-                        <th class="id-col">ID</th>
+                        <th class="status-col">Status</th>
                         <th>Name</th>
                         <th>OLT IP</th>
                         <th>TCP</th>
@@ -63,8 +89,13 @@
                 <tbody>
                     {% for olt in olts %}
                     <tr>
-                        <td><a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a></td>
-                        <td>{{ olt.id }}</td>
+                        <td class="status-cell">
+                            {% if olt.status_state == 'up' %}
+                            <span class="status-pill up" title="OLT Up">UP</span>
+                            {% else %}
+                            <span class="status-pill down" title="OLT Down">DOWN</span>
+                            {% endif %}
+                        </td>
                         <td>{{ olt.name }}</td>
                         <td>{{ olt.ip_address }}</td>
                         <td>{{ olt.port }}</td>
@@ -72,16 +103,12 @@
                         <td>{{ olt.hardware_version|default:"-" }}</td>
                         <td>{{ olt.sw_version|default:"-" }}</td>
                         <td class="actions">
-                            <form class="inline" method="post" action="{% url 'olt_telnet_connect' olt.pk %}">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-secondary btn-mini">Telnet</button>
-                            </form>
-                            <a href="{% url 'olt_delete' olt.pk %}" class="btn btn-danger btn-mini">Delete</a>
-                            {% if telnet_pk == olt.pk and telnet_result %}
-                            <div class="conn-badge {{ telnet_result }}" title="{{ telnet_note }}">
-                                Telnet {% if telnet_result == 'pass' %}PASS{% else %}FAIL{% endif %}
+                            <div class="action-cell">
+                                <a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a>
+                                {% if user.is_staff or user.is_superuser %}
+                                <a href="{% url 'olt_delete' olt.pk %}" class="btn btn-danger btn-mini">Delete</a>
+                                {% endif %}
                             </div>
-                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -94,3 +121,6 @@
     </section>
 </div>
 {% endblock %}
+
+
+

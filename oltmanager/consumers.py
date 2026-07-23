@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 from asgiref.sync import sync_to_async
@@ -6,11 +7,16 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from .models import OLT, OLTLoginHistory
-from .utils import close_telnet_session, open_telnet_authenticated_session, read_telnet_output, send_telnet_input
+from .utils import close_telnet_session, open_telnet_authenticated_session, read_telnet_raw, send_telnet_input
 
 
 _CLI_WS_LOCK = threading.Lock()
 _CLI_WS_SESSIONS = {}
+
+# Telnet read/write run off the ORM thread so the continuous output pump and the
+# keystroke writer overlap (a real terminal needs both directions at once).
+_read_raw = sync_to_async(read_telnet_raw, thread_sensitive=False)
+_write_input = sync_to_async(send_telnet_input, thread_sensitive=False)
 
 
 def _session_key(user_id, olt_id):
@@ -27,6 +33,7 @@ class OLTCLIConsumer(AsyncWebsocketConsumer):
         self.user = user
         self.olt_id = int(self.scope['url_route']['kwargs']['pk'])
         self.olt = await sync_to_async(get_object_or_404)(OLT, pk=self.olt_id)
+        self._pump_task = None
 
         # Ensure single active ws session per user+olt
         await sync_to_async(self._close_existing_session)()
@@ -47,14 +54,43 @@ class OLTCLIConsumer(AsyncWebsocketConsumer):
         await self.accept()
         await self._log_action('cli_open', 'Interactive terminal opened')
 
-        await sync_to_async(send_telnet_input)(tn, b"\r\n")
-        banner = await sync_to_async(read_telnet_output)(tn, 0.2, 6)
-        if banner:
-            await self.send_json({'type': 'output', 'data': banner})
+        # Stream device output continuously; nudge for the initial prompt.
+        self._pump_task = asyncio.create_task(self._pump_output())
+        await _write_input(tn, b"\r\n")
 
     async def disconnect(self, close_code):
+        task = getattr(self, '_pump_task', None)
+        if task:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         await sync_to_async(self._close_existing_session)()
         await self._log_action('cli_close', 'Interactive terminal closed')
+
+    async def _pump_output(self):
+        """Continuously forward raw device output to the browser terminal."""
+        try:
+            while True:
+                tn = await sync_to_async(self._get_session_tn)()
+                if tn is None:
+                    await self.send_json({'type': 'output', 'data': "\r\nSession disconnected.\r\n"})
+                    break
+                data = await _read_raw(tn)
+                if data is None:
+                    await self.send_json({'type': 'output', 'data': "\r\nSession closed.\r\n"})
+                    break
+                if data:
+                    await self.send_json({'type': 'output', 'data': data})
+                    # Brief yield keeps bursts (help/tab/long dumps) flowing smoothly.
+                    await asyncio.sleep(0.005)
+                else:
+                    await asyncio.sleep(0.035)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
 
     async def receive(self, text_data=None, bytes_data=None):
         if not text_data:
@@ -76,19 +112,10 @@ class OLTCLIConsumer(AsyncWebsocketConsumer):
             await self.send_json({'type': 'output', 'data': "\r\nSession disconnected.\r\n"})
             return
 
-        await sync_to_async(send_telnet_input)(tn, data)
-
-        # Fast echo for single-key input, longer wait for Enter/tab/navigation.
-        if data == "\t":
-            output = await sync_to_async(read_telnet_output)(tn, 0.12, 10)
-        elif data in ("\r", "\n", "\r\n") or data.startswith("\u001b"):
-            output = await sync_to_async(read_telnet_output)(tn, 0.10, 12)
-        elif data in ("\b", "\u007f"):
-            output = await sync_to_async(read_telnet_output)(tn, 0.03, 5)
-        else:
-            output = await sync_to_async(read_telnet_output)(tn, 0.015, 2)
-        if output:
-            await self.send_json({'type': 'output', 'data': output})
+        # Send the raw keystroke(s) straight to the device. The device echoes and
+        # handles its own line editing (backspace, tab completion, '?' help); the
+        # output pump renders whatever comes back — exactly like PuTTY.
+        await _write_input(tn, data)
 
         if '\r' in data or '\n' in data:
             first_line = data.replace('\r', '').replace('\n', '').strip()

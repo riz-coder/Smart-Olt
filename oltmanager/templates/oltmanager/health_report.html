@@ -1,0 +1,203 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Network Health Report{% endblock %}
+
+{% block extra_css %}
+<style>
+    .rep-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+    .rep-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 18px 18px;
+    }
+    html[data-theme="light"] .rep-card { background: #f4f8fe; border-color: #dce6f3; }
+    .rep-card .rc-label { font-size: 12px; font-weight: 700; color: #9db0cf; text-transform: uppercase; letter-spacing: .04em; }
+    .rep-card .rc-value { font-size: 30px; font-weight: 800; margin-top: 6px; letter-spacing: -0.02em; }
+    .rep-card .rc-sub { font-size: 12px; color: #8fa7c9; margin-top: 4px; }
+    .rc-good { color: #45db87; }
+    .rc-warn { color: #ffb347; }
+    .rc-bad  { color: #ff6b77; }
+    .rep-section { margin-bottom: 26px; }
+    .rep-section h3 { font-size: 16px; margin: 0 0 12px; }
+    .rep-bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 6px; }
+    .rep-bar > span { display: block; height: 100%; background: linear-gradient(90deg,#35d07f,#22d3ee); }
+    .al-sev { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .al-sev.critical { color: #ff6b77; background: rgba(255,107,119,.14); }
+    .al-sev.warning  { color: #ffb347; background: rgba(255,179,71,.14); }
+    .al-sev.info     { color: #45db87; background: rgba(69,219,135,.14); }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .pill.up   { color: #45db87; background: rgba(69,219,135,.14); }
+    .pill.down { color: #ff6b77; background: rgba(255,107,119,.14); }
+    .rep-outage {
+        border: 1px solid rgba(255,107,119,.4); border-radius: 12px;
+        background: rgba(255,107,119,.07); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .rep-outage .ro-title { font-weight: 800; color: #ff8a8a; }
+    .rep-empty { color: #8fa7c9; font-size: 13px; }
+    .num-good { color: #45db87; font-weight: 700; }
+    .num-bad  { color: #ff6b77; font-weight: 700; }
+    @media print {
+        .main-nav, .topbar-actions, .nav-theme { display: none !important; }
+        body { background: #fff !important; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <h1 class="brand">Network Health Report</h1>
+            <p class="subtle">{{ today|date:"l, d M Y" }} &middot; generated {{ generated_at|date:"H:i" }} (Asia/Karachi)</p>
+        </div>
+        <div class="topbar-actions">
+            <button type="button" class="btn btn-secondary" onclick="window.print()">Print / PDF</button>
+        </div>
+    </header>
+
+    <section class="panel">
+        <!-- Top-line summary -->
+        <div class="rep-cards">
+            <div class="rep-card">
+                <div class="rc-label">Overall health</div>
+                <div class="rc-value {% if overall_health_pct >= 90 %}rc-good{% elif overall_health_pct >= 70 %}rc-warn{% else %}rc-bad{% endif %}">{{ overall_health_pct }}%</div>
+                <div class="rc-sub">{{ totals.online }} of {{ totals.total }} ONUs online</div>
+                <div class="rep-bar"><span style="width: {{ overall_health_pct }}%"></span></div>
+            </div>
+            <div class="rep-card">
+                <div class="rc-label">OLTs reachable</div>
+                <div class="rc-value {% if unreachable_count == 0 %}rc-good{% else %}rc-bad{% endif %}">{{ reachable_count }}/{{ olt_count }}</div>
+                <div class="rc-sub">{% if unreachable_count %}{{ unreachable_count }} unreachable{% else %}all online{% endif %}</div>
+            </div>
+            <div class="rep-card">
+                <div class="rc-label">ONUs offline</div>
+                <div class="rc-value {% if totals.offline == 0 %}rc-good{% else %}rc-bad{% endif %}">{{ totals.offline }}</div>
+                <div class="rc-sub">{{ totals.power_failure }} power &middot; {{ totals.loss_of_signal }} LOS</div>
+            </div>
+            <div class="rep-card">
+                <div class="rc-label">Signal quality</div>
+                <div class="rc-value"><span class="rc-good">{{ totals.sig_good }}</span> / <span class="rc-warn">{{ totals.sig_warn }}</span> / <span class="rc-bad">{{ totals.sig_bad }}</span></div>
+                <div class="rc-sub">good / warn / bad</div>
+            </div>
+            <div class="rep-card">
+                <div class="rc-label">New activations today</div>
+                <div class="rc-value">{{ totals.new_today }}</div>
+                <div class="rc-sub">authorized via OptiVerse</div>
+            </div>
+            <div class="rep-card">
+                <div class="rc-label">Active alerts</div>
+                <div class="rc-value {% if sev_counts.critical %}rc-bad{% elif sev_counts.warning %}rc-warn{% else %}rc-good{% endif %}">{{ active_alert_count }}</div>
+                <div class="rc-sub">{{ sev_counts.critical }} critical &middot; {{ sev_counts.warning }} warning &middot; {{ alerts_24h }} in 24h</div>
+            </div>
+        </div>
+
+        <!-- Active outages / degradation -->
+        <div class="rep-section">
+            <h3>⚠️ Active outages &amp; degradation</h3>
+            {% if fiber_cut_active or degrade_active %}
+                {% for a in fiber_cut_active %}
+                <div class="rep-outage">
+                    <div class="ro-title">✂️ {{ a.title }}</div>
+                    <div class="subtle" style="font-size:13px;margin-top:3px;">{{ a.message }}</div>
+                </div>
+                {% endfor %}
+                {% for a in degrade_active %}
+                <div class="rep-outage" style="border-color:rgba(255,179,71,.4);background:rgba(255,179,71,.07);">
+                    <div class="ro-title" style="color:#ffb347;">📉 {{ a.title }}</div>
+                    <div class="subtle" style="font-size:13px;margin-top:3px;">{{ a.message }}</div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="rep-empty">No active fiber-cut or signal-degradation alerts. 🎉</p>
+            {% endif %}
+        </div>
+
+        <!-- Per-OLT breakdown -->
+        <div class="rep-section">
+            <h3>Per-OLT breakdown</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>OLT</th><th>Reachable</th><th>Health</th><th>Online</th><th>Offline</th>
+                            <th>Disabled</th><th>Signal (g/w/b)</th><th>New</th><th>Temp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for o in olt_rows %}
+                        <tr>
+                            <td><strong>{{ o.name }}</strong><div class="subtle" style="font-size:11px;">{{ o.ip }}</div></td>
+                            <td>{% if o.reachable %}<span class="pill up">UP</span>{% else %}<span class="pill down">DOWN</span>{% endif %}</td>
+                            <td>{{ o.health_pct }}%<div class="rep-bar"><span style="width: {{ o.health_pct }}%"></span></div></td>
+                            <td class="num-good">{{ o.online }}</td>
+                            <td class="{% if o.offline %}num-bad{% endif %}">{{ o.offline }}</td>
+                            <td>{{ o.admin_disabled }}</td>
+                            <td><span class="rc-good">{{ o.sig_good }}</span>/<span class="rc-warn">{{ o.sig_warn }}</span>/<span class="rc-bad">{{ o.sig_bad }}</span></td>
+                            <td>{{ o.new_today }}</td>
+                            <td>{{ o.temp }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="9" class="rep-empty">No OLTs configured.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Worst signals -->
+        <div class="rep-section">
+            <h3>📉 Weakest signals (online ONUs)</h3>
+            {% if worst_signals %}
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>#</th><th>OLT</th><th>ONU</th><th>Description</th><th>Rx power</th></tr></thead>
+                    <tbody>
+                        {% for s in worst_signals %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td>{{ s.olt }}</td>
+                            <td>{{ s.loc }}</td>
+                            <td>{{ s.desc|default:"—" }}</td>
+                            <td class="{% if s.dbm <= -27 %}num-bad{% endif %}">{{ s.dbm|floatformat:2 }} dBm</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="rep-empty">No signal readings available.</p>
+            {% endif %}
+        </div>
+
+        <!-- Active alerts list -->
+        <div class="rep-section">
+            <h3>Active alerts</h3>
+            {% if active_alerts %}
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>When</th><th>Severity</th><th>Alert</th><th>OLT</th></tr></thead>
+                    <tbody>
+                        {% for a in active_alerts %}
+                        <tr>
+                            <td>{{ a.created_at|date:"d-M H:i" }}</td>
+                            <td><span class="al-sev {{ a.severity }}">{{ a.severity|upper }}</span></td>
+                            <td>{{ a.title }}{% if a.message %}<div class="subtle" style="font-size:12px;margin-top:2px;">{{ a.message }}</div>{% endif %}</td>
+                            <td>{{ a.olt.name|default:"-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="rep-empty">No active alerts. 🎉</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

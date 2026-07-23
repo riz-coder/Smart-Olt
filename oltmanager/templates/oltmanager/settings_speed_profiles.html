@@ -1,0 +1,238 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - Speed Profiles{% endblock %}
+
+{% block extra_css %}
+<style>
+    .sp-tab {
+        padding: 10px 18px;
+        border: 1px solid rgba(255, 255, 255, .14);
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        text-decoration: none;
+        background: rgba(255, 255, 255, .06);
+        color: #dbeafe;
+        font-weight: 600;
+    }
+    .sp-tab + .sp-tab { margin-left: -1px; }
+    .sp-tab.active { background: #ffffff; color: #1d4ed8; }
+    html[data-theme="light"] .sp-tab {
+        border-color: #cdd9ec;
+        background: #eef3fb;
+        color: #5a6b86;
+    }
+    html[data-theme="light"] .sp-tab.active {
+        background: #ffffff;
+        color: #1d4ed8;
+        border-color: #cdd9ec;
+    }
+    .sp-create-card {
+        margin: 0 0 16px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, .04);
+        display: none;
+    }
+    .sp-create-card.is-open { display: block; }
+    .sp-create-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 14px;
+        align-items: end;
+    }
+    .sp-create-field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: #c9daff; }
+    .sp-create-dirs { display: flex; gap: 18px; align-items: center; padding-bottom: 10px; }
+    .sp-create-dirs label { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; color: #dce8ff; }
+    .sp-create-speed { font-weight: 800; color: #79c7ff; font-size: 15px; }
+    .sp-create-error { margin-top: 10px; color: #ff6b77; font-weight: 700; }
+    html[data-theme="light"] .sp-create-card { background: #f4f8fe; border-color: #dce6f3; }
+    html[data-theme="light"] .sp-create-field label,
+    html[data-theme="light"] .sp-create-dirs label { color: #2b3a57; }
+    html[data-theme="light"] .sp-create-speed { color: #1f65d1; }
+    /* User-created profiles: visually separated + distinct colour */
+    .sp-custom-sep td {
+        padding-top: 22px;
+        border-bottom: none;
+        color: #34d399;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .sp-custom-row td { color: #34d399; font-weight: 700; }
+    html[data-theme="light"] .sp-custom-sep td { color: #0f9d63; }
+    html[data-theme="light"] .sp-custom-row td { color: #0f9d63; }
+    .sp-onu-link {
+        color: #79c7ff;
+        font-weight: 800;
+        text-decoration: none;
+    }
+    .sp-onu-link:hover { text-decoration: underline; }
+    html[data-theme="light"] .sp-onu-link { color: #1f65d1; }
+    .sp-del-link {
+        border: none;
+        background: transparent;
+        color: #ff7b86;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        padding: 0;
+    }
+    .sp-del-link:hover { text-decoration: underline; }
+    html[data-theme="light"] .sp-del-link { color: #d23b48; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;">
+            <div>
+                <h2 style="margin:0;">Speed Profiles</h2>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn btn-primary" id="spCreateToggle">Create Speed Profile</button>
+                <a href="{% url 'settings_home' %}" class="btn btn-secondary">Back</a>
+            </div>
+        </div>
+
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        <div class="sp-create-card{% if create_error %} is-open{% endif %}" id="spCreateCard">
+            <form method="post" action="{% url 'settings_speed_profiles' %}?tab={{ active_tab }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_profile">
+                <div class="sp-create-grid">
+                    <div class="sp-create-field">
+                        <label for="spProfileName">Profile Name</label>
+                        <input type="text" class="form-control" id="spProfileName" name="profile_name"
+                               value="{{ create_name }}" placeholder="e.g. 55M" autocomplete="off" required>
+                    </div>
+                    <div class="sp-create-field">
+                        <label>Direction</label>
+                        <div class="sp-create-dirs">
+                            <label><input type="checkbox" name="want_download" value="1" {% if create_download %}checked{% endif %}> Download</label>
+                            <label><input type="checkbox" name="want_upload" value="1" {% if create_upload %}checked{% endif %}> Upload</label>
+                        </div>
+                    </div>
+                    <div class="sp-create-field">
+                        <label>Speed</label>
+                        <div class="sp-create-speed" id="spSpeedPreview">&mdash;</div>
+                    </div>
+                    <div class="sp-create-field">
+                        <button type="submit" class="btn btn-primary" style="width:100%;">Create</button>
+                    </div>
+                </div>
+                {% if create_error %}
+                <div class="sp-create-error">{{ create_error }}</div>
+                {% endif %}
+            </form>
+        </div>
+        <div style="display:flex;gap:0;margin-bottom:14px;align-items:flex-end;">
+            <a href="{% url 'settings_speed_profiles' %}?tab=download"
+               class="sp-tab{% if active_tab == 'download' %} active{% endif %}">
+                Download
+            </a>
+            <a href="{% url 'settings_speed_profiles' %}?tab=upload"
+               class="sp-tab{% if active_tab == 'upload' %} active{% endif %}">
+                Upload
+            </a>
+        </div>
+        {% if sync_warning %}
+        <div style="margin-bottom:14px;padding:10px 12px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:#fcd34d;border-radius:10px;">
+            {{ sync_warning }}
+        </div>
+        {% endif %}
+        {% if builtin_profiles or custom_profiles %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Index Number</th>
+                        <th>Profile Name</th>
+                        <th>Speed</th>
+                        <th>ONUs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for profile in builtin_profiles %}
+                    <tr>
+                        <td>{{ profile.index_number }}</td>
+                        <td>{{ profile.name }}</td>
+                        <td>{{ profile.speed_display }}</td>
+                        <td>
+                            {% if profile.onus_url %}<a href="{{ profile.onus_url }}" class="sp-onu-link">{{ profile.onu_count }}</a>{% else %}{{ profile.onu_count }}{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if custom_profiles %}
+                    <tr class="sp-custom-sep"><td colspan="4">Custom profiles</td></tr>
+                    {% for profile in custom_profiles %}
+                    <tr class="sp-custom-row">
+                        <td>{{ profile.index_number }}</td>
+                        <td>
+                            {{ profile.name }}
+                            {% if profile.onu_count == 0 %}
+                            <form method="post" action="{% url 'settings_speed_profiles' %}?tab={{ active_tab }}" class="inline" style="margin-left:12px;"
+                                  onsubmit="return confirm('Delete {{ profile.name }}? This removes both DOWN and UP for this profile.');">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete_profile">
+                                <input type="hidden" name="profile_key" value="{{ profile.key }}">
+                                <button type="submit" class="sp-del-link" title="Delete this custom profile">Delete</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                        <td>{{ profile.speed_display }}</td>
+                        <td>
+                            {% if profile.onus_url %}<a href="{{ profile.onus_url }}" class="sp-onu-link">{{ profile.onu_count }}</a>{% else %}{{ profile.onu_count }}{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="subtle">No {{ active_tab }} speed profiles found.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const toggle = document.getElementById('spCreateToggle');
+    const card = document.getElementById('spCreateCard');
+    const nameInput = document.getElementById('spProfileName');
+    const preview = document.getElementById('spSpeedPreview');
+    if (toggle && card) {
+        toggle.addEventListener('click', () => {
+            card.classList.toggle('is-open');
+            if (card.classList.contains('is-open') && nameInput) nameInput.focus();
+        });
+    }
+    const updatePreview = () => {
+        if (!nameInput || !preview) return;
+        const match = String(nameInput.value || '').match(/(\d+(?:\.\d+)?)/);
+        if (!match) { preview.innerHTML = '&mdash;'; return; }
+        const mbps = parseFloat(match[1]);
+        if (!(mbps > 0)) { preview.innerHTML = '&mdash;'; return; }
+        const kbps = Math.round(mbps * 1024);
+        preview.textContent = `${kbps.toLocaleString()} kbps`;
+    };
+    if (nameInput) {
+        nameInput.addEventListener('input', updatePreview);
+        updatePreview();
+    }
+})();
+</script>
+{% endblock %}

@@ -10,26 +10,68 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_local_env(path):
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env(BASE_DIR / ".env")
+
+
+def _env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name, default=None):
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return list(default or [])
+    return [part.strip() for part in raw_value.split(",") if part.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-8e@synq^olcd3xfp-a=y-mlhk)z1yf63*yj+3%*#3@c5ep9jid'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-dev-only-change-this-before-production",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = [
-    '127.0.0.1',
-    'localhost',
-    '10.101.11.22',
-]
+ALLOWED_HOSTS = _env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    ["127.0.0.1", "localhost", "10.101.11.22"],
+)
+CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [])
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = _env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
+SESSION_COOKIE_SECURE = _env_bool("DJANGO_SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = _env_bool("DJANGO_CSRF_COOKIE_SECURE", False)
+SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = _env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
 
 
 # Application definition
@@ -84,16 +126,29 @@ CHANNEL_LAYERS = {
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': os.environ.get('SQLITE_DB_PATH', str(BASE_DIR / 'db.sqlite3')),
         'OPTIONS': {
-            'timeout': 30,
+            'timeout': int(os.environ.get('SQLITE_TIMEOUT_SECONDS', '30')),
         },
     }
 }
+
+OLT_SAMPLE_RETENTION_DAYS = {
+    'onu_optical': int(os.environ.get('OLT_ONU_OPTICAL_RETENTION_DAYS', '15')),
+    'onu_status': int(os.environ.get('OLT_ONU_STATUS_RETENTION_DAYS', '30')),
+    'onu_traffic': int(os.environ.get('OLT_ONU_TRAFFIC_RETENTION_DAYS', '30')),
+    'pon_traffic': int(os.environ.get('OLT_PON_TRAFFIC_RETENTION_DAYS', '30')),
+    'pon_port_traffic': int(os.environ.get('OLT_PON_PORT_TRAFFIC_RETENTION_DAYS', '30')),
+    'uplink_port_traffic': int(os.environ.get('OLT_UPLINK_PORT_TRAFFIC_RETENTION_DAYS', '30')),
+    'dashboard_status': int(os.environ.get('OLT_DASHBOARD_STATUS_RETENTION_DAYS', '180')),
+}
+OLT_ONU_OPTICAL_SAMPLE_INTERVAL_SECONDS = int(os.environ.get('OLT_ONU_OPTICAL_SAMPLE_INTERVAL_SECONDS', '3600'))
+OLT_SAMPLE_RETENTION_BATCH_SIZE = int(os.environ.get('OLT_SAMPLE_RETENTION_BATCH_SIZE', '5000'))
+OLT_SAMPLE_RETENTION_MAX_BATCHES_PER_MODEL = int(os.environ.get('OLT_SAMPLE_RETENTION_MAX_BATCHES_PER_MODEL', '4'))
+OLT_SAMPLE_RETENTION_CLEANUP_SECONDS = int(os.environ.get('OLT_SAMPLE_RETENTION_CLEANUP_SECONDS', '3600'))
 
 
 # Password validation
@@ -118,9 +173,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = os.environ.get('DJANGO_LANGUAGE_CODE', 'en-us')
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'Asia/Karachi')
 
 USE_I18N = True
 
@@ -131,6 +186,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'olt_list'
@@ -140,3 +199,36 @@ LOGOUT_REDIRECT_URL = 'login'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ---------------------------------------------------------------------------
+# Email (alerts) SENDER — configured ONCE by the provider/installer, NOT by the
+# end customer. Customers only choose recipient addresses in Settings > Alerts.
+#
+# Recommended: a transactional e-mail service (great deliverability, free tiers,
+# no Gmail "app password" hassle). Set these env vars at deploy time, e.g.:
+#
+#   Brevo (Sendinblue):
+#     OLT_EMAIL_HOST=smtp-relay.brevo.com  OLT_EMAIL_PORT=587  OLT_EMAIL_USE_TLS=true
+#     OLT_EMAIL_USER=<brevo-login>  OLT_EMAIL_PASSWORD=<brevo-smtp-key>
+#     OLT_EMAIL_FROM="OptiVerse Alerts <alerts@yourdomain.com>"
+#
+#   SendGrid:  host smtp.sendgrid.net, user "apikey", password=<api-key>
+#   Amazon SES: host email-smtp.<region>.amazonaws.com, SES SMTP creds
+#
+# Local testing without any server (prints e-mails to the console):
+#   OLT_EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+# ---------------------------------------------------------------------------
+EMAIL_BACKEND = os.environ.get(
+    'OLT_EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend'
+)
+EMAIL_HOST = os.environ.get('OLT_EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('OLT_EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('OLT_EMAIL_USE_TLS', 'true').strip().lower() in {'1', 'true', 'yes'}
+EMAIL_USE_SSL = os.environ.get('OLT_EMAIL_USE_SSL', 'false').strip().lower() in {'1', 'true', 'yes'}
+EMAIL_HOST_USER = os.environ.get('OLT_EMAIL_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('OLT_EMAIL_PASSWORD', '')
+EMAIL_TIMEOUT = int(os.environ.get('OLT_EMAIL_TIMEOUT', '20'))
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'OLT_EMAIL_FROM', EMAIL_HOST_USER or 'OptiVerse Alerts <alerts@optiverse.local>'
+)

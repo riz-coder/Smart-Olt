@@ -1,304 +1,185 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telnet {{ olt.name }}</title>
+    <title>CLI - {{ olt.name }}</title>
+    <link rel="stylesheet" href="{% static 'oltmanager/vendor/xterm.css' %}">
     <style>
         * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            height: 100vh;
-            background: #000;
-            color: #a7fca7;
-            font-family: Consolas, "Courier New", monospace;
-        }
-        .cli-output {
-            height: 100vh;
-            margin: 0;
-            padding: 10px 12px;
-            overflow: auto;
-            white-space: pre-wrap;
-            line-height: 1.35;
-            font-size: 14px;
-            outline: none;
-        }
-        .cursor {
-            display: inline-block;
-            width: 10px;
-            color: #a7fca7;
-            animation: blink 1s steps(1) infinite;
-        }
-        @keyframes blink {
-            50% { opacity: 0; }
-        }
+        html, body { margin: 0; height: 100%; background: #000; }
+        #term { height: 100vh; width: 100vw; }
+        .xterm { padding: 8px 10px; }
+        .xterm-viewport::-webkit-scrollbar { width: 10px; }
+        .xterm-viewport::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 6px; }
     </style>
 </head>
 <body>
-    {% csrf_token %}
     <input type="hidden" id="cliCsrfToken" value="{{ csrf_token }}">
+    <div id="term"></div>
 
-    <pre class="cli-output" id="cliOutput" tabindex="0">Connecting...
-</pre>
-
-<script>
-(() => {
-    const output = document.getElementById('cliOutput');
-    const csrf = document.getElementById('cliCsrfToken').value;
-    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${wsScheme}://${window.location.host}/ws/olt/{{ olt.pk }}/cli/`;
-    const openUrl = "{% url 'olt_cli_open' olt.pk %}";
-    const runUrl = "{% url 'olt_cli_run' olt.pk %}";
-    const closeUrl = "{% url 'olt_cli_close' olt.pk %}";
-
-    let connected = false;
-    let socket = null;
-    let mode = 'ws';
-    let wsEverConnected = false;
-    let httpConnectInProgress = false;
-    let inputQueue = Promise.resolve();
-    let terminalBuffer = '';
-
-    const escapeHtml = (text) =>
-        String(text)
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;');
-
-    const renderBuffer = () => {
-        output.innerHTML = `${escapeHtml(terminalBuffer)}<span class="cursor">_</span>`;
-        output.scrollTop = output.scrollHeight;
-    };
-
-    const removeOneFromCurrentLine = () => {
-        const lastNewline = terminalBuffer.lastIndexOf('\n');
-        const floor = lastNewline >= 0 ? lastNewline + 1 : 0;
-        if (terminalBuffer.length > floor) {
-            terminalBuffer = terminalBuffer.slice(0, -1);
-        }
-    };
-
-    const applyChunk = (text) => {
-        if (!text) return;
-        let chunk = String(text);
-        chunk = chunk
-            .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // ANSI CSI
-            .replace(/\x1b[@-_]/g, '') // single escape
-            .replace(/\x07/g, ''); // bell
-
-        for (let i = 0; i < chunk.length; i += 1) {
-            const ch = chunk[i];
-            if (ch === '\b' || ch === '\u007f') {
-                removeOneFromCurrentLine();
-                continue;
-            }
-            if (ch === '\r') {
-                continue;
-            }
-            terminalBuffer += ch;
-        }
-
-        if (terminalBuffer.length > 200000) {
-            terminalBuffer = terminalBuffer.slice(-150000);
-        }
-
-        renderBuffer();
-    };
-
-    const post = async (url, data = {}) => {
-        const body = new URLSearchParams(data);
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                'X-CSRFToken': csrf,
-            },
-            body: body.toString(),
+    <script src="{% static 'oltmanager/vendor/xterm.js' %}"></script>
+    <script src="{% static 'oltmanager/vendor/addon-fit.js' %}"></script>
+    <script>
+    (() => {
+        const term = new Terminal({
+            cursorBlink: true,
+            fontFamily: 'Consolas, "Courier New", monospace',
+            fontSize: 14,
+            scrollback: 8000,
+            // Treat a bare LF as CR+LF so the device's line breaks return to
+            // column 0 (otherwise the prompt "stair-steps" to the right).
+            convertEol: true,
+            theme: { background: '#000000', foreground: '#a7fca7', cursor: '#a7fca7' },
         });
-        return res.json();
-    };
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('term'));
+        const safeFit = () => { try { fitAddon.fit(); } catch (e) {} };
+        safeFit();
+        term.focus();
+        window.addEventListener('resize', safeFit);
 
-    const connectHttp = async () => {
-        if (httpConnectInProgress) return;
-        httpConnectInProgress = true;
-        mode = 'http';
-        output.textContent = '';
-        terminalBuffer = '';
-        applyChunk('Connecting (HTTP fallback)...\r\n');
-        try {
-            const result = await post(openUrl);
-            if (!result.ok) {
-                connected = false;
-                applyChunk(`\r\n${result.message || 'Connect failed.'}\r\n`);
-                return;
-            }
-            connected = true;
-            output.textContent = '';
-            terminalBuffer = '';
-            applyChunk(result.output || 'CLI connected.\r\n');
-            output.focus();
-        } catch {
-            connected = false;
-            applyChunk('\r\nConnection error.\r\n');
-        } finally {
-            httpConnectInProgress = false;
-        }
-    };
+        const csrf = document.getElementById('cliCsrfToken').value;
+        const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${wsScheme}://${window.location.host}/ws/olt/{{ olt.pk }}/cli/`;
+        const openUrl = "{% url 'olt_cli_open' olt.pk %}";
+        const runUrl = "{% url 'olt_cli_run' olt.pk %}";
+        const closeUrl = "{% url 'olt_cli_close' olt.pk %}";
 
-    const fallbackToHttp = async () => {
-        if (mode === 'http') return;
-        await connectHttp();
-    };
+        let socket = null;
+        let connected = false;
+        let mode = 'ws';
+        let wsEverConnected = false;
+        let httpConnectInProgress = false;
+        let httpQueue = Promise.resolve();
 
-    const connectWs = async () => {
-        output.textContent = '';
-        terminalBuffer = '';
-        applyChunk('Connecting...\r\n');
-        mode = 'ws';
-        socket = new WebSocket(wsUrl);
-
-        const wsTimeout = setTimeout(() => {
-            if (!wsEverConnected && socket && socket.readyState !== WebSocket.OPEN) {
-                try { socket.close(); } catch {}
-                fallbackToHttp();
-            }
-        }, 2500);
-
-        socket.onopen = () => {
-            clearTimeout(wsTimeout);
-            connected = true;
-            wsEverConnected = true;
-            output.textContent = '';
-            terminalBuffer = '';
-            output.focus();
+        const post = async (url, data = {}) => {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'X-CSRFToken': csrf,
+                },
+                body: new URLSearchParams(data).toString(),
+            });
+            return res.json();
         };
 
-        socket.onmessage = (event) => {
+        term.write('Connecting...\r\n');
+
+        // Every keystroke (printable chars, Enter=\r, Backspace=\x7f, Tab=\t, '?',
+        // arrow keys as ESC sequences, Ctrl-C=\x03) is sent raw to the device.
+        // The device echoes + handles its own line editing; we just render it.
+        term.onData((data) => {
+            if (!connected) return;
+            if (mode === 'ws') {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: 'input', data }));
+                }
+            } else {
+                httpQueue = httpQueue.then(() => sendInputHttp(data));
+            }
+        });
+
+        const sendInputHttp = async (data) => {
+            if (!connected) return;
             try {
-                const payload = JSON.parse(event.data || '{}');
-                if (payload.type === 'output') {
-                    applyChunk(payload.data || '');
+                const result = await post(runUrl, { data });
+                if (result.ok) {
+                    if (result.output) term.write(result.output);
+                } else {
+                    term.write(`\r\n${result.message || 'Command failed.'}\r\n`);
                 }
             } catch {
-                applyChunk(event.data || '');
+                term.write('\r\nRequest failed.\r\n');
             }
         };
 
-        socket.onerror = () => {
-            if (!wsEverConnected) {
-                fallbackToHttp();
-            } else {
-                applyChunk('\r\nConnection error.\r\n');
+        const connectHttp = async () => {
+            if (httpConnectInProgress) return;
+            httpConnectInProgress = true;
+            mode = 'http';
+            term.reset();
+            term.write('Connecting (HTTP fallback)...\r\n');
+            try {
+                const result = await post(openUrl);
+                if (!result.ok) {
+                    connected = false;
+                    term.write(`\r\n${result.message || 'Connect failed.'}\r\n`);
+                    return;
+                }
+                connected = true;
+                term.reset();
+                term.write(result.output || '');
+                term.focus();
+            } catch {
+                connected = false;
+                term.write('\r\nConnection error.\r\n');
+            } finally {
+                httpConnectInProgress = false;
             }
         };
 
-        socket.onclose = () => {
-            clearTimeout(wsTimeout);
-            connected = false;
-            if (!wsEverConnected) {
-                fallbackToHttp();
-            } else {
-                applyChunk('\r\nSession closed.\r\n');
-            }
+        const connectWs = () => {
+            mode = 'ws';
+            socket = new WebSocket(wsUrl);
+
+            const wsTimeout = setTimeout(() => {
+                if (!wsEverConnected && socket && socket.readyState !== WebSocket.OPEN) {
+                    try { socket.close(); } catch {}
+                    connectHttp();
+                }
+            }, 2500);
+
+            socket.onopen = () => {
+                clearTimeout(wsTimeout);
+                connected = true;
+                wsEverConnected = true;
+                term.reset();
+                term.focus();
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data || '{}');
+                    if (payload.type === 'output') term.write(payload.data || '');
+                } catch {
+                    term.write(event.data || '');
+                }
+            };
+
+            socket.onerror = () => {
+                if (!wsEverConnected) connectHttp();
+            };
+
+            socket.onclose = () => {
+                clearTimeout(wsTimeout);
+                connected = false;
+                if (!wsEverConnected) {
+                    connectHttp();
+                } else {
+                    term.write('\r\n\x1b[33mSession closed.\x1b[0m\r\n');
+                }
+            };
         };
-    };
 
-    const connect = async () => {
-        wsEverConnected = false;
-        await connectWs();
-    };
-
-    const disconnect = async () => {
-        if (mode === 'http') {
-            try { await post(closeUrl); } catch {}
-            connected = false;
-            return;
-        }
-        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-            socket.close();
-        }
-        connected = false;
-    };
-
-    const sendInputHttp = async (data) => {
-        if (!connected) return;
-        try {
-            const result = await post(runUrl, { data });
-            if (!result.ok) {
-                applyChunk(`\r\n${result.message || 'Command failed.'}\r\n`);
+        const disconnect = () => {
+            if (mode === 'http') {
+                post(closeUrl).catch(() => {});
+                connected = false;
                 return;
             }
-            applyChunk(result.output || '');
-        } catch {
-            applyChunk('\r\nRequest failed.\r\n');
-        }
-    };
+            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                socket.close();
+            }
+            connected = false;
+        };
 
-    const sendInput = (data) => {
-        if (!connected) return;
-        if (mode === 'http') {
-            inputQueue = inputQueue.then(() => sendInputHttp(data));
-            return;
-        }
-        if (!socket || socket.readyState !== WebSocket.OPEN) return;
-        socket.send(JSON.stringify({ type: 'input', data }));
-    };
-
-    const onKeyDown = (event) => {
-        if (!connected) return;
-        if (event.repeat && event.key === 'Enter') return;
-        if (
-            event.key === 'Tab' ||
-            event.key === 'Enter' ||
-            event.key === 'Backspace' ||
-            event.key.startsWith('Arrow')
-        ) {
-            event.preventDefault();
-        }
-
-        if (event.key === 'Enter') {
-            sendInput('\r\n');
-            return;
-        }
-        if (event.key === 'Tab') {
-            sendInput('\t');
-            return;
-        }
-        if (event.key === 'Backspace') {
-            removeOneFromCurrentLine();
-            renderBuffer();
-            // Send DEL for line-edit on most OLT CLIs.
-            sendInput('\u007f');
-            return;
-        }
-        if (event.key === 'ArrowUp') {
-            sendInput('\u001b[A');
-            return;
-        }
-        if (event.key === 'ArrowDown') {
-            sendInput('\u001b[B');
-            return;
-        }
-        if (event.key === 'ArrowRight') {
-            sendInput('\u001b[C');
-            return;
-        }
-        if (event.key === 'ArrowLeft') {
-            sendInput('\u001b[D');
-            return;
-        }
-        if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
-            event.preventDefault();
-            sendInput(event.key);
-        }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    output.addEventListener('click', () => output.focus());
-
-    window.addEventListener('beforeunload', () => { disconnect(); });
-    connect();
-})();
-</script>
+        window.addEventListener('beforeunload', disconnect);
+        connectWs();
+    })();
+    </script>
 </body>
 </html>

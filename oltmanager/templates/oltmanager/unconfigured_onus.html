@@ -205,6 +205,34 @@
         border-radius: 8px;
         white-space: nowrap;
     }
+    .autofind-action-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        min-width: 150px;
+    }
+    .btn-authorize {
+        border-color: rgba(34, 197, 94, 0.34) !important;
+        background: linear-gradient(180deg, #22c55e 0%, #16934a 100%) !important;
+        color: #f6fff9 !important;
+        box-shadow: 0 6px 16px rgba(22, 147, 74, 0.22);
+    }
+    .btn-authorize:hover {
+        background: linear-gradient(180deg, #28d266 0%, #15803d 100%) !important;
+        color: #ffffff !important;
+    }
+    .btn-reconfigure {
+        border-color: rgba(22, 101, 52, 0.42) !important;
+        background: linear-gradient(180deg, #166534 0%, #14532d 100%) !important;
+        color: #f3fff7 !important;
+        box-shadow: 0 6px 16px rgba(20, 83, 45, 0.24);
+    }
+    .btn-reconfigure:hover {
+        background: linear-gradient(180deg, #1b7a3f 0%, #166534 100%) !important;
+        color: #ffffff !important;
+    }
     .previous-running {
         display: inline-flex;
         align-items: center;
@@ -222,12 +250,374 @@
     .previous-running.is-empty {
         color: #8fa7c9;
     }
+    .authorize-trigger {
+        margin-left: 8px;
+    }
+    .authorize-row {
+        display: none;
+    }
+    .authorize-row.is-open {
+        display: table-row;
+    }
+    .authorize-panel {
+        margin-top: 8px;
+        padding: 18px;
+        border-radius: 14px;
+        background: rgba(11, 24, 48, 0.9);
+        border: 1px solid rgba(71, 111, 178, 0.38);
+    }
+    .authorize-panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .authorize-panel-head h4 {
+        margin: 0;
+        color: #f5f8ff;
+        font-size: 15px;
+        font-weight: 800;
+    }
+    .authorize-panel-note {
+        color: #8ea7cc;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .authorize-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 14px 16px;
+    }
+    .authorize-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+    }
+    .authorize-field label {
+        color: #d8e6ff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .authorize-field input,
+    .authorize-field select {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid rgba(88, 126, 194, 0.28);
+        border-radius: 10px;
+        background: #ffffff;
+        color: #111827;
+        padding: 0 12px;
+        font: inherit;
+    }
+    .authorize-field input[readonly],
+    .authorize-field input:disabled,
+    .authorize-field select:disabled {
+        background: #e9eef7;
+        color: #263449;
+        cursor: not-allowed;
+    }
+    .authorize-field input::placeholder {
+        color: #6b7280;
+    }
+    .authorize-field select option {
+        color: #111827;
+        background: #ffffff;
+    }
+    .authorize-inline-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        color: #d8e6ff;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .authorize-inline-check input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        min-height: auto;
+        margin: 0;
+        accent-color: #2f80ff;
+    }
+    .authorize-field.is-wide {
+        grid-column: 1 / -1;
+    }
+    .authorize-submit-row {
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+    }
+    .authorize-submit-row .btn {
+        min-width: 180px;
+    }
+    .debug-panel {
+        margin: 0 0 18px;
+        padding: 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(82, 146, 255, 0.28);
+        background: rgba(9, 18, 36, 0.92);
+    }
+    .debug-panel h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .debug-panel pre {
+        margin: 0;
+        max-height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border-radius: 12px;
+        background: rgba(2, 8, 22, 0.86);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 14px;
+        color: #d6e6ff;
+        font-size: 12px;
+        line-height: 1.55;
+    }
+    .authorize-empty {
+        color: #8ea7cc;
+        font-size: 12px;
+        font-weight: 700;
+        padding-top: 2px;
+    }
+    .autofind-loading-card {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .autofind-loading-card:first-of-type {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+    .autofind-loading-title {
+        margin: 0 0 10px;
+        font-size: 15px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .autofind-loading-body {
+        min-height: 72px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.03);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #9db0cf;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+        padding: 14px;
+    }
+    .olt-wait-overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(4, 10, 22, 0.74);
+        backdrop-filter: blur(6px);
+        z-index: 9999;
+    }
+    .olt-wait-overlay.is-open {
+        display: flex;
+    }
+    .olt-wait-card {
+        min-width: 280px;
+        padding: 28px 32px;
+        border-radius: 22px;
+        border: 1px solid rgba(105, 165, 255, 0.28);
+        background: linear-gradient(180deg, rgba(16, 30, 58, 0.98) 0%, rgba(9, 18, 36, 0.98) 100%);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+        text-align: center;
+    }
+    .olt-wait-wheel {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 18px;
+        border-radius: 50%;
+        border: 6px solid rgba(255,255,255,0.12);
+        border-top-color: #4f8dff;
+        border-right-color: #67d39c;
+        animation: oltWaitSpin 0.9s linear infinite;
+    }
+    .olt-wait-card h3 {
+        margin: 0 0 8px;
+        color: #f4f8ff;
+        font-size: 24px;
+        font-weight: 800;
+    }
+    .olt-wait-card p {
+        margin: 0;
+        color: #b9cceb;
+        font-size: 14px;
+        font-weight: 700;
+    }
+    .olt-wait-stage {
+        margin: 0 0 14px;
+        color: #b9cceb;
+        font-size: 13px;
+        font-weight: 700;
+        min-height: 18px;
+    }
+    .olt-wait-progress {
+        width: 100%;
+        height: 10px;
+        margin: 0 0 12px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+    }
+    .olt-wait-progress-bar {
+        width: 6%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #4f8dff 0%, #67d39c 100%);
+        box-shadow: 0 0 18px rgba(79, 141, 255, 0.28);
+        transition: width 0.45s ease;
+    }
+    .olt-wait-steps {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        text-align: left;
+        display: grid;
+        gap: 8px;
+    }
+    .olt-wait-steps li {
+        color: #7f97bb;
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: color 0.2s ease;
+    }
+    .olt-wait-steps li::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.14);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+        flex: 0 0 auto;
+    }
+    .olt-wait-steps li.is-active {
+        color: #dff2ff;
+    }
+    .olt-wait-steps li.is-active::before {
+        background: #4f8dff;
+        box-shadow: 0 0 12px rgba(79, 141, 255, 0.5);
+    }
+    .olt-wait-steps li.is-done {
+        color: #9fe7bf;
+    }
+    .olt-wait-steps li.is-done::before {
+        background: #67d39c;
+        box-shadow: 0 0 12px rgba(103, 211, 156, 0.45);
+    }
+    @keyframes oltWaitSpin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    @media (max-width: 900px) {
+        .authorize-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* OLT Unreachable text — red in both themes */
+    .olt-unreachable-text { color: #ff6b6b; font-weight: 800; }
+
+    /* ============================ LIGHT THEME (Autofind) ============================ */
+    html[data-theme="light"] .search-group label,
+    html[data-theme="light"] .authorize-field label,
+    html[data-theme="light"] .authorize-inline-check { color: #2b3a57; }
+    html[data-theme="light"] .search-input,
+    html[data-theme="light"] .multi-filter summary,
+    html[data-theme="light"] .multi-filter-search input {
+        background: #f7faff;
+        border-color: #cdd9ec;
+        color: #16233c;
+    }
+    html[data-theme="light"] .multi-filter-menu,
+    html[data-theme="light"] .multi-filter-search {
+        background: #ffffff;
+        border-color: #d6e0ee;
+    }
+    html[data-theme="light"] .multi-filter-actions { border-bottom-color: rgba(20, 40, 80, 0.10); }
+    html[data-theme="light"] .multi-filter-actions button { color: #1f65d1; }
+    html[data-theme="light"] .multi-filter-item { color: #2b3a57; }
+    html[data-theme="light"] .multi-filter-item small { color: #5a6b86; }
+    html[data-theme="light"] .sn-pill {
+        background: rgba(47, 128, 255, 0.10);
+        border-color: rgba(47, 128, 255, 0.30);
+        color: #1f65d1;
+    }
+    html[data-theme="light"] .muted-cell { color: #5a6b86; }
+    html[data-theme="light"] .olt-group { border-top-color: rgba(20, 40, 80, 0.10); }
+    html[data-theme="light"] .olt-group-title { color: #16233c; }
+    html[data-theme="light"] .autofind-summary,
+    html[data-theme="light"] .autofind-summary a { color: #3a4862; }
+    html[data-theme="light"] .autofind-summary a:hover { color: #16233c; }
+    html[data-theme="light"] .previous-running {
+        background: #f1f5fc;
+        border-color: #dce6f3;
+        color: #5b4b86;
+    }
+    html[data-theme="light"] .previous-running.is-empty { color: #5a6b86; }
+    html[data-theme="light"] .autofind-loading-body {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+        color: #5a6b86;
+    }
+    html[data-theme="light"] .authorize-panel {
+        background: #f4f8fe;
+        border-color: #cdd9ec;
+    }
+    html[data-theme="light"] .authorize-panel-head h4 { color: #16233c; }
+    html[data-theme="light"] .authorize-panel-note { color: #5a6b86; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="shell">
     <section class="panel">
+        <div class="olt-wait-overlay" id="olt-wait-overlay" aria-hidden="true">
+            <div class="olt-wait-card">
+                <div class="olt-wait-wheel"></div>
+                <h3>Waiting for OLT</h3>
+                <p class="olt-wait-stage" id="olt-wait-stage">Starting the session...</p>
+                <div class="olt-wait-progress" aria-hidden="true">
+                    <div class="olt-wait-progress-bar" id="olt-wait-progress-bar"></div>
+                </div>
+                <ul class="olt-wait-steps" id="olt-wait-steps">
+                    <li data-step-index="0" class="is-active">Opening the Telnet session</li>
+                    <li data-step-index="1">Checking required profiles</li>
+                    <li data-step-index="2">Preparing traffic tables</li>
+                    <li data-step-index="3">Adding and binding the ONU</li>
+                    <li data-step-index="4">Saving the configuration</li>
+                </ul>
+                <span id="authorize-progress-url-tpl" data-url="{% url 'unconfigured_onu_authorize_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
+            </div>
+        </div>
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
         <form method="get" class="search-bar">
             <div class="search-group">
                 <label>Search</label>
@@ -260,60 +650,27 @@
             <button type="submit" class="btn btn-primary">Refresh</button>
         </form>
         <div class="autofind-summary">
-            <span><a href="{% url 'unconfigured_onus' %}{% if unconfigured_selected_olts or unconfigured_search_query %}?{% endif %}{% for olt in unconfigured_selected_olts %}olts={{ olt }}&{% endfor %}{% if unconfigured_search_query %}q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if not unconfigured_category_filter %}summary-filter-active{% endif %}">Total ONUs: {{ unconfigured_total }}</a></span>
-            <span><a href="{% url 'unconfigured_onus' %}?category=resync{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'resync' %}summary-filter-active{% endif %}">Resync: {{ unconfigured_resync_total|default:0 }}</a></span>
-            <span><a href="{% url 'unconfigured_onus' %}?category=new{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'new' %}summary-filter-active{% endif %}">New: {{ unconfigured_new_total|default:0 }}</a></span>
+            <span><a href="{% url 'unconfigured_onus' %}{% if unconfigured_selected_olts or unconfigured_search_query %}?{% endif %}{% for olt in unconfigured_selected_olts %}olts={{ olt }}&{% endfor %}{% if unconfigured_search_query %}q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if not unconfigured_category_filter %}summary-filter-active{% endif %}">Total ONUs: <span data-unconfigured-total>{{ unconfigured_total }}</span></a></span>
+            <span><a href="{% url 'unconfigured_onus' %}?category=resync{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'resync' %}summary-filter-active{% endif %}">Resync: <span data-unconfigured-resync>{{ unconfigured_resync_total|default:0 }}</span></a></span>
+            <span><a href="{% url 'unconfigured_onus' %}?category=new{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'new' %}summary-filter-active{% endif %}">New: <span data-unconfigured-new>{{ unconfigured_new_total|default:0 }}</span></a></span>
         </div>
 
+        <div data-unconfigured-groups-root>
         {% for group in unconfigured_groups %}
-        <div class="olt-group">
-            <h3 class="olt-group-title">{{ group.index }} - {{ group.olt_name }}</h3>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>No.</th>
-                            <th>PON type</th>
-                            <th>Board</th>
-                            <th>Port</th>
-                            <th>SN</th>
-                            <th>Category</th>
-                            <th>Previous Running</th>
-                            <th>Autofind time</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in group.rows %}
-                        <tr>
-                            <td>{{ row.number|default:forloop.counter }}</td>
-                            <td>{{ row.pon_type|default:"-" }}</td>
-                            <td>{% if row.board is not None %}{{ row.board }}{% else %}-{% endif %}</td>
-                            <td>{% if row.port is not None %}{{ row.port }}{% else %}-{% endif %}</td>
-                            <td><span class="sn-pill">{{ row.sn|default:"-" }}</span></td>
-                            <td><span class="category-chip {{ row.category|default:'new' }}">{{ row.category_label|default:"New" }}</span></td>
-                            <td>
-                                <span class="previous-running{% if row.previous_running == '-' %} is-empty{% endif %}">{{ row.previous_running|default:"-" }}</span>
-                            </td>
-                            <td>{{ row.autofind_time|default:"-" }}</td>
-                            <td>
-                                {% if row.existing_onu_url %}
-                                <a href="{{ row.existing_onu_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-mini">View ONU</a>
-                                {% else %}
-                                <span class="muted-cell">-</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="9" class="muted-cell">No autofind ONUs found for this OLT.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            {% include "oltmanager/_unconfigured_group.html" %}
+        {% endfor %}
+        {% for target in unconfigured_group_targets %}
+        <div
+            class="autofind-loading-card"
+            data-unconfigured-group-placeholder
+            data-group-url="{% url 'unconfigured_onus_group_data' target.olt_id %}?index={{ target.index }}&return_query={{ unconfigured_return_query|urlencode }}{% if unconfigured_category_filter %}&category={{ unconfigured_category_filter|urlencode }}{% endif %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}"
+        >
+            <h3 class="autofind-loading-title">{{ target.index }} - {{ target.olt_name }}</h3>
+            <div class="autofind-loading-body">Loading autofind rows for this OLT...</div>
         </div>
-        {% empty %}
+        {% endfor %}
+        </div>
+        {% if not unconfigured_groups and not unconfigured_group_targets %}
         <div class="table-wrap">
             <table>
                 <tbody>
@@ -329,7 +686,7 @@
                 </tbody>
             </table>
         </div>
-        {% endfor %}
+        {% endif %}
     </section>
 </div>
 <script>
@@ -372,6 +729,192 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
         });
+    }
+
+    const waitOverlay = document.getElementById('olt-wait-overlay');
+    const waitStage = document.getElementById('olt-wait-stage');
+    const waitProgressBar = document.getElementById('olt-wait-progress-bar');
+    const waitSteps = Array.from(document.querySelectorAll('#olt-wait-steps [data-step-index]'));
+    const _progressUrlTpl = document.getElementById('authorize-progress-url-tpl');
+    const _progressUrlBase = _progressUrlTpl ? _progressUrlTpl.getAttribute('data-url') : '';
+    const _getProgressUrl = (taskId) => _progressUrlBase.replace('TASK_ID_PLACEHOLDER', taskId);
+
+    // step → progress % mapping (matches backend step indices 0-4)
+    const STEP_PROGRESS = [14, 32, 52, 74, 90];
+
+    const setWaitStep = (activeIndex, progress, text) => {
+        if (waitStage) waitStage.textContent = text || 'Waiting for OLT response...';
+        if (waitProgressBar) waitProgressBar.style.width = `${progress || 18}%`;
+        waitSteps.forEach((node) => {
+            node.classList.remove('is-active', 'is-done');
+            const index = Number(node.getAttribute('data-step-index') || 0);
+            if (index < activeIndex) node.classList.add('is-done');
+            if (index === activeIndex) node.classList.add('is-active');
+        });
+    };
+    const renderWaitOverlayStage = () => setWaitStep(0, STEP_PROGRESS[0], 'Opening the Telnet session...');
+
+    // ── progress polling (replaces time-based timeline) ──────────────────────
+    let _pollTimer = null;
+    const stopProgressPolling = () => {
+        if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+    };
+    const startProgressPolling = (taskId, onDone) => {
+        stopProgressPolling();
+        const url = _getProgressUrl(taskId);
+        const poll = async () => {
+            try {
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!res.ok) {
+                    stopProgressPolling();
+                    onDone({ ok: false, done: true, message: 'Progress check failed.' });
+                    return;
+                }
+                const data = await res.json().catch(() => ({}));
+                const step = Number(data.step || 0);
+                const prog = STEP_PROGRESS[step] !== undefined ? STEP_PROGRESS[step] : 14;
+                setWaitStep(step, prog, data.label || '');
+                if (data.done) {
+                    stopProgressPolling();
+                    onDone(data);
+                }
+            } catch (_) {
+                // transient network error — keep polling
+            }
+        };
+        poll();
+        _pollTimer = setInterval(poll, 600);
+    };
+
+    const showWaitOverlay = () => {
+        renderWaitOverlayStage();
+        if (waitOverlay) {
+            waitOverlay.classList.add('is-open');
+            waitOverlay.setAttribute('aria-hidden', 'false');
+        }
+    };
+    const hideWaitOverlay = () => {
+        stopProgressPolling();
+        if (waitOverlay) {
+            waitOverlay.classList.remove('is-open');
+            waitOverlay.setAttribute('aria-hidden', 'true');
+        }
+        renderWaitOverlayStage();
+    };
+
+    const wireAuthorizeButtons = (scope) => {
+        const root = scope || document;
+        const authorizeButtons = Array.from(root.querySelectorAll('[data-authorize-toggle]'));
+        authorizeButtons.forEach((button) => {
+            if (button.dataset.authorizeBound === '1') return;
+            button.dataset.authorizeBound = '1';
+            button.addEventListener('click', function () {
+                const key = button.getAttribute('data-authorize-toggle');
+                const target = document.querySelector(`[data-authorize-panel="${key}"]`);
+                if (!target) return;
+                const isOpen = target.classList.contains('is-open');
+                document.querySelectorAll('[data-authorize-panel]').forEach((panel) => panel.classList.remove('is-open'));
+                document.querySelectorAll('[data-authorize-toggle]').forEach((btn) => { btn.textContent = 'Authorize'; });
+                if (!isOpen) {
+                    target.classList.add('is-open');
+                    button.textContent = 'Close';
+                    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        });
+    };
+
+    const wireAuthorizeForms = (scope) => {
+        const root = scope || document;
+        const forms = Array.from(root.querySelectorAll('.unconfigured-authorize-form'));
+        forms.forEach((form) => {
+            if (form.dataset.ajaxBound === '1') return;
+            form.dataset.ajaxBound = '1';
+            form.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) submitButton.disabled = true;
+                showWaitOverlay();
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.message || 'Authorize request failed.');
+                    }
+                    // Server returned a task_id — start real-time progress polling
+                    startProgressPolling(data.task_id, (result) => {
+                        if (result.ok && result.redirect_url) {
+                            setWaitStep(4, 100, 'Configuration completed.');
+                            window.location.href = result.redirect_url;
+                        } else {
+                            hideWaitOverlay();
+                            if (submitButton) submitButton.disabled = false;
+                            window.alert(result.message || 'Authorize failed.');
+                        }
+                    });
+                } catch (error) {
+                    hideWaitOverlay();
+                    if (submitButton) submitButton.disabled = false;
+                    window.alert(error.message || 'Authorize request failed.');
+                }
+            });
+        });
+    };
+
+    const totalNode = document.querySelector('[data-unconfigured-total]');
+    const newNode = document.querySelector('[data-unconfigured-new]');
+    const resyncNode = document.querySelector('[data-unconfigured-resync]');
+    let loadedTotal = Number(totalNode ? totalNode.textContent : 0) || 0;
+    let loadedNew = Number(newNode ? newNode.textContent : 0) || 0;
+    let loadedResync = Number(resyncNode ? resyncNode.textContent : 0) || 0;
+    const renderSummary = () => {
+        if (totalNode) totalNode.textContent = String(loadedTotal);
+        if (newNode) newNode.textContent = String(loadedNew);
+        if (resyncNode) resyncNode.textContent = String(loadedResync);
+    };
+    const loadGroup = async (placeholder) => {
+        const url = placeholder.getAttribute('data-group-url');
+        if (!url) return;
+        try {
+            const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'Failed to load this OLT.');
+            }
+            if (data.pending) {
+                const body = placeholder.querySelector('.autofind-loading-body');
+                if (body) {
+                    body.textContent = 'Loading autofind rows for this OLT...';
+                }
+                window.setTimeout(() => loadGroup(placeholder), 3000);
+                return;
+            }
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = data.html || '';
+            const node = wrapper.firstElementChild;
+            if (!node) {
+                throw new Error('Empty response.');
+            }
+            placeholder.replaceWith(node);
+            wireAuthorizeButtons(node);
+            wireAuthorizeForms(node);
+        } catch (error) {
+            const body = placeholder.querySelector('.autofind-loading-body');
+            if (body) {
+                body.textContent = error.message || 'Unable to load this OLT right now.';
+            }
+        }
+    };
+
+    wireAuthorizeButtons(document);
+    wireAuthorizeForms(document);
+    const placeholders = Array.from(document.querySelectorAll('[data-unconfigured-group-placeholder]'));
+    if (placeholders.length) {
+        placeholders.forEach((placeholder) => { loadGroup(placeholder); });
     }
 });
 </script>

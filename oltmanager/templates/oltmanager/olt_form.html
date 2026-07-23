@@ -1,4 +1,4 @@
-{% extends "oltmanager/base.html" %}
+﻿{% extends "oltmanager/base.html" %}
 
 {% block title %}Add OLT{% endblock %}
 
@@ -21,6 +21,26 @@
         cursor: pointer;
     }
     .pw-toggle:hover { border-color: #375b95; }
+    .import-onus-row {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        margin-top: 16px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(47, 128, 255, 0.06);
+        cursor: pointer;
+    }
+    .import-onus-row input[type="checkbox"] { margin-top: 3px; width: 18px; height: 18px; cursor: pointer; }
+    .import-onus-row span { display: flex; flex-direction: column; gap: 3px; }
+    .import-onus-row strong { font-size: 15px; color: #e6f0ff; }
+    .import-onus-row small { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+    html[data-theme="light"] .import-onus-row {
+        background: #eef5ff;
+        border-color: #cfe0f7;
+    }
+    html[data-theme="light"] .import-onus-row strong { color: #16233c; }
 </style>
 {% endblock %}
 
@@ -42,6 +62,15 @@
             <div class="form-grid">
                 {{ form.as_p }}
             </div>
+            {% if show_import_onus %}
+            <label class="import-onus-row">
+                <input type="checkbox" name="import_onus" checked>
+                <span>
+                    <strong>Import the ONUs as well</strong>
+                    <small>Tick to discover and import all ONUs (types, VLANs, speed profiles). Untick to fetch only the OLT details, cards, PON ports, uplink and VLANs — much faster.</small>
+                </span>
+            </label>
+            {% endif %}
             <div style="margin-top: 18px;">
                 <button type="submit" class="btn btn-primary">Save OLT</button>
                 <a href="{{ cancel_url|default:back_fallback_url|default:'' }}" class="btn btn-secondary">Cancel</a>
@@ -49,6 +78,41 @@
         </form>
     </section>
 </div>
+<script>
+(() => {
+    const modeInput = document.getElementById('id_snmp_mode');
+    const readInput = document.getElementById('id_snmp_community');
+    const writeInput = document.getElementById('id_snmp_write_community');
+    if (!modeInput || !readInput || !writeInput) return;
+
+    const randomPart = () => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const bytes = new Uint8Array(12);
+        window.crypto.getRandomValues(bytes);
+        return Array.from(bytes, byte => chars[byte % chars.length]).join('');
+    };
+    const generateRead = () => `crm-snmp-${randomPart()}`;
+    const generateWrite = () => `crm-snmp-${randomPart()}-rw`;
+
+    const applySnmpMode = ({ changed = false } = {}) => {
+        const generateMode = modeInput.value === 'generate';
+        readInput.readOnly = generateMode;
+        writeInput.readOnly = generateMode;
+        if (generateMode) {
+            if (changed || !readInput.value.trim()) readInput.value = generateRead();
+            if (changed || !writeInput.value.trim()) writeInput.value = generateWrite();
+            return;
+        }
+        if (changed) {
+            readInput.value = '';
+            writeInput.value = '';
+        }
+    };
+
+    modeInput.addEventListener('change', () => applySnmpMode({ changed: true }));
+    applySnmpMode();
+})();
+</script>
 <script>
 (() => {
     const passwordInput = document.getElementById('id_password');
@@ -75,3 +139,5 @@
 })();
 </script>
 {% endblock %}
+
+

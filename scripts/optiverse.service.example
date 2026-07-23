@@ -1,0 +1,21 @@
+﻿[Unit]
+Description=OptiVerse OLT Portal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=optiverse
+Group=optiverse
+WorkingDirectory=/opt/optiverse/oltportal
+EnvironmentFile=/opt/optiverse/oltportal/.env
+ExecStart=/opt/optiverse/oltportal/.venv/bin/daphne -b 127.0.0.1 -p 8000 oltportal.asgi:application
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+StandardOutput=append:/opt/optiverse/oltportal/logs/optiverse.out.log
+StandardError=append:/opt/optiverse/oltportal/logs/optiverse.err.log
+
+[Install]
+WantedBy=multi-user.target

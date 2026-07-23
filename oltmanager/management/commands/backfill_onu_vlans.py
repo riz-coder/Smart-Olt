@@ -27,7 +27,7 @@ class Command(BaseCommand):
             return
 
         def _run_olt_backfill(olt):
-            result = sync_onu_attached_vlans_for_olt(olt)
+            result = sync_onu_attached_vlans_for_olt(olt, fallback_missing=False)
             total_checked = int(result.get("checked") or 0)
             total_updated = int(result.get("updated") or 0)
             status_text = str(result.get("status") or "No VLAN batch run.")

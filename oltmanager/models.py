@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.db import models
 
@@ -16,6 +18,7 @@ class OLT(models.Model):
     sw_version = models.CharField(max_length=100, blank=True, default='')
     snmp_last_status = models.CharField(max_length=300, blank=True, default='')
     snmp_last_synced_at = models.DateTimeField(blank=True, null=True)
+    snmp_down_since = models.DateTimeField(blank=True, null=True)
     olt_cards_cache = models.JSONField(default=list, blank=True)
     olt_cards_status = models.CharField(max_length=300, blank=True, default='')
     olt_cards_refreshed_at = models.DateTimeField(blank=True, null=True)
@@ -28,9 +31,6 @@ class OLT(models.Model):
     vlan_cache = models.JSONField(default=list, blank=True)
     vlan_status = models.CharField(max_length=300, blank=True, default='')
     vlan_refreshed_at = models.DateTimeField(blank=True, null=True)
-    dba_profile_cache = models.JSONField(default=list, blank=True)
-    dba_profile_status = models.CharField(max_length=300, blank=True, default='')
-    dba_profile_refreshed_at = models.DateTimeField(blank=True, null=True)
     autofind_onu_count = models.PositiveIntegerField(default=0)
     autofind_new_count = models.PositiveIntegerField(default=0)
     autofind_resync_count = models.PositiveIntegerField(default=0)
@@ -42,7 +42,39 @@ class OLT(models.Model):
     attached_vlan_sync_cursor_pk = models.PositiveIntegerField(default=0)
     attached_vlan_sync_status = models.CharField(max_length=300, blank=True, default='')
     attached_vlan_sync_updated_at = models.DateTimeField(blank=True, null=True)
+    is_ready = models.BooleanField(default=True, db_index=True)
+    onboarding_status = models.CharField(max_length=32, blank=True, default='')
+    onboarding_progress = models.PositiveIntegerField(default=0)
+    onboarding_message = models.CharField(max_length=255, blank=True, default='')
+    onboarding_log = models.TextField(blank=True, default='')
+    onboarding_started_at = models.DateTimeField(blank=True, null=True)
+    onboarding_finished_at = models.DateTimeField(blank=True, null=True)
+    # When False, onboarding fetches only OLT details/cards/PON/uplink/VLAN and
+    # skips importing the ONUs (asked at Add OLT time).
+    import_onus = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class SpeedProfile(models.Model):
+    index_number = models.PositiveIntegerField(default=0, db_index=True)
+    key = models.CharField(max_length=120, unique=True)
+    name = models.CharField(max_length=120)
+    speed_mbps_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    speed_display = models.CharField(max_length=64, blank=True, default='')
+    download_name = models.CharField(max_length=160, blank=True, default='')
+    upload_name = models.CharField(max_length=160, blank=True, default='')
+    download_command = models.TextField(blank=True, default='')
+    upload_command = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    is_custom = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['speed_mbps_value', 'name']
 
     def __str__(self):
         return self.name
@@ -82,13 +114,23 @@ class ConfiguredONU(models.Model):
     address = models.CharField(max_length=255, blank=True, default='')
     contact = models.CharField(max_length=64, blank=True, default='')
     onu_type_cache = models.CharField(max_length=128, blank=True, default='')
-    uplink_pon_ports_cache = models.CharField(max_length=32, blank=True, default='')
-    pots_ports_cache = models.CharField(max_length=32, blank=True, default='')
-    eth_ports_cache = models.CharField(max_length=32, blank=True, default='')
-    catv_uni_ports_cache = models.CharField(max_length=32, blank=True, default='')
     capability_synced_at = models.DateTimeField(blank=True, null=True)
     attached_vlans_cache = models.CharField(max_length=255, blank=True, default='')
     attached_vlans_synced_at = models.DateTimeField(blank=True, null=True)
+    ethernet_port_config_cache = models.TextField(blank=True, default='')
+    service_port_id_cache = models.CharField(max_length=255, blank=True, default='')
+    user_vlan_cache = models.CharField(max_length=255, blank=True, default='')
+    download_profile_index_cache = models.CharField(max_length=255, blank=True, default='')
+    upload_profile_index_cache = models.CharField(max_length=255, blank=True, default='')
+    download_profile_name_cache = models.CharField(max_length=255, blank=True, default='')
+    upload_profile_name_cache = models.CharField(max_length=255, blank=True, default='')
+    online_duration_cache = models.CharField(max_length=64, blank=True, default='')
+    last_up_time_cache = models.CharField(max_length=64, blank=True, default='')
+    last_down_time_cache = models.CharField(max_length=64, blank=True, default='')
+    last_down_cause_cache = models.CharField(max_length=128, blank=True, default='')
+    battery_state_cache = models.CharField(max_length=64, blank=True, default='')
+    onu_mode_cache = models.CharField(max_length=64, blank=True, default='')
+    runtime_synced_at = models.DateTimeField(blank=True, null=True)
     onu_rx = models.CharField(max_length=32, blank=True, default='')
     olt_rx = models.CharField(max_length=32, blank=True, default='')
     tx_power = models.CharField(max_length=32, blank=True, default='')
@@ -98,6 +140,11 @@ class ConfiguredONU(models.Model):
     status_source = models.CharField(max_length=32, blank=True, default='')
     status_first_seen_at = models.DateTimeField(blank=True, null=True)
     status_updated_at = models.DateTimeField(blank=True, null=True)
+    # True only when this ONU was authorized through OptiVerse. False = imported
+    # from the OLT (configured outside the app).
+    configured_via_app = models.BooleanField(default=False)
+    stability_report_date = models.DateField(blank=True, null=True)
+    stability_report_cache = models.JSONField(default=dict, blank=True)
     raw_line = models.TextField(blank=True, default='')
     synced_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -160,10 +207,55 @@ class ONUOpticalSample(models.Model):
         ordering = ['sampled_at']
         indexes = [
             models.Index(fields=['olt', 'slot', 'port', 'ont_id', 'sampled_at'], name='onu_sample_lookup_idx'),
+            models.Index(fields=['sampled_at'], name='onu_opt_time_idx'),
         ]
 
     def __str__(self):
         return f"{self.olt.name} {self.slot}/{self.port}:{self.ont_id} @ {self.sampled_at}"
+
+
+class ONUStatusSample(models.Model):
+    olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='onu_status_samples')
+    slot = models.PositiveIntegerField()
+    port = models.PositiveIntegerField()
+    ont_id = models.PositiveIntegerField()
+    status = models.CharField(max_length=32, db_index=True)
+    source = models.CharField(max_length=32, blank=True, default='')
+    sampled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sampled_at']
+        indexes = [
+            models.Index(fields=['olt', 'slot', 'port', 'ont_id', 'sampled_at'], name='onu_status_lookup_idx'),
+            models.Index(fields=['sampled_at'], name='onu_status_time_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.olt.name} {self.slot}/{self.port}:{self.ont_id} {self.status} @ {self.sampled_at}"
+
+
+class ONUTrafficSample(models.Model):
+    olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='onu_traffic_samples')
+    slot = models.PositiveIntegerField()
+    port = models.PositiveIntegerField()
+    ont_id = models.PositiveIntegerField()
+    up_bytes = models.BigIntegerField(default=0)
+    down_bytes = models.BigIntegerField(default=0)
+    up_packets = models.BigIntegerField(default=0)
+    down_packets = models.BigIntegerField(default=0)
+    up_bps = models.FloatField(default=0)
+    down_bps = models.FloatField(default=0)
+    sampled_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sampled_at']
+        indexes = [
+            models.Index(fields=['olt', 'slot', 'port', 'ont_id', 'sampled_at'], name='onu_traffic_lookup_idx'),
+            models.Index(fields=['sampled_at'], name='onu_traf_time_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.olt.name} {self.slot}/{self.port}:{self.ont_id} traffic @ {self.sampled_at}"
 
 
 class DashboardStatusSample(models.Model):
@@ -228,6 +320,7 @@ class PONPortTrafficSample(models.Model):
         indexes = [
             models.Index(fields=['olt', 'slot', 'port', 'sampled_at'], name='pon_port_slot_time_idx'),
             models.Index(fields=['olt', 'sampled_at'], name='pon_port_olt_time_idx'),
+            models.Index(fields=['sampled_at'], name='pon_port_time_idx'),
         ]
 
     def __str__(self):
@@ -246,7 +339,83 @@ class UplinkPortTrafficSample(models.Model):
         indexes = [
             models.Index(fields=['olt', 'port_name', 'sampled_at'], name='uplk_port_time_idx'),
             models.Index(fields=['olt', 'sampled_at'], name='uplk_olt_time_idx'),
+            models.Index(fields=['sampled_at'], name='uplk_time_idx'),
         ]
 
     def __str__(self):
         return f"{self.olt.name} {self.port_name} @ {self.sampled_at}"
+
+
+class AlertConfig(models.Model):
+    """Singleton (pk=1) holding alert + email notification settings."""
+    email_enabled = models.BooleanField(default=False)
+    email_recipients = models.TextField(blank=True, default='', help_text='Comma / newline separated email addresses')
+    notify_olt_down = models.BooleanField(default=True)
+    notify_olt_recovered = models.BooleanField(default=True)
+    notify_high_temp = models.BooleanField(default=True)
+    # Fiber-cut / mass-outage detection: many ONUs on one PON port down together.
+    notify_fiber_cut = models.BooleanField(default=True)
+    fiber_cut_min_onus = models.PositiveIntegerField(default=4)
+    fiber_cut_ratio = models.PositiveIntegerField(default=60)  # percent down on a port
+    # Signal degradation early-warning: ONU Rx power steadily dropping toward the cliff.
+    notify_signal_degrade = models.BooleanField(default=True)
+    signal_degrade_drop_db = models.PositiveIntegerField(default=3)  # dB drop over window
+    temp_threshold_c = models.PositiveIntegerField(default=60)
+    renotify_minutes = models.PositiveIntegerField(default=30)
+    # SMTP — configured here so no env vars / server restart are needed.
+    smtp_host = models.CharField(max_length=120, blank=True, default='')
+    smtp_port = models.PositiveIntegerField(default=587)
+    smtp_use_tls = models.BooleanField(default=True)
+    smtp_username = models.CharField(max_length=200, blank=True, default='')
+    smtp_password = models.CharField(max_length=200, blank=True, default='')
+    smtp_from = models.CharField(max_length=200, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return 'Alert configuration'
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def recipient_list(self):
+        parts = re.split(r'[,\n;]+', str(self.email_recipients or ''))
+        seen = []
+        for part in parts:
+            value = part.strip()
+            if value and value not in seen:
+                seen.append(value)
+        return seen
+
+
+class AlertEvent(models.Model):
+    SEVERITY_CHOICES = [
+        ('critical', 'Critical'),
+        ('warning', 'Warning'),
+        ('info', 'Info'),
+    ]
+    alert_type = models.CharField(max_length=40, db_index=True)
+    severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default='warning')
+    olt = models.ForeignKey(OLT, on_delete=models.SET_NULL, null=True, blank=True, related_name='alert_events')
+    dedup_key = models.CharField(max_length=160, db_index=True)
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True, default='')
+    details = models.JSONField(default=dict, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    last_notified_at = models.DateTimeField(null=True, blank=True)
+    notify_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['is_active', 'dedup_key'], name='alert_active_key_idx'),
+            models.Index(fields=['is_active', 'created_at'], name='alert_active_time_idx'),
+        ]
+
+    def __str__(self):
+        return f"[{self.severity}] {self.title}"

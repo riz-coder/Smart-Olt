@@ -1,0 +1,6 @@
+﻿*.sh text eol=lf
+*.service.example text eol=lf
+*.conf.example text eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.md text eol=lf

@@ -189,6 +189,19 @@
         color: #9db0cf;
         transition: opacity 0.2s ease, filter 0.2s ease, transform 0.2s ease;
     }
+    .catv-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(49, 216, 137, 0.14);
+        color: #31d889;
+        border: 1px solid rgba(49, 216, 137, 0.35);
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+    }
     .signal-spinner {
         display: none;
         width: 12px;
@@ -258,6 +271,59 @@
         font-size: 13px;
         font-weight: 700;
     }
+
+    /* Row color coding by status */
+    tr[data-status="online"] td {
+        background: rgba(51, 208, 111, 0.055);
+    }
+    tr[data-status="offline"] td,
+    tr[data-status="power_failure"] td,
+    tr[data-status="loss_of_signal"] td {
+        background: rgba(255, 107, 119, 0.055);
+    }
+    tr[data-status="admin_disabled"] td {
+        background: rgba(255, 179, 71, 0.055);
+    }
+
+    /* ============================ LIGHT THEME (ONUs) ============================ */
+    html[data-theme="light"] tr[data-status="online"] td {
+        background: rgba(16, 185, 89, 0.07);
+    }
+    html[data-theme="light"] tr[data-status="offline"] td,
+    html[data-theme="light"] tr[data-status="power_failure"] td,
+    html[data-theme="light"] tr[data-status="loss_of_signal"] td {
+        background: rgba(220, 50, 60, 0.06);
+    }
+    html[data-theme="light"] tr[data-status="admin_disabled"] td {
+        background: rgba(220, 140, 0, 0.07);
+    }
+    html[data-theme="light"] .search-group label,
+    html[data-theme="light"] .filter-label { color: #2b3a57; }
+    html[data-theme="light"] .search-input,
+    html[data-theme="light"] .search-select {
+        background: #f7faff;
+        border-color: #cdd9ec;
+        color: #16233c;
+    }
+    html[data-theme="light"] .filter-bar {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .name-cell { color: #15233f; }
+    html[data-theme="light"] .signal-value { color: #2b3a57; }
+    html[data-theme="light"] .signal-cell .signal-placeholder,
+    html[data-theme="light"] .muted-cell { color: #5a6b86; }
+    html[data-theme="light"] .pager {
+        background: #f4f8fe;
+        border-color: #cdd9ec;
+    }
+    html[data-theme="light"] .pager a,
+    html[data-theme="light"] .pager span {
+        color: #2b3a57;
+        border-right-color: #dce6f3;
+    }
+    html[data-theme="light"] .pager .current { background: #d8e6fb; color: #15233f; }
+    html[data-theme="light"] .pager-summary { color: #5a6b86; }
 </style>
 {% endblock %}
 
@@ -271,7 +337,7 @@
             </div>
             <div class="search-group">
                 <label>OLT</label>
-                <select name="olt" class="search-select">
+                <select name="olt" id="filter-olt" class="search-select">
                     <option value="">Any</option>
                     {% for item in configured_onu_filter_olts %}
                     <option value="{{ item.id }}" {% if configured_onu_olt_filter == item.id %}selected{% endif %}>{{ item.name }}</option>
@@ -280,7 +346,7 @@
             </div>
             <div class="search-group">
                 <label>Board</label>
-                <select name="board" class="search-select">
+                <select name="board" id="filter-board" class="search-select" data-selected="{{ configured_onu_board_filter }}">
                     <option value="">Any</option>
                     {% for item in configured_onu_filter_boards %}
                     <option value="{{ item }}" {% if configured_onu_board_filter == item %}selected{% endif %}>{{ item }}</option>
@@ -289,18 +355,20 @@
             </div>
             <div class="search-group">
                 <label>Port</label>
-                <select name="port" class="search-select">
+                <select name="port" id="filter-port" class="search-select" data-selected="{{ configured_onu_port_filter }}">
                     <option value="">Any</option>
                     {% for item in configured_onu_filter_ports %}
                     <option value="{{ item }}" {% if configured_onu_port_filter == item %}selected{% endif %}>{{ item }}</option>
                     {% endfor %}
                 </select>
             </div>
+            {{ configured_onu_board_port_map|json_script:"olt-board-port-map" }}
             <input type="hidden" name="status" value="{{ configured_onu_status_filter }}">
             <input type="hidden" name="signal" value="{{ configured_onu_signal_filter }}">
+            <input type="hidden" name="tv" value="{{ configured_onu_tv_filter }}">
             <input type="hidden" name="sort" value="{{ configured_onu_sort_filter }}">
             <button type="submit" class="btn btn-primary btn-mini">Apply</button>
-            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_status_filter or configured_onu_signal_filter %}
+            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
             <a href="{% url 'configured_onus' %}" class="btn btn-secondary btn-mini">Clear</a>
             {% endif %}
         </form>
@@ -331,7 +399,10 @@
             <a href="{% url 'configured_onus' %}?signal=bad{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_signal_filter == 'bad' %}active{% endif %}">
                 <span class="filter-bars bad"><i></i><i></i><i></i><i></i></span>
             </a>
-            {% if configured_onu_status_filter or configured_onu_signal_filter %}
+            <a href="{% url 'configured_onus' %}?tv=catv{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_tv_filter == 'catv' %}active{% endif %}">
+                <span class="catv-badge">CATV</span>
+            </a>
+            {% if configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
             <a href="{% url 'configured_onus' %}{% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter %}?{% endif %}{% if configured_onu_search_query %}q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_search_query and configured_onu_olt_filter %}&{% endif %}{% if configured_onu_olt_filter %}olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_olt_filter and configured_onu_board_filter %}&{% endif %}{% if configured_onu_board_filter %}board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_board_filter and configured_onu_port_filter %}&{% endif %}{% if configured_onu_port_filter %}port={{ configured_onu_port_filter }}{% endif %}" class="btn btn-secondary btn-mini">Clear</a>
             {% endif %}
         </div>
@@ -343,11 +414,11 @@
                     {% if page_num == configured_onu_page.number %}
                     <span class="current">{{ page_num }}</span>
                     {% elif page_num <= 6 or page_num == configured_onu_page.paginator.num_pages or page_num == configured_onu_page.number|add:'-1' or page_num == configured_onu_page.number|add:'1' %}
-                    <a href="?page={{ page_num }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}">{{ page_num }}</a>
+                    <a href="?page={{ page_num }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}{% if configured_onu_vlan_filter %}&vlan={{ configured_onu_vlan_filter }}{% endif %}{% if configured_onu_tv_filter %}&tv={{ configured_onu_tv_filter }}{% endif %}{% if configured_onu_onu_type_filter %}&onu_type={{ configured_onu_onu_type_filter|urlencode }}{% endif %}{% if configured_onu_speed_profile_filter %}&speed_profile={{ configured_onu_speed_profile_filter|urlencode }}{% endif %}">{{ page_num }}</a>
                     {% endif %}
                 {% endfor %}
                 {% if configured_onu_page.has_next %}
-                <a href="?page={{ configured_onu_page.next_page_number }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}">&gt;</a>
+                <a href="?page={{ configured_onu_page.next_page_number }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}{% if configured_onu_vlan_filter %}&vlan={{ configured_onu_vlan_filter }}{% endif %}{% if configured_onu_tv_filter %}&tv={{ configured_onu_tv_filter }}{% endif %}{% if configured_onu_onu_type_filter %}&onu_type={{ configured_onu_onu_type_filter|urlencode }}{% endif %}{% if configured_onu_speed_profile_filter %}&speed_profile={{ configured_onu_speed_profile_filter|urlencode }}{% endif %}">&gt;</a>
                 {% endif %}
             </div>
             {% endif %}
@@ -362,17 +433,19 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Status</th>
+                        <th><a href="{{ configured_onu_sort_urls.status }}" style="color:inherit;text-decoration:none;">Status{% if configured_onu_sort_filter == 'status' %} ↑{% endif %}</a></th>
                         <th>View</th>
-                        <th>Name</th>
-                        <th>SN / MAC</th>
-                        <th>ONU</th>
-                        <th><a href="{% url 'configured_onus' %}?sort=signal{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" style="color:inherit;text-decoration:none;">Signal{% if configured_onu_sort_filter == 'signal' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.name }}" style="color:inherit;text-decoration:none;">Name{% if configured_onu_sort_filter == 'name' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.sn }}" style="color:inherit;text-decoration:none;">SN / MAC{% if configured_onu_sort_filter == 'sn' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.onu }}" style="color:inherit;text-decoration:none;">ONU{% if configured_onu_sort_filter == 'onu' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.vlan }}" style="color:inherit;text-decoration:none;">VLAN{% if configured_onu_sort_filter == 'vlan' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.tv }}" style="color:inherit;text-decoration:none;">TV{% if configured_onu_sort_filter == 'tv' %} ↑{% endif %}</a></th>
+                        <th><a href="{{ configured_onu_sort_urls.signal }}" style="color:inherit;text-decoration:none;">Signal{% if configured_onu_sort_filter == 'signal' %} ↑{% endif %}</a></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in configured_onu_rows %}
-                    <tr data-onu-row data-olt-id="{{ row.olt_id }}" data-slot="{{ row.slot }}" data-port="{{ row.port }}" data-ont-id="{{ row.ont_id }}" data-signal-bucket="{{ row.signal_class|default:'' }}" data-signal-visible="{% if row.signal_class %}1{% else %}0{% endif %}">
+                    <tr data-onu-row data-olt-id="{{ row.olt_id }}" data-slot="{{ row.slot }}" data-port="{{ row.port }}" data-ont-id="{{ row.ont_id }}" data-signal-bucket="{{ row.signal_class|default:'' }}" data-signal-visible="{% if row.signal_class %}1{% else %}0{% endif %}" data-status="{{ row.status_value }}">
                         <td><span class="status-dot {{ row.status_class }}" data-status-dot title="{{ row.status_label }}"></span></td>
                         <td>
                             <a href="{% url 'configured_onu_detail' row.olt_id row.slot row.port row.ont_id %}" class="btn btn-primary btn-mini">View</a>
@@ -380,14 +453,17 @@
                         <td class="name-cell">{{ row.display_name }}</td>
                         <td>{{ row.sn }}</td>
                         <td class="onu-cell">{{ row.onu_label }}</td>
+                        <td>{{ row.attached_vlans|default:"-" }}</td>
+                        <td>
+                            {% if row.has_catv %}
+                            <span class="catv-badge">CATV</span>
+                            {% else %}-{% endif %}
+                        </td>
                         <td class="signal-cell" data-signal-cell>
                             {% if row.signal_class %}
                             <span class="signal-stack">
-                                <span class="signal-topline">
-                                    <span class="signal-value">{{ row.olt_rx|default:"--" }}</span>
-                                    <span class="signal-spinner" aria-hidden="true"></span>
-                                </span>
                                 <span class="filter-bars {{ row.signal_class }}" data-signal-bars title="{% if row.signal_class == 'good' %}Good signal{% elif row.signal_class == 'warn' %}Warning signal{% else %}Critical signal{% endif %}"><i></i><i></i><i></i><i></i></span>
+                                <span class="signal-spinner" aria-hidden="true"></span>
                             </span>
                             {% else %}
                             <span class="signal-topline">
@@ -400,6 +476,28 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+        <div class="pager-bar">
+            {% if configured_onu_page and configured_onu_page.paginator.num_pages > 1 %}
+            <div class="pager">
+                {% for page_num in configured_onu_page.paginator.page_range %}
+                    {% if page_num == configured_onu_page.number %}
+                    <span class="current">{{ page_num }}</span>
+                    {% elif page_num <= 6 or page_num == configured_onu_page.paginator.num_pages or page_num == configured_onu_page.number|add:'-1' or page_num == configured_onu_page.number|add:'1' %}
+                    <a href="?page={{ page_num }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_tv_filter %}&tv={{ configured_onu_tv_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}{% if configured_onu_vlan_filter %}&vlan={{ configured_onu_vlan_filter }}{% endif %}">{{ page_num }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if configured_onu_page.has_next %}
+                <a href="?page={{ configured_onu_page.next_page_number }}{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_tv_filter %}&tv={{ configured_onu_tv_filter }}{% endif %}{% if configured_onu_sort_filter %}&sort={{ configured_onu_sort_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}{% if configured_onu_vlan_filter %}&vlan={{ configured_onu_vlan_filter }}{% endif %}">&gt;</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end;">
+                <div class="pager-summary">{{ configured_onu_start }}-{{ configured_onu_end }} ONUs of {{ configured_onu_total }} displayed</div>
+                {% if configured_onu_last_sync_display %}
+                <div class="pager-summary">Last auto ONU sync: {{ configured_onu_last_sync_display }}</div>
+                {% endif %}
+            </div>
         </div>
         {% else %}
         <p class="subtle">No configured ONU records found from the current OLTs.</p>
@@ -421,13 +519,10 @@
 
     const csrftoken = document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
 
-      const barsMarkup = (bucket, oltRx) => `
+      const barsMarkup = (bucket) => `
         <span class="signal-stack">
-            <span class="signal-topline">
-                <span class="signal-value">${oltRx || '--'}</span>
-                <span class="signal-spinner" aria-hidden="true"></span>
-            </span>
             <span class="filter-bars ${bucket}" data-signal-bars title="${bucket === 'good' ? 'Good signal' : bucket === 'warn' ? 'Warning signal' : 'Critical signal'}"><i></i><i></i><i></i><i></i></span>
+            <span class="signal-spinner" aria-hidden="true"></span>
         </span>
     `;
 
@@ -443,10 +538,9 @@
           if (!signalCell || !item) return;
         const statusDot = row.querySelector('[data-status-dot]');
         const bucket = String(item.signal_class || '').trim();
-        const oltRx = String(item.olt_rx || '--').trim() || '--';
         if (bucket) {
-            signalCell.innerHTML = barsMarkup(bucket, oltRx);
-        } else {
+            signalCell.innerHTML = barsMarkup(bucket);
+        } else if (!signalCell.textContent.trim() || signalCell.textContent.trim() === '-') {
             signalCell.innerHTML = '<span class="signal-topline"><span class="signal-placeholder" data-signal-placeholder>-</span><span class="signal-spinner" aria-hidden="true"></span></span>';
         }
           if (statusDot) {
@@ -494,6 +588,11 @@
         rows.forEach((row) => {
             row.querySelector('[data-signal-cell]')?.classList.add('is-refreshing');
         });
+        window.setTimeout(() => {
+            rows.forEach((row) => {
+                row.querySelector('[data-signal-cell]')?.classList.remove('is-refreshing');
+            });
+        }, 1000);
 
         try {
             const response = await fetch(refreshUrl, {
@@ -516,13 +615,80 @@
               });
               reorderRowsForSignalSort();
           } catch (error) {
-            rows.forEach((row) => {
-                row.querySelector('[data-signal-cell]')?.classList.remove('is-refreshing');
-            });
         }
     };
 
     window.setInterval(refreshSignals, 60000);
+})();
+</script>
+<script>
+// Board/Port dropdowns follow the selected OLT's real inventory: choosing an
+// OLT repopulates Board with that OLT's slots, and choosing a Board repopulates
+// Port with that board's PON ports.
+(function () {
+    const oltSelect = document.getElementById('filter-olt');
+    const boardSelect = document.getElementById('filter-board');
+    const portSelect = document.getElementById('filter-port');
+    const mapNode = document.getElementById('olt-board-port-map');
+    if (!oltSelect || !boardSelect || !portSelect || !mapNode) return;
+
+    let boardPortMap = {};
+    try { boardPortMap = JSON.parse(mapNode.textContent || '{}'); } catch (e) { boardPortMap = {}; }
+
+    const fillSelect = (select, values, keepValue) => {
+        const wanted = keepValue != null ? String(keepValue) : '';
+        select.innerHTML = '';
+        const anyOpt = document.createElement('option');
+        anyOpt.value = '';
+        anyOpt.textContent = 'Any';
+        select.appendChild(anyOpt);
+        let matched = false;
+        values.forEach((v) => {
+            const opt = document.createElement('option');
+            opt.value = String(v);
+            opt.textContent = String(v);
+            if (String(v) === wanted) { opt.selected = true; matched = true; }
+            select.appendChild(opt);
+        });
+        if (!matched) select.value = '';
+    };
+
+    const boardsForOlt = (oltId) => {
+        const entry = boardPortMap[String(oltId)];
+        return entry && Array.isArray(entry.boards) ? entry.boards : [];
+    };
+    const portsForBoard = (oltId, board) => {
+        const entry = boardPortMap[String(oltId)];
+        if (!entry || !entry.ports) return [];
+        return Array.isArray(entry.ports[String(board)]) ? entry.ports[String(board)] : [];
+    };
+
+    const rebuildPorts = (keepValue) => {
+        const oltId = oltSelect.value;
+        const board = boardSelect.value;
+        if (oltId && board) {
+            fillSelect(portSelect, portsForBoard(oltId, board), keepValue);
+        } else {
+            // No OLT/board selected → no specific port list to offer.
+            fillSelect(portSelect, [], keepValue);
+        }
+    };
+
+    const rebuildBoards = (keepBoard, keepPort) => {
+        const oltId = oltSelect.value;
+        if (oltId) {
+            fillSelect(boardSelect, boardsForOlt(oltId), keepBoard);
+        } else {
+            fillSelect(boardSelect, [], keepBoard);
+        }
+        rebuildPorts(keepPort);
+    };
+
+    oltSelect.addEventListener('change', () => rebuildBoards('', ''));
+    boardSelect.addEventListener('change', () => rebuildPorts(''));
+
+    // Initial load: honour the server-selected board/port for the current OLT.
+    rebuildBoards(boardSelect.dataset.selected || '', portSelect.dataset.selected || '');
 })();
 </script>
 {% endblock %}

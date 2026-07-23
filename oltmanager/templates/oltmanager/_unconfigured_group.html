@@ -1,0 +1,179 @@
+<div class="olt-group">
+    <h3 class="olt-group-title">{{ group.index }} - {{ group.olt_name }}</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>PON type</th>
+                    <th>Board</th>
+                    <th>Port</th>
+                    <th>SN</th>
+                    <th>ONU Type</th>
+                    <th>Category</th>
+                    <th>Previous Running</th>
+                    <th>Autofind time</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in group.rows %}
+                <tr>
+                    <td>{{ row.number|default:forloop.counter }}</td>
+                    <td>{{ row.pon_type|default:"-" }}</td>
+                    <td>{% if row.board is not None %}{{ row.board }}{% else %}-{% endif %}</td>
+                    <td>{% if row.port is not None %}{{ row.port }}{% else %}-{% endif %}</td>
+                    <td><span class="sn-pill">{{ row.sn|default:"-" }}</span></td>
+                    <td>{{ row.equipment_id|default:"-" }}</td>
+                    <td><span class="category-chip {{ row.category|default:'new' }}">{{ row.category_label|default:"New" }}</span></td>
+                    <td>
+                        <span class="previous-running{% if row.previous_running == '-' %} is-empty{% endif %}">{{ row.previous_running|default:"-" }}</span>
+                    </td>
+                    <td>{{ row.autofind_time|default:"-" }}</td>
+                    <td class="autofind-action-cell">
+                        {% if row.category == 'new' %}
+                            {% if user.is_staff or user.is_superuser %}
+                            <button
+                                type="button"
+                                class="btn btn-mini btn-authorize authorize-trigger"
+                                data-authorize-toggle="{{ row.authorize_key }}"
+                            >Authorize</button>
+                            {% else %}
+                            <span class="muted-cell">-</span>
+                            {% endif %}
+                        {% elif row.existing_onu_url %}
+                            {% if user.is_staff or user.is_superuser %}
+                            <button
+                                type="button"
+                                class="btn btn-mini btn-reconfigure authorize-trigger"
+                                data-authorize-toggle="{{ row.authorize_key }}"
+                            >Reconfigure</button>
+                            {% endif %}
+                            <a href="{{ row.existing_onu_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-mini">View ONU</a>
+                        {% else %}
+                        <span class="muted-cell">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% if user.is_staff or user.is_superuser %}{% if row.category == 'new' or row.category == 'resync' %}
+                <tr class="authorize-row" data-authorize-panel="{{ row.authorize_key }}">
+                    <td colspan="10">
+                        <form method="post" action="{% url 'unconfigured_onu_authorize' %}" class="authorize-panel unconfigured-authorize-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="return_query" value="{{ unconfigured_return_query }}">
+                            <input type="hidden" name="olt_id" value="{{ row.olt_id }}">
+                            <input type="hidden" name="frame" value="{{ row.frame|default:0 }}">
+                            <input type="hidden" name="slot" value="{{ row.board|default:0 }}">
+                            <input type="hidden" name="port" value="{{ row.port|default:0 }}">
+                            <input type="hidden" name="sn" value="{{ row.sn|default:'' }}">
+                            <input type="hidden" name="reconfigure" value="{% if row.category == 'resync' %}1{% else %}0{% endif %}">
+                            <div class="authorize-panel-head">
+                                <h4>{% if row.category == 'resync' %}Reconfigure ONU{% else %}Authorize ONU{% endif %}</h4>
+                                <div class="authorize-panel-note">The new display/reuse/free-id pattern is active.</div>
+                            </div>
+                            <div class="authorize-grid">
+                                <div class="authorize-field">
+                                    <label>OLT Name</label>
+                                    <input type="text" value="{{ row.olt_name }}" readonly>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>PON type</label>
+                                    <input type="text" value="{{ row.authorize_pon_type }}" readonly>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>Board</label>
+                                    <input type="text" value="{{ row.board|default:'-' }}" readonly>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>Port</label>
+                                    <input type="text" value="{{ row.port|default:'-' }}" readonly>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>SN</label>
+                                    <input type="text" value="{{ row.sn|default:'-' }}" readonly>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>ONU Type</label>
+                                    <select name="onu_type" required>
+                                        <option value="">Select ONU type</option>
+                                        {% for onu_type in unconfigured_onu_type_options %}
+                                        <option value="{{ onu_type.value }}"{% if row.authorize_onu_type == onu_type.value %} selected{% endif %}>{{ onu_type.label|default:onu_type.value }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>ONU Mode</label>
+                                    <select name="onu_mode" required>
+                                        <option value="">Select mode</option>
+                                        <option value="routing"{% if row.authorize_onu_mode == 'routing' %} selected{% endif %}>Routing</option>
+                                        <option value="bridging"{% if row.authorize_onu_mode == 'bridging' %} selected{% endif %}>Bridging</option>
+                                    </select>
+                                </div>
+                                <div class="authorize-field">
+                                    <label>VLAN</label>
+                                    {% if row.authorize_vlan_options %}
+                                    <select name="vlan" required>
+                                        <option value="">Select VLAN</option>
+                                        {% for option in row.authorize_vlan_options %}
+                                        <option value="{{ option.value }}"{% if row.authorize_vlan == option.value %} selected{% endif %}>{{ option.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% else %}
+                                    <div class="authorize-empty">No VLANs cached for this OLT yet.</div>
+                                    {% endif %}
+                                </div>
+                                <div class="authorize-field">
+                                    <label>Download Speed</label>
+                                    {% if unconfigured_download_speed_options %}
+                                    <select name="download_speed" required>
+                                        <option value="">Select download profile</option>
+                                        {% for option in unconfigured_download_speed_options %}
+                                        <option value="{{ option.value }}"{% if row.authorize_download_speed == option.value %} selected{% endif %}>{{ option.label }}{% if option.speed %} | {{ option.speed }}{% endif %}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% else %}
+                                    <div class="authorize-empty">No download profiles available in DB.</div>
+                                    {% endif %}
+                                </div>
+                                <div class="authorize-field">
+                                    <label>Upload Speed</label>
+                                    {% if unconfigured_upload_speed_options %}
+                                    <select name="upload_speed" required>
+                                        <option value="">Select upload profile</option>
+                                        {% for option in unconfigured_upload_speed_options %}
+                                        <option value="{{ option.value }}"{% if row.authorize_upload_speed == option.value %} selected{% endif %}>{{ option.label }}{% if option.speed %} | {{ option.speed }}{% endif %}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% else %}
+                                    <div class="authorize-empty">No upload profiles available in DB.</div>
+                                    {% endif %}
+                                </div>
+                                <div class="authorize-field is-wide">
+                                    <label>Name</label>
+                                    <input type="text" name="subscriber_name" value="{{ row.authorize_subscriber_name }}" placeholder="Client name" required>
+                                </div>
+                            </div>
+                            <div class="authorize-submit-row">
+                                <button type="submit" class="btn btn-authorize">{% if row.category == 'resync' %}Submit Reconfigure{% else %}Submit Authorize{% endif %}</button>
+                            </div>
+                        </form>
+                    </td>
+                </tr>
+                {% endif %}{% endif %}
+                {% empty %}
+                <tr>
+                    <td colspan="10" class="muted-cell">
+                        {% if group.is_pending %}
+                            Loading autofind rows for this OLT...
+                        {% elif group.is_unreachable %}
+                            <span class="olt-unreachable-text">OLT Unreachable.</span>
+                        {% else %}
+                            No autofind ONUs found for this OLT.
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

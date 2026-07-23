@@ -1,0 +1,868 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Adding {{ olt.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .progress-shell {
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    .progress-box {
+        margin-top: 18px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #13233f;
+        box-shadow: 0 10px 24px rgba(3, 8, 18, 0.35);
+    }
+    .progress-track {
+        width: 100%;
+        height: 16px;
+        border-radius: 999px;
+        background: #0c1830;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #2f80ff, #41d67d);
+        transition: width .35s ease;
+    }
+    .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 12px 0 0;
+        font-weight: 800;
+        color: #d7e5ff;
+    }
+    .progress-log {
+        margin-top: 16px;
+        padding: 14px;
+        border-radius: 12px;
+        background: #0b1528;
+        border: 1px solid rgba(255,255,255,0.08);
+        max-height: 260px;
+        overflow: auto;
+    }
+    .progress-log-line {
+        color: #d7e5ff;
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 0 0 8px;
+        font-weight: 800;
+    }
+    .progress-log-line.ok { color: #66e2a0; }
+    .progress-log-line.bad { color: #ff8d98; }
+    .progress-log-line:last-child { margin-bottom: 0; }
+    .retry-reason { color: #ff6b77; font-weight: 800; }
+    html[data-theme="light"] .retry-reason { color: #d23644; }
+    .progress-state.good { color: #66e2a0; }
+    .progress-state.bad { color: #ff8d98; }
+    .progress-warning {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        margin-top: 14px;
+        padding: 12px 14px;
+        border: 1px solid rgba(255, 193, 7, 0.35);
+        border-radius: 12px;
+        background: rgba(255, 193, 7, 0.08);
+        color: #ffe6a3;
+        font-weight: 800;
+        font-size: 13px;
+    }
+    .progress-estimate {
+        white-space: nowrap;
+        color: #d7e5ff;
+        font-size: 13px;
+    }
+
+    /* ── Review panel ── */
+    .review-panel {
+        display: none;
+        margin-top: 18px;
+        border: 1px solid rgba(65, 214, 125, 0.32);
+        border-radius: 14px;
+        background: rgba(12, 42, 48, 0.72);
+        overflow: hidden;
+    }
+    .review-panel.visible { display: block; }
+    .review-panel.failed-border { border-color: rgba(255,100,110,0.38); }
+
+    .review-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 18px 0;
+    }
+    .review-header h3 { margin: 0; font-size: 18px; color: #f4f8ff; }
+
+    /* Tabs */
+    .review-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 12px 18px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        overflow-x: auto;
+    }
+    .review-tab-btn {
+        padding: 9px 14px;
+        border: none;
+        background: transparent;
+        color: #9db0cf;
+        font-size: 13px;
+        font-weight: 800;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        white-space: nowrap;
+        font-family: inherit;
+        transition: color .15s, border-color .15s;
+    }
+    .review-tab-btn:hover { color: #d7e5ff; }
+    .review-tab-btn.active {
+        color: #41d67d;
+        border-bottom-color: #41d67d;
+    }
+    .review-tab-btn.tab-bad.active {
+        color: #ff8d98;
+        border-bottom-color: #ff8d98;
+    }
+
+    /* Tab panes */
+    .review-tab-pane { display: none; padding: 16px 18px; }
+    .review-tab-pane.active { display: block; }
+
+    /* Summary grid */
+    .review-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .review-summary-card {
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 10px;
+        padding: 12px 14px;
+        background: #0f1b32;
+    }
+    .review-summary-label {
+        font-size: 11px;
+        color: #9db0cf;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+    }
+    .review-summary-value {
+        font-size: 22px;
+        font-weight: 800;
+        color: #f4f8ff;
+    }
+    .review-summary-sub {
+        font-size: 12px;
+        color: #9db0cf;
+        margin-top: 2px;
+    }
+    .review-summary-ok { color: #41d67d; }
+    .review-summary-warn { color: #ffe082; }
+    .review-summary-bad { color: #ff8d98; }
+
+    /* Actions */
+    .review-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 12px 18px 16px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        margin-top: 4px;
+    }
+
+    /* Data tables */
+    .rv-table-wrap { overflow-x: auto; }
+    .rv-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 13px;
+    }
+    .rv-table th {
+        color: #9cb5db;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 11px;
+        padding: 9px 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.12);
+        text-align: left;
+        white-space: nowrap;
+    }
+    .rv-table td {
+        padding: 9px 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+        color: #d7e5ff;
+        vertical-align: top;
+    }
+    .rv-table tr:last-child td { border-bottom: none; }
+    .rv-table tr:hover td { background: rgba(47,128,255,0.06); }
+
+    .rv-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .rv-badge-ok { background: rgba(65,214,125,0.18); color: #66e2a0; }
+    .rv-badge-warn { background: rgba(255,224,130,0.14); color: #ffe082; }
+    .rv-badge-bad { background: rgba(255,140,152,0.18); color: #ff8d98; }
+    .rv-badge-neutral { background: rgba(157,176,207,0.14); color: #9db0cf; }
+
+    .pon-slot-header {
+        font-size: 13px;
+        font-weight: 800;
+        color: #9db0cf;
+        margin: 16px 0 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .pon-slot-header:first-child { margin-top: 4px; }
+
+    .rv-empty { color: #9db0cf; font-size: 13px; margin: 8px 0; }
+    .rv-loading { color: #9db0cf; font-size: 13px; font-style: italic; }
+
+    /* ONU search bar */
+    .onu-search-bar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .onu-search-input {
+        background: #0b1528;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 8px;
+        color: #d7e5ff;
+        font-size: 13px;
+        padding: 7px 12px;
+        width: 280px;
+        font-family: inherit;
+    }
+    .onu-search-input:focus { outline: none; border-color: #2f80ff; }
+    .onu-count-label { font-size: 12px; color: #9db0cf; }
+
+    @media (max-width: 720px) {
+        .review-summary-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* ── Light theme overrides ── */
+    html[data-theme="light"] .progress-box {
+        background: #ffffff;
+        border-color: #dce6f3;
+        box-shadow: 0 12px 30px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .progress-track {
+        background: #e8eef7;
+        border-color: #d3dded;
+    }
+    html[data-theme="light"] .progress-meta { color: #1d2b46; }
+    html[data-theme="light"] .progress-log {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .progress-log-line { color: #2b3a57; }
+    html[data-theme="light"] .progress-log-line.ok { color: #1a9b5a; }
+    html[data-theme="light"] .progress-log-line.bad { color: #d23644; }
+    html[data-theme="light"] .progress-state.good { color: #1a9b5a; }
+    html[data-theme="light"] .progress-state.bad { color: #d23644; }
+    html[data-theme="light"] .progress-warning {
+        background: #fff7e0;
+        border-color: #f0d48a;
+        color: #7a5b00;
+    }
+    html[data-theme="light"] .progress-estimate { color: #2b3a57; }
+
+    html[data-theme="light"] .review-panel {
+        background: #ffffff;
+        border-color: #bfe6cf;
+    }
+    html[data-theme="light"] .review-panel.failed-border { border-color: #f3b6bb; }
+    html[data-theme="light"] .review-header h3 { color: #16233c; }
+    html[data-theme="light"] .review-tabs { border-bottom-color: #dce6f3; }
+    html[data-theme="light"] .review-tab-btn { color: #5a6b86; }
+    html[data-theme="light"] .review-tab-btn:hover { color: #16233c; }
+    html[data-theme="light"] .review-tab-btn.active { color: #1a9b5a; border-bottom-color: #1a9b5a; }
+    html[data-theme="light"] .review-tab-btn.tab-bad.active { color: #d23644; border-bottom-color: #d23644; }
+    html[data-theme="light"] .review-summary-card {
+        background: #f4f8fe;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .review-summary-label { color: #5a6b86; }
+    html[data-theme="light"] .review-summary-value { color: #16233c; }
+    html[data-theme="light"] .review-summary-sub { color: #5a6b86; }
+    html[data-theme="light"] .review-actions { border-top-color: #dce6f3; }
+    html[data-theme="light"] .rv-table th { color: #41557a; border-bottom-color: #dce6f3; }
+    html[data-theme="light"] .rv-table td { color: #2b3a57; border-bottom-color: #e6edf6; }
+    html[data-theme="light"] .rv-table tr:hover td { background: rgba(47, 128, 255, 0.05); }
+    html[data-theme="light"] .pon-slot-header { color: #41557a; border-bottom-color: #dce6f3; }
+    html[data-theme="light"] .rv-empty,
+    html[data-theme="light"] .rv-loading,
+    html[data-theme="light"] .onu-count-label { color: #5a6b86; }
+    html[data-theme="light"] .rv-badge-ok { color: #1a9b5a; }
+    html[data-theme="light"] .rv-badge-warn { color: #9a7d00; }
+    html[data-theme="light"] .rv-badge-bad { color: #d23644; }
+    html[data-theme="light"] .rv-badge-neutral { color: #5a6b86; }
+    html[data-theme="light"] .onu-search-input {
+        background: #ffffff;
+        border-color: #d3dded;
+        color: #16233c;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell progress-shell">
+    <header class="topbar">
+        <div>
+            <h1 class="brand">Adding {{ olt.name }}</h1>
+            <p class="subtle">OLT details are being fetched and saved.</p>
+        </div>
+        <div class="topbar-actions">
+            <form method="post" action="{{ action_url }}" onsubmit="return confirm('Abort process and rollback this OLT?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="abort">
+                <button type="submit" class="btn btn-danger">Abort Process</button>
+            </form>
+            <a href="{{ settings_url }}" class="btn btn-secondary">Back</a>
+        </div>
+    </header>
+
+    <div class="progress-warning">
+        <span>Expected processing time is usually 15 to 30 minutes, depending on how many ONUs, cards, PON ports, and uplinks are present on this OLT.</span>
+        <span>Please do not access this OLT through Telnet while fetching is in progress. Opening another Telnet session may interrupt the data collection.</span>
+        <span class="progress-estimate" data-estimate-time>Processing Time: 0s</span>
+    </div>
+
+    <section class="progress-box" data-progress-box data-poll-url="{{ poll_url }}">
+        <div class="progress-track">
+            <div class="progress-fill" data-progress-fill style="width: {{ olt.onboarding_progress|default:0 }}%;"></div>
+        </div>
+        <div class="progress-meta">
+            <span class="progress-state" data-progress-message>{{ olt.onboarding_message|default:"Waiting..." }}</span>
+            <span data-progress-percent>{{ olt.onboarding_progress|default:0 }}%</span>
+        </div>
+        <div class="progress-log" data-progress-log>
+            {% for line in olt.onboarding_log.splitlines %}
+            {% if line.strip %}
+            <p class="progress-log-line{% if line|slice:':3' == 'OK:' %} ok{% elif line|slice:':7' == 'FAILED:' %} bad{% endif %}">{{ line }}</p>
+            {% endif %}
+            {% empty %}
+            <p class="progress-log-line">Waiting...</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- ── Full review panel ── -->
+    <section
+        class="review-panel{% if olt.onboarding_status == 'review' or olt.onboarding_status == 'failed' %} visible{% endif %}{% if olt.onboarding_status == 'failed' %} failed-border{% endif %}"
+        data-review-panel
+        data-review-data-url="{{ review_data_url }}"
+    >
+        <div class="review-header">
+            <h3 data-review-title>{% if olt.onboarding_status == 'failed' %}Review — some data missing{% else %}Review fetched data{% endif %}</h3>
+        </div>
+
+        <div class="review-tabs" role="tablist">
+            <button class="review-tab-btn active" data-tab="summary" role="tab" aria-selected="true">Summary</button>
+            <button class="review-tab-btn" data-tab="cards" role="tab">OLT Cards (<span data-tab-count="cards">0</span>)</button>
+            <button class="review-tab-btn" data-tab="pon" role="tab">PON Ports (<span data-tab-count="pon">0</span>)</button>
+            <button class="review-tab-btn" data-tab="uplink" role="tab">Uplink (<span data-tab-count="uplink">0</span>)</button>
+            <button class="review-tab-btn" data-tab="vlans" role="tab">VLANs (<span data-tab-count="vlans">0</span>)</button>
+            <button class="review-tab-btn" data-tab="onus" role="tab">ONUs (<span data-tab-count="onus">0</span>)</button>
+        </div>
+
+        <!-- Summary tab -->
+        <div class="review-tab-pane active" data-tab-pane="summary">
+            <div class="review-summary-grid" data-summary-grid>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">OLT Details</div>
+                    <div class="review-summary-value" data-review-key="olt_details">{{ review_counts.olt_details }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">OLT Cards</div>
+                    <div class="review-summary-value" data-review-key="olt_cards">{{ review_counts.olt_cards }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">PON Ports</div>
+                    <div class="review-summary-value" data-review-key="pon_ports">{{ review_counts.pon_ports }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">Uplink Ports</div>
+                    <div class="review-summary-value" data-review-key="uplink_ports">{{ review_counts.uplink_ports }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">VLANs</div>
+                    <div class="review-summary-value" data-review-key="vlans">{{ review_counts.vlans }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">ONUs Total</div>
+                    <div class="review-summary-value" data-review-key="onus">{{ review_counts.onus }}</div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">ONU VLAN / Profile</div>
+                    <div class="review-summary-value">
+                        <span data-review-key="onu_vlan_profile">{{ review_counts.onu_vlan_profile }}</span>
+                        <span style="font-size:14px;color:#9db0cf"> / <span data-review-key="total_onus">{{ review_counts.total_onus }}</span></span>
+                    </div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">ONU Types</div>
+                    <div class="review-summary-value">
+                        <span data-review-key="onu_types">{{ review_counts.onu_types }}</span>
+                        <span style="font-size:14px;color:#9db0cf"> / <span data-review-key="total_onus2">{{ review_counts.total_onus }}</span></span>
+                    </div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">ONU Distances</div>
+                    <div class="review-summary-value">
+                        <span data-review-key="onu_distances">{{ review_counts.onu_distances }}</span>
+                        <span style="font-size:14px;color:#9db0cf"> / <span data-review-key="total_onus3">{{ review_counts.total_onus }}</span></span>
+                    </div>
+                </div>
+                <div class="review-summary-card">
+                    <div class="review-summary-label">Service Profiles</div>
+                    <div class="review-summary-value">
+                        <span data-review-key="service_profiles">{{ review_counts.service_profiles }}</span>
+                        <span style="font-size:14px;color:#9db0cf"> / <span data-review-key="total_onus4">{{ review_counts.total_onus }}</span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OLT Cards tab -->
+        <div class="review-tab-pane" data-tab-pane="cards">
+            <p class="rv-loading" data-cards-loading>Loading card data...</p>
+            <div class="rv-table-wrap" data-cards-table style="display:none;"></div>
+        </div>
+
+        <!-- PON Ports tab -->
+        <div class="review-tab-pane" data-tab-pane="pon">
+            <p class="rv-loading" data-pon-loading>Loading PON port data...</p>
+            <div data-pon-content style="display:none;"></div>
+        </div>
+
+        <!-- Uplink tab -->
+        <div class="review-tab-pane" data-tab-pane="uplink">
+            <p class="rv-loading" data-uplink-loading>Loading uplink data...</p>
+            <div class="rv-table-wrap" data-uplink-table style="display:none;"></div>
+        </div>
+
+        <!-- VLANs tab -->
+        <div class="review-tab-pane" data-tab-pane="vlans">
+            <p class="rv-loading" data-vlans-loading>Loading VLAN data...</p>
+            <div class="rv-table-wrap" data-vlans-table style="display:none;"></div>
+        </div>
+
+        <!-- ONUs tab -->
+        <div class="review-tab-pane" data-tab-pane="onus">
+            <div class="onu-search-bar">
+                <input type="search" class="onu-search-input" placeholder="Search SN, description, port, type, VLAN..." data-onu-search>
+                <span class="onu-count-label" data-onu-visible-count></span>
+            </div>
+            <p class="rv-loading" data-onus-loading>Loading ONU data...</p>
+            <div class="rv-table-wrap" data-onus-table style="display:none;"></div>
+        </div>
+
+        <!-- Actions always at bottom -->
+        <div class="review-actions">
+            <form method="post" action="{{ action_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add">
+                <button type="submit" class="btn btn-primary">Add OLT</button>
+            </form>
+            <form method="post" action="{{ action_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="rollback">
+                <button type="submit" class="btn btn-danger">Rollback</button>
+            </form>
+            <form method="post" action="{{ action_url }}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="retry">
+                <button type="submit" class="btn btn-secondary">Retry</button>
+            </form>
+        </div>
+    </section>
+</div>
+
+<script>
+(() => {
+    // ── helpers ─────────────────────────────────────────────────────────────
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    // On a retry line, colour the bracketed reason red so it's clear WHY it retried.
+    const colorizeMsg = (text) => {
+        let html = esc(text);
+        if (/retry\s+\d+\/\d+/i.test(String(text || ''))) {
+            html = html.replace(/\(([^)]*)\)/, '<span class="retry-reason">($1)</span>');
+        }
+        return html;
+    };
+
+    function badge(text, type) {
+        if (!text) return '<span class="rv-badge rv-badge-neutral">—</span>';
+        const cls = type === 'ok' ? 'rv-badge-ok' : type === 'warn' ? 'rv-badge-warn' : type === 'bad' ? 'rv-badge-bad' : 'rv-badge-neutral';
+        return `<span class="rv-badge ${cls}">${esc(text)}</span>`;
+    }
+
+    function statusBadge(status) {
+        const s = String(status || '').toLowerCase();
+        if (s === 'online' || s === 'up' || s === 'normal') return badge(status, 'ok');
+        if (s === 'offline' || s === 'down' || s === 'failed') return badge(status, 'bad');
+        if (s) return badge(status, 'neutral');
+        return '<span class="rv-badge rv-badge-neutral">—</span>';
+    }
+
+    function portTypeBadge(type) {
+        const t = String(type || '').toUpperCase();
+        if (t.includes('GPON')) return badge(type, 'ok');
+        if (t.includes('EPON')) return badge(type, 'warn');
+        if (t.includes('XPON') || t.includes('XGS') || t.includes('10G')) return badge(type, 'neutral');
+        if (type) return badge(type, 'neutral');
+        return '<span class="rv-badge rv-badge-neutral">—</span>';
+    }
+
+    // ── Tab system ───────────────────────────────────────────────────────────
+    const tabBtns = document.querySelectorAll('[data-tab]');
+    const tabPanes = document.querySelectorAll('[data-tab-pane]');
+
+    tabBtns.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const target = btn.getAttribute('data-tab');
+            tabBtns.forEach((b) => { b.classList.toggle('active', b === btn); b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); });
+            tabPanes.forEach((p) => p.classList.toggle('active', p.getAttribute('data-tab-pane') === target));
+        });
+    });
+
+    // ── Renderers ────────────────────────────────────────────────────────────
+    function renderCards(cards) {
+        const wrap = document.querySelector('[data-cards-table]');
+        const loading = document.querySelector('[data-cards-loading]');
+        if (!wrap) return;
+        if (!cards || !cards.length) {
+            if (loading) loading.textContent = 'No card data found.';
+            return;
+        }
+        if (loading) loading.style.display = 'none';
+        wrap.style.display = '';
+        wrap.innerHTML = `<table class="rv-table">
+            <thead><tr>
+                <th>Slot</th><th>Type</th><th>Real Type</th><th>PON Ports</th>
+                <th>SW</th><th>Status</th><th>Role</th><th>Info Updated</th>
+            </tr></thead>
+            <tbody>${cards.map((c) => `<tr>
+                <td><strong>${esc(c.slot ?? '')}</strong></td>
+                <td>${esc(c.type || c.model_type || '—')}</td>
+                <td>${esc(c.real_type || c.model_type || '—')}</td>
+                <td>${esc(c.ports ?? '—')}</td>
+                <td>${esc(c.sw || '—')}</td>
+                <td>${statusBadge(c.status)}</td>
+                <td>${esc(c.role || '—')}</td>
+                <td>${esc(c.info_updated || '—')}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    }
+
+    function ponPortLabel(grp, port) {
+        const techPrefix = String(port.type || grp.board_type || 'GPON').toUpperCase().includes('EPON') ? 'EPON'
+            : String(port.type || grp.board_type || '').toUpperCase().includes('XGS') || String(port.type || grp.board_type || '').toUpperCase().includes('XPON') ? 'XPON'
+            : 'GPON';
+        return `${techPrefix} 0/${grp.slot}/${port.port}`;
+    }
+
+    function renderPonPorts(groups) {
+        const content = document.querySelector('[data-pon-content]');
+        const loading = document.querySelector('[data-pon-loading]');
+        if (!content) return;
+        const totalPorts = (groups || []).reduce((n, g) => n + (g.ports || []).length, 0);
+        if (!groups || !totalPorts) {
+            if (loading) loading.textContent = 'No PON port data found.';
+            return;
+        }
+        if (loading) loading.style.display = 'none';
+        content.style.display = '';
+        content.innerHTML = groups.map((grp) => `
+            <div class="pon-slot-header">Slot ${esc(grp.slot)} — board: ${esc(grp.board_type || '—')}</div>
+            <div class="rv-table-wrap">
+            <table class="rv-table">
+                <thead><tr>
+                    <th>Port</th><th>Type</th><th>Admin State</th><th>Status</th>
+                    <th>ONUs Online</th><th>ONUs Offline</th><th>Avg Signal</th>
+                </tr></thead>
+                <tbody>${(grp.ports || []).map((p) => `<tr>
+                    <td><strong>${esc(ponPortLabel(grp, p))}</strong></td>
+                    <td>${portTypeBadge(p.type)}</td>
+                    <td>${esc(p.admin_state || '—')}</td>
+                    <td>${statusBadge(p.status || '—')}</td>
+                    <td>${esc(p.onus_online ?? '—')}</td>
+                    <td>${esc(p.onus_offline ?? '—')}</td>
+                    <td>${p.average_signal ? esc(p.average_signal) : '—'}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>
+        `).join('');
+    }
+
+    function renderUplink(rows) {
+        const wrap = document.querySelector('[data-uplink-table]');
+        const loading = document.querySelector('[data-uplink-loading]');
+        if (!wrap) return;
+        if (!rows || !rows.length) {
+            if (loading) loading.textContent = 'No uplink port data found.';
+            return;
+        }
+        if (loading) loading.style.display = 'none';
+        wrap.style.display = '';
+        wrap.innerHTML = `<table class="rv-table">
+            <thead><tr>
+                <th>Port</th><th>Description</th><th>Admin State</th><th>Status</th>
+                <th>Speed</th><th>VLANs (tagged)</th><th>PVID</th><th>Negotiation</th><th>MTU</th>
+            </tr></thead>
+            <tbody>${rows.map((r) => `<tr>
+                <td><strong>${esc(r.port || r.name || '—')}</strong></td>
+                <td>${esc(r.description || '—')}</td>
+                <td>${esc(r.admin_status || r.admin_state || '—')}</td>
+                <td>${statusBadge(r.oper_status || r.status)}</td>
+                <td>${esc(r.speed || '—')}</td>
+                <td>${esc(r.tagged_vlans || '—')}</td>
+                <td>${esc(r.pvid_untag || r.pvid || '—')}</td>
+                <td>${esc(r.negotiation || '—')}</td>
+                <td>${esc(r.mtu || '—')}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    }
+
+    function renderVlans(rows) {
+        const wrap = document.querySelector('[data-vlans-table]');
+        const loading = document.querySelector('[data-vlans-loading]');
+        if (!wrap) return;
+        if (!rows || !rows.length) {
+            if (loading) loading.textContent = 'No VLAN data found.';
+            return;
+        }
+        if (loading) loading.style.display = 'none';
+        wrap.style.display = '';
+        wrap.innerHTML = `<table class="rv-table">
+            <thead><tr><th>VLAN ID</th><th>Description / Name</th></tr></thead>
+            <tbody>${rows.map((r) => `<tr>
+                <td><strong>${esc(r.vlan_id ?? r.id ?? '—')}</strong></td>
+                <td>${esc(r.description || r.name || '—')}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+    }
+
+    let allOnus = [];
+
+    function filterOnus(query) {
+        const q = query.toLowerCase().trim();
+        const wrap = document.querySelector('[data-onus-table]');
+        const countLabel = document.querySelector('[data-onu-visible-count]');
+        if (!wrap) return;
+        const rows = wrap.querySelectorAll('tbody tr[data-onu-row]');
+        let visible = 0;
+        rows.forEach((tr) => {
+            const text = tr.getAttribute('data-search-text') || '';
+            const show = !q || text.includes(q);
+            tr.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        if (countLabel) countLabel.textContent = q ? `${visible} of ${rows.length} shown` : `${rows.length} ONUs`;
+    }
+
+    function renderOnus(onus) {
+        const wrap = document.querySelector('[data-onus-table]');
+        const loading = document.querySelector('[data-onus-loading]');
+        const countLabel = document.querySelector('[data-onu-visible-count]');
+        if (!wrap) return;
+        allOnus = onus || [];
+        if (!allOnus.length) {
+            if (loading) loading.textContent = 'No configured ONUs found.';
+            return;
+        }
+        if (loading) loading.style.display = 'none';
+        wrap.style.display = '';
+        if (countLabel) countLabel.textContent = `${allOnus.length} ONUs`;
+
+        const rows = allOnus.map((o) => {
+            const searchText = [
+                o.sn, o.description, o.port_id, o.ont_id,
+                o.onu_type, o.vlans, o.download_profile, o.upload_profile, o.service_port_id, o.status
+            ].join(' ').toLowerCase();
+            const profileText = o.download_profile
+                ? `${esc(o.download_profile)}${o.upload_profile && o.upload_profile !== o.download_profile ? ' / ' + esc(o.upload_profile) : ''}`
+                : o.service_port_id ? `SP: ${esc(o.service_port_id)}` : '—';
+            return `<tr data-onu-row data-search-text="${esc(searchText)}">
+                <td><strong>${esc(o.port_id)}</strong></td>
+                <td>${esc(o.ont_id)}</td>
+                <td style="font-family:monospace;">${esc(o.sn || '—')}</td>
+                <td>${esc(o.description || '—')}</td>
+                <td>${o.onu_type ? esc(o.onu_type) : '<span style="color:#9db0cf">—</span>'}</td>
+                <td>${o.distance_m ? esc(o.distance_m) + ' m' : '<span style="color:#9db0cf">—</span>'}</td>
+                <td>${o.vlans ? esc(o.vlans) : '<span style="color:#9db0cf">—</span>'}</td>
+                <td>${profileText}</td>
+                <td>${statusBadge(o.status)}</td>
+            </tr>`;
+        }).join('');
+
+        wrap.innerHTML = `<table class="rv-table">
+            <thead><tr>
+                <th>PON Port</th><th>ONT ID</th><th>Serial No.</th><th>Description</th>
+                <th>ONU Type</th><th>Distance</th><th>VLANs</th><th>Speed Profile</th><th>Status</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+        const searchInput = document.querySelector('[data-onu-search]');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => filterOnus(searchInput.value));
+        }
+    }
+
+    // ── Fetch and populate review data ───────────────────────────────────────
+    let reviewDataLoaded = false;
+
+    function fetchReviewData() {
+        if (reviewDataLoaded) return;
+        const panel = document.querySelector('[data-review-panel]');
+        if (!panel) return;
+        const url = panel.getAttribute('data-review-data-url');
+        if (!url) return;
+
+        reviewDataLoaded = true;
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((data) => {
+                if (!data.ok) return;
+
+                // Update tab counts
+                const cards = data.cards || [];
+                const ponTotal = (data.pon_port_groups || []).reduce((n, g) => n + (g.ports || []).length, 0);
+                const uplinkRows = data.uplink_rows || [];
+                const vlanRows = data.vlan_rows || [];
+                const onus = data.onus || [];
+
+                [['cards', cards.length], ['pon', ponTotal], ['uplink', uplinkRows.length],
+                 ['vlans', vlanRows.length], ['onus', onus.length]].forEach(([key, count]) => {
+                    document.querySelectorAll(`[data-tab-count="${key}"]`).forEach((el) => { el.textContent = count; });
+                });
+
+                // Update summary review_counts if provided
+                if (data.review_counts) {
+                    Object.entries(data.review_counts).forEach(([key, value]) => {
+                        document.querySelectorAll(`[data-review-key="${key}"]`).forEach((el) => { el.textContent = String(value ?? 0); });
+                    });
+                    // Sync all total_onus clones
+                    const totalOnus = data.review_counts["total_onus"];
+                    if (totalOnus !== undefined) {
+                        ["total_onus2","total_onus3","total_onus4"].forEach((k) => {
+                            document.querySelectorAll(`[data-review-key="${k}"]`).forEach((el) => { el.textContent = String(totalOnus ?? 0); });
+                        });
+                    }
+                }
+
+                renderCards(cards);
+                renderPonPorts(data.pon_port_groups);
+                renderUplink(uplinkRows);
+                renderVlans(vlanRows);
+                renderOnus(onus);
+            })
+            .catch(() => {
+                reviewDataLoaded = false;
+            });
+    }
+
+    // ── Progress polling ─────────────────────────────────────────────────────
+    const box = document.querySelector('[data-progress-box]');
+    if (!box) return;
+    const pollUrl = box.getAttribute('data-poll-url');
+    const fill = box.querySelector('[data-progress-fill]');
+    const percent = box.querySelector('[data-progress-percent]');
+    const message = box.querySelector('[data-progress-message]');
+    const log = box.querySelector('[data-progress-log]');
+    const estimateTime = document.querySelector('[data-estimate-time]');
+    const reviewPanel = document.querySelector('[data-review-panel]');
+    const reviewTitle = document.querySelector('[data-review-title]');
+    const startedAt = Date.now();
+
+    const render = (payload) => {
+        const progress = Number(payload.progress || 0);
+        if (fill) fill.style.width = `${progress}%`;
+        if (percent) percent.textContent = `${progress}%`;
+        if (message) {
+            message.innerHTML = colorizeMsg(payload.message || 'Working...');
+            message.classList.remove('good', 'bad');
+            if (payload.status === 'completed') message.classList.add('good');
+            if (payload.status === 'failed') message.classList.add('bad');
+        }
+        if (log && Array.isArray(payload.log_lines)) {
+            log.innerHTML = payload.log_lines.length
+                ? payload.log_lines.map((line) => {
+                    const cls = line.startsWith('OK:') ? ' ok' : line.startsWith('FAILED:') ? ' bad' : '';
+                    return `<p class="progress-log-line${cls}">${colorizeMsg(line)}</p>`;
+                }).join('')
+                : '<p class="progress-log-line">Waiting...</p>';
+            log.scrollTop = log.scrollHeight;
+        }
+        if (payload.review_counts) {
+            Object.entries(payload.review_counts).forEach(([key, value]) => {
+                document.querySelectorAll(`[data-review-key="${key}"]`).forEach((el) => { el.textContent = String(value ?? 0); });
+            });
+        }
+        const showReview = payload.status === 'review' || payload.status === 'failed';
+        if (reviewPanel) {
+            reviewPanel.classList.toggle('visible', showReview);
+            reviewPanel.classList.toggle('failed-border', payload.status === 'failed');
+            if (showReview) fetchReviewData();
+        }
+        if (reviewTitle) {
+            reviewTitle.textContent = payload.status === 'failed' ? 'Review — some data missing' : 'Review fetched data';
+        }
+        if (payload.is_ready && payload.redirect_url) {
+            window.location.href = payload.redirect_url;
+            return true;
+        }
+        return payload.status === 'failed' || payload.status === 'review' || payload.status === 'completed';
+    };
+
+    const poll = async () => {
+        try {
+            const response = await fetch(pollUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const payload = await response.json();
+            const stop = render(payload);
+            if (!stop) window.setTimeout(poll, 1200);
+        } catch {
+            if (message) message.textContent = 'Waiting for OLT...';
+            window.setTimeout(poll, 2000);
+        }
+    };
+
+    const tick = () => {
+        if (estimateTime) {
+            const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            estimateTime.textContent = `Processing Time: ${minutes ? `${minutes}m ` : ''}${seconds}s`;
+        }
+        window.setTimeout(tick, 1000);
+    };
+
+    tick();
+    window.setTimeout(poll, 500);
+
+    // If page loaded already in review state, fetch data immediately
+    if (reviewPanel && reviewPanel.classList.contains('visible')) {
+        fetchReviewData();
+    }
+})();
+</script>
+{% endblock %}

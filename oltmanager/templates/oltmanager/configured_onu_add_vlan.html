@@ -1,0 +1,190 @@
+{% extends "oltmanager/configured_onu_speed_profile_config.html" %}
+
+{% block extra_css %}
+{{ block.super }}
+<style>
+    .vlan-picker {
+        position: relative;
+    }
+    .vlan-picker-button {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid rgba(120, 170, 255, 0.35);
+        border-radius: 8px;
+        background: #0d1a31;
+        color: #f4f8ff;
+        padding: 0 14px;
+        font-weight: 800;
+        text-align: left;
+        cursor: pointer;
+    }
+    .vlan-picker-menu {
+        margin-top: 8px;
+        border: 1px solid rgba(120, 170, 255, 0.35);
+        border-radius: 10px;
+        background: #f8fbff;
+        color: #111827;
+        overflow: hidden;
+        box-shadow: 0 18px 46px rgba(0, 0, 0, 0.35);
+    }
+    .vlan-picker-menu[hidden] {
+        display: none;
+    }
+    .vlan-picker-list {
+        max-height: 280px;
+        overflow: auto;
+        padding: 8px 14px 12px;
+        scrollbar-color: #111827 #e5edf7;
+        scrollbar-width: thin;
+    }
+    .vlan-picker-list::-webkit-scrollbar {
+        width: 10px;
+    }
+    .vlan-picker-list::-webkit-scrollbar-track {
+        background: #e5edf7;
+    }
+    .vlan-picker-list::-webkit-scrollbar-thumb {
+        background: #111827;
+        border-radius: 999px;
+    }
+    .vlan-picker-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        color: #000;
+        font-weight: 700;
+    }
+    .vlan-picker-option input {
+        width: 14px;
+        height: 14px;
+    }
+    html[data-theme="light"] .vlan-picker-button {
+        background: #f7faff;
+        border-color: #cdd9ec;
+        color: #16233c;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="onu-detail-page">
+    <section class="onu-detail-card">
+        <div class="detail-topbar">
+            <div>
+                <h1>Add ONU VLAN</h1>
+                <p>{{ olt.name }} | 0/{{ slot }}/{{ port }} ONT {{ ont_id }}</p>
+            </div>
+            <div class="detail-topbar-actions">
+                <a href="{{ back_url }}" class="btn btn-secondary">Back</a>
+            </div>
+        </div>
+
+        {% if response_message %}
+        <div class="onu-action-status error">{{ response_message }}</div>
+        {% endif %}
+
+        <form method="post" class="ethernet-config-form" data-speed-profile-form>
+            {% csrf_token %}
+            <div class="form-row">
+                <label>VLANs</label>
+                <div class="vlan-picker" data-vlan-picker>
+                    <button type="button" class="vlan-picker-button" data-vlan-picker-button>No VLAN selected</button>
+                    <div class="vlan-picker-menu" data-vlan-picker-menu hidden>
+                        <div class="vlan-picker-list">
+                            <label class="vlan-picker-option">
+                                <input type="checkbox" data-vlan-select-all>
+                                <span>Select all</span>
+                            </label>
+                            {% for vlan in vlan_options %}
+                            <label class="vlan-picker-option" data-vlan-option data-vlan-text="{{ vlan }}">
+                                <input type="checkbox" name="vlan_ids" value="{{ vlan }}" data-vlan-checkbox>
+                                <span>{{ vlan }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-row">
+                <label for="download_speed">Download speed</label>
+                <select id="download_speed" name="download_speed" required>
+                    {% for item in download_options %}
+                    <option value="{{ item.value }}">{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="upload_speed">Upload speed</label>
+                <select id="upload_speed" name="upload_speed" required>
+                    {% for item in upload_options %}
+                    <option value="{{ item.value }}">{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="speed-profile-actions">
+                <span></span>
+                <button type="submit" class="btn btn-primary">Add VLAN</button>
+            </div>
+        </form>
+
+        {% if transcript %}
+        <pre class="running-config-output">{{ transcript }}</pre>
+        {% endif %}
+    </section>
+</div>
+
+<div class="olt-wait-overlay" data-olt-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">Waiting for OLT</div>
+        <div class="olt-wait-log" data-olt-wait-log>Preparing VLAN add...</div>
+        <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
+        <ul class="olt-wait-steps" data-olt-wait-steps>
+            <li data-step-index="0">Opening OLT session</li>
+            <li data-step-index="1">Checking traffic tables</li>
+            <li data-step-index="2">Preparing service-port</li>
+            <li data-step-index="3">Applying configuration</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+(() => {
+    const picker = document.querySelector('[data-vlan-picker]');
+    if (!picker) return;
+    const button = picker.querySelector('[data-vlan-picker-button]');
+    const menu = picker.querySelector('[data-vlan-picker-menu]');
+    const selectAll = picker.querySelector('[data-vlan-select-all]');
+    const options = Array.from(picker.querySelectorAll('[data-vlan-option]'));
+    const boxes = Array.from(picker.querySelectorAll('[data-vlan-checkbox]'));
+
+    const visibleBoxes = () => options
+        .filter((option) => !option.hidden)
+        .map((option) => option.querySelector('[data-vlan-checkbox]'));
+
+    const updateButton = () => {
+        const selected = boxes.filter((box) => box.checked).map((box) => box.value);
+        button.textContent = selected.length ? `${selected.length} selected: ${selected.slice(0, 4).join(', ')}${selected.length > 4 ? '...' : ''}` : 'No VLAN selected';
+        const visible = visibleBoxes();
+        selectAll.checked = visible.length > 0 && visible.every((box) => box.checked);
+    };
+
+    button.addEventListener('click', () => {
+        menu.hidden = !menu.hidden;
+    });
+    document.addEventListener('click', (event) => {
+        if (!picker.contains(event.target)) menu.hidden = true;
+    });
+    selectAll.addEventListener('change', () => {
+        visibleBoxes().forEach((box) => box.checked = selectAll.checked);
+        updateButton();
+    });
+    boxes.forEach((box) => box.addEventListener('change', updateButton));
+    updateButton();
+})();
+</script>
+{% endblock %}

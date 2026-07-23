@@ -1,0 +1,425 @@
+{% extends "oltmanager/base.html" %}
+
+{% block extra_css %}
+<style>
+    .ethernet-config-form {
+        display: grid;
+        gap: 16px;
+        margin-top: 18px;
+        max-width: 620px;
+    }
+    .ethernet-config-form .form-row {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 14px;
+        align-items: center;
+    }
+    .ethernet-config-form label {
+        color: #dce8ff;
+        font-weight: 800;
+    }
+    .ethernet-config-form select,
+    .ethernet-config-form input {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid rgba(120, 170, 255, 0.35);
+        border-radius: 8px;
+        background: #0d1a31;
+        color: #f4f8ff;
+        padding: 0 14px;
+        font-weight: 700;
+    }
+    .speed-profile-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        margin-top: 6px;
+    }
+    .svlan-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #dce8ff;
+        font-weight: 800;
+    }
+    .svlan-toggle input {
+        width: auto;
+        min-height: 0;
+    }
+    .muted {
+        color: #9fb4d6;
+        font-weight: 700;
+    }
+    .onu-action-status {
+        margin-top: 12px;
+        color: #ffb7b7;
+        font-weight: 800;
+    }
+    .olt-wait-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        background: rgba(3, 9, 22, 0.72);
+        backdrop-filter: blur(6px);
+    }
+    .olt-wait-overlay[hidden] {
+        display: none;
+    }
+    .olt-wait-box {
+        width: min(420px, calc(100vw - 32px));
+        border: 1px solid rgba(105, 165, 255, 0.28);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(16, 30, 58, 0.98) 0%, rgba(9, 18, 36, 0.98) 100%);
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+        padding: 28px 32px;
+        text-align: center;
+    }
+    .olt-wait-wheel {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 18px;
+        border-radius: 50%;
+        border: 6px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #4f8dff;
+        border-right-color: #67d39c;
+        animation: oltWaitSpin 0.9s linear infinite;
+    }
+    .olt-wait-title {
+        color: #f4f8ff;
+        font-size: 22px;
+        font-weight: 900;
+        margin: 0 0 8px;
+    }
+    .olt-wait-log {
+        margin: 0 0 14px;
+        color: #b9cceb;
+        font-size: 13px;
+        font-weight: 700;
+        min-height: 18px;
+        max-height: 160px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+    .olt-wait-track {
+        width: 100%;
+        height: 10px;
+        margin: 0 0 16px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+    }
+    .olt-wait-fill {
+        width: 6%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #4f8dff 0%, #67d39c 100%);
+        box-shadow: 0 0 18px rgba(79, 141, 255, 0.28);
+        transition: width 0.45s ease;
+    }
+    .olt-wait-steps {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        text-align: left;
+        display: grid;
+        gap: 8px;
+    }
+    .olt-wait-steps li {
+        color: #7f97bb;
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: color 0.2s ease;
+    }
+    .olt-wait-steps li::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        flex: 0 0 auto;
+    }
+    .olt-wait-steps li.is-active {
+        color: #dff2ff;
+    }
+    .olt-wait-steps li.is-active::before {
+        background: #4f8dff;
+        box-shadow: 0 0 12px rgba(79, 141, 255, 0.5);
+    }
+    .olt-wait-steps li.is-done {
+        color: #9fe7bf;
+    }
+    .olt-wait-steps li.is-done::before {
+        background: #67d39c;
+        box-shadow: 0 0 12px rgba(103, 211, 156, 0.45);
+    }
+    @keyframes oltWaitSpin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    @media (max-width: 720px) {
+        .ethernet-config-form .form-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* ============================ LIGHT THEME (Configure / Add VLAN) ============================ */
+    html[data-theme="light"] .onu-detail-card {
+        background: #ffffff;
+        border: 1px solid #dce6f3;
+        border-radius: 16px;
+        box-shadow: 0 10px 26px rgba(40, 70, 120, 0.08);
+        padding: 18px;
+    }
+    html[data-theme="light"] .ethernet-config-form label,
+    html[data-theme="light"] .svlan-toggle { color: #2b3a57; }
+    html[data-theme="light"] .ethernet-config-form select,
+    html[data-theme="light"] .ethernet-config-form input {
+        background: #f7faff;
+        border-color: #cdd9ec;
+        color: #16233c;
+    }
+    html[data-theme="light"] .muted { color: #5a6b86; }
+    html[data-theme="light"] .onu-action-status { color: #b3243b; }
+    html[data-theme="light"] .running-config-output {
+        background: #f3f7fd;
+        border: 1px solid #d6e0ee;
+        color: #1c2a44;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="onu-detail-page">
+    <section class="onu-detail-card">
+        <div class="detail-topbar">
+            <div>
+                <h1>Configure speed profile</h1>
+                <p>{{ olt.name }} | 0/{{ slot }}/{{ port }} ONT {{ ont_id }}</p>
+            </div>
+            <div class="detail-topbar-actions">
+                <a href="{{ back_url }}" class="btn btn-secondary">Back</a>
+            </div>
+        </div>
+
+        {% if response_message %}
+        <div class="onu-action-status error">{{ response_message }}</div>
+        {% endif %}
+
+        <form method="post" class="ethernet-config-form" data-speed-profile-form>
+            {% csrf_token %}
+            <div class="form-row">
+                <label>
+                    <span class="svlan-toggle">
+                        <input type="checkbox" id="use_svlan" name="use_svlan" {% if current_svlan %}checked{% endif %}>
+                        Use SVLAN-ID
+                    </span>
+                </label>
+                <select id="service_vlan" name="service_vlan" {% if not current_svlan %}hidden disabled{% endif %}>
+                    {% for vlan in olt_vlan_options %}
+                    <option value="{{ vlan }}"{% if vlan == current_svlan %} selected{% endif %}>{{ vlan }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="user_vlan">User VLAN-ID</label>
+                <select id="user_vlan" name="user_vlan" required data-current-vlan="{{ current_vlan }}">
+                    {% for vlan in vlan_options %}
+                    <option value="{{ vlan }}"{% if vlan == current_vlan %} selected{% endif %}>{{ vlan }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="download_speed">Download speed</label>
+                <select id="download_speed" name="download_speed" required>
+                    {% for item in download_options %}
+                    <option value="{{ item.value }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="upload_speed">Upload speed</label>
+                <select id="upload_speed" name="upload_speed" required>
+                    {% for item in upload_options %}
+                    <option value="{{ item.value }}"{% if item.selected %} selected{% endif %}>{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="speed-profile-actions">
+                <span class="muted">Service-port {{ service_port_id|default:"-" }}</span>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+
+        {% if transcript %}
+        <pre class="running-config-output">{{ transcript }}</pre>
+        {% endif %}
+    </section>
+</div>
+
+<div class="olt-wait-overlay" data-olt-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">Waiting for OLT</div>
+        <div class="olt-wait-log" data-olt-wait-log>Preparing speed profile update...</div>
+        <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
+        <ul class="olt-wait-steps" data-olt-wait-steps>
+            <li data-step-index="0">Opening OLT session</li>
+            <li data-step-index="1">Checking traffic tables</li>
+            <li data-step-index="2">Preparing service-port</li>
+            <li data-step-index="3">Applying configuration</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const form = document.querySelector('[data-speed-profile-form]');
+    const useSvlan = document.getElementById('use_svlan');
+    const serviceVlan = document.getElementById('service_vlan');
+    const overlay = document.querySelector('[data-olt-wait]');
+    const fill = document.querySelector('[data-olt-wait-fill]');
+    const log = document.querySelector('[data-olt-wait-log]');
+    const steps = Array.from(document.querySelectorAll('[data-olt-wait-steps] [data-step-index]'));
+    if (!form || !overlay || !fill || !log) return;
+
+    const PROGRESS_URL = "{% url 'configured_onu_speed_profile_progress' task_id='__TASK__' %}";
+    const STEP_WIDTHS = [20, 45, 70, 92];
+    const STEP_LABELS = [
+        'Opening OLT session...',
+        'Checking traffic tables...',
+        'Preparing service-port...',
+        'Applying configuration...',
+    ];
+
+    if (useSvlan && serviceVlan) {
+        const userVlan = document.getElementById('user_vlan');
+        const currentVlan = userVlan ? (userVlan.getAttribute('data-current-vlan') || '') : '';
+        // All OLT VLANs are already rendered in the SVLAN dropdown — reuse them.
+        const oltVlans = Array.from(serviceVlan.options).map((o) => o.value).filter(Boolean);
+
+        // "untagged" is always a valid user-VLAN choice — keep it in the list
+        // regardless of the SVLAN toggle.
+        const ensureUntagged = (arr) => {
+            if (!arr.some((v) => String(v).toLowerCase() === 'untagged')) arr.push('untagged');
+            return arr;
+        };
+
+        // When "Use SVLAN-ID" is ticked the user can pick ANY user-VLAN from the
+        // full OLT VLAN list; when unticked it stays on the single current VLAN.
+        const buildUserVlanOptions = () => {
+            if (!userVlan) return;
+            const prev = userVlan.value;
+            let vlans;
+            if (useSvlan.checked) {
+                vlans = oltVlans.length ? oltVlans.slice() : (currentVlan ? [currentVlan] : []);
+            } else {
+                vlans = currentVlan ? [currentVlan] : (oltVlans.length ? [oltVlans[0]] : []);
+            }
+            ensureUntagged(vlans);
+            userVlan.innerHTML = vlans.map((v) => `<option value="${v}">${v}</option>`).join('');
+            const want = vlans.includes(prev) ? prev : (vlans.includes(currentVlan) ? currentVlan : vlans[0]);
+            if (want != null) userVlan.value = want;
+        };
+
+        const syncSvlan = () => {
+            serviceVlan.hidden = !useSvlan.checked;
+            serviceVlan.disabled = !useSvlan.checked;
+            buildUserVlanOptions();
+        };
+        useSvlan.addEventListener('change', syncSvlan);
+        syncSvlan();
+    }
+
+    const getCookie = (name) => {
+        const cookieValue = document.cookie.split('; ').find((row) => row.startsWith(name + '='));
+        return cookieValue ? decodeURIComponent(cookieValue.split('=')[1]) : '';
+    };
+
+    // Reflect the real backend step: every step below the current one is marked
+    // done (green), the current one is active, and on completion all go green.
+    const setStep = (stepIndex, labelText, done) => {
+        const clamped = Math.max(0, Math.min(stepIndex, STEP_WIDTHS.length - 1));
+        fill.style.width = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
+        log.textContent = labelText || STEP_LABELS[clamped] || 'Working...';
+        steps.forEach((node) => {
+            const index = Number(node.getAttribute('data-step-index') || 0);
+            node.classList.toggle('is-done', done || index < stepIndex);
+            node.classList.toggle('is-active', !done && index === stepIndex);
+        });
+    };
+
+    let pollTimer = null;
+    const stopPoll = () => {
+        if (pollTimer) { window.clearTimeout(pollTimer); pollTimer = null; }
+    };
+
+    const finish = (ok, message, transcript, redirectUrl) => {
+        stopPoll();
+        steps.forEach((node) => {
+            node.classList.toggle('is-done', ok);
+            node.classList.remove('is-active');
+        });
+        fill.style.width = '100%';
+        log.textContent = `${ok ? 'OK: ' : 'FAILED: '}${message || (ok ? 'Done.' : 'Failed.')}`;
+        if (transcript) { log.textContent += `\n\n${transcript}`; }
+        if (ok && redirectUrl) {
+            window.setTimeout(() => { window.location.href = redirectUrl; }, 600);
+        }
+    };
+
+    const pollProgress = (taskId) => {
+        const url = PROGRESS_URL.replace('__TASK__', taskId);
+        const tick = async () => {
+            try {
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                const task = await res.json();
+                if (task.done) {
+                    finish(!!task.ok, task.message, task.transcript, task.redirect_url);
+                    return;
+                }
+                setStep(Number(task.step || 0), task.label, false);
+                pollTimer = window.setTimeout(tick, 600);
+            } catch (err) {
+                pollTimer = window.setTimeout(tick, 1000);
+            }
+        };
+        tick();
+    };
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        overlay.hidden = false;
+        setStep(0, STEP_LABELS[0], false);
+        try {
+            const response = await fetch(form.action || window.location.href, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: new FormData(form),
+            });
+            const data = await response.json();
+            if (response.ok && data.ok && data.task_id) {
+                pollProgress(data.task_id);
+            } else {
+                finish(false, data.message, data.transcript, '');
+            }
+        } catch (error) {
+            finish(false, 'Speed profile update failed.', '', '');
+        }
+    });
+})();
+</script>
+{% endblock %}

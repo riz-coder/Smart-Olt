@@ -1,0 +1,150 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - Users{% endblock %}
+
+{% block extra_css %}
+<style>
+    .users-layout {
+        display: grid;
+        grid-template-columns: minmax(320px, 420px) 1fr;
+        gap: 18px;
+        align-items: start;
+    }
+    .user-form-card,
+    .user-list-card {
+        border: 1px solid #28436d;
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(19, 33, 58, 0.96), rgba(13, 24, 43, 0.98));
+        padding: 18px;
+    }
+    .form-actions { margin-top: 16px; }
+    .role-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .role-badge.admin {
+        color: #7dfff0;
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    .role-badge.standard {
+        color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.14);
+        border: 1px solid rgba(59, 130, 246, 0.34);
+    }
+    @media (max-width: 900px) {
+        .users-layout { grid-template-columns: 1fr; }
+    }
+    html[data-theme="light"] .user-form-card,
+    html[data-theme="light"] .user-list-card {
+        background: #ffffff;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .role-badge.admin {
+        color: #0f7a4a;
+        background: rgba(16, 185, 129, 0.12);
+        border-color: rgba(16, 185, 129, 0.40);
+    }
+    html[data-theme="light"] .role-badge.standard {
+        color: #1f65d1;
+        background: rgba(59, 130, 246, 0.10);
+        border-color: rgba(59, 130, 246, 0.40);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <h1>Users</h1>
+            <p class="subtle">Create Admin and Standard accounts.</p>
+        </div>
+        <a href="{% url 'settings_home' %}" class="btn btn-secondary">Back</a>
+    </header>
+
+    {% if messages %}
+    <ul class="messages">
+        {% for message in messages %}
+        <li class="{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <section class="users-layout">
+        <div class="user-form-card">
+            <h2 style="margin-top:0;">Create User</h2>
+            {% if errors %}
+            <ul class="messages">
+                {% for error in errors %}
+                <li class="error">{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="name">Name</label>
+                    <input class="form-control" id="name" name="name" value="{{ form_data.name|default:'' }}" required>
+                </div>
+                <div class="field">
+                    <label for="userid">User ID</label>
+                    <input class="form-control" id="userid" name="userid" value="{{ form_data.userid|default:'' }}" required>
+                </div>
+                <div class="field">
+                    <label for="password">Password</label>
+                    <input class="form-control" id="password" name="password" type="password" required>
+                </div>
+                <div class="field">
+                    <label for="account_type">Account type</label>
+                    <select class="form-control" id="account_type" name="account_type" required>
+                        <option value="">Select account type</option>
+                        <option value="admin" {% if form_data.account_type == "admin" %}selected{% endif %}>Admin</option>
+                        <option value="standard" {% if form_data.account_type == "standard" %}selected{% endif %}>Standard</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Create User</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="user-list-card">
+            <h2 style="margin-top:0;">Existing Users</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>User ID</th>
+                            <th>Account type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for account in users %}
+                        <tr>
+                            <td>{{ account.first_name|default:"-" }}</td>
+                            <td>{{ account.username }}</td>
+                            <td>
+                                {% if account.is_staff or account.is_superuser %}
+                                <span class="role-badge admin">Admin</span>
+                                {% else %}
+                                <span class="role-badge standard">Standard</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="3">No users found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
