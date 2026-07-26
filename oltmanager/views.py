@@ -21,7 +21,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, close_old_connections
-from django.db.models import Case, IntegerField, Max, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Max, Q, Value, When
 from django.http import HttpResponse, JsonResponse
 from django.core.exceptions import PermissionDenied
 from django.template.loader import render_to_string
@@ -33,8 +33,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
-from .forms import OLTForm, VLANAddForm, VLANBulkAddForm
-from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, UplinkPortTrafficSample
+from .forms import ClientPanelForm, ControlUserCreateForm, OLTControlForm, OLTForm, SubscriptionPlanForm, VLANAddForm, VLANBulkAddForm
+from .models import ClientPanel, ConfiguredONU, ControlAuditLog, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, SubscriptionPlan, UplinkPortTrafficSample, UserProfile
 from .services import get_olt_adapter
 from .utils import (
     _dashboard_status_counts_from_queryset,
@@ -229,8 +229,34 @@ _ONU_SNMP_STATUS_DEBOUNCE_LOCK = threading.Lock()
 _ONU_SNMP_STATUS_DEBOUNCE = {}
 
 
+def _serviceable_olt_filter():
+    return Q(service_enabled=True) & (Q(client_panel__isnull=True) | Q(client_panel__status="active"))
+
+
 def _ready_olts():
-    return OLT.objects.filter(is_ready=True)
+    return OLT.objects.filter(is_ready=True).filter(_serviceable_olt_filter())
+
+
+def _control_admin_required(view_func):
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if not bool(request.user and request.user.is_authenticated and request.user.is_superuser):
+            raise PermissionDenied("Super admin access is required.")
+        return view_func(request, *args, **kwargs)
+    return _wrapped
+
+
+def _control_audit(request, action, details="", client_panel=None, olt=None):
+    try:
+        ControlAuditLog.objects.create(
+            action=str(action or "")[:80],
+            user=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
+            client_panel=client_panel,
+            olt=olt,
+            details=str(details or "")[:300],
+        )
+    except Exception:
+        pass
 
 
 def _load_ethernet_port_config_cache(record):
@@ -6770,6 +6796,186 @@ def settings_home(request):
     return render(request, "oltmanager/settings_home.html")
 
 
+@login_required
+@_control_admin_required
+def control_dashboard(request):
+    olt_qs = OLT.objects.select_related("client_panel").all()
+    client_qs = ClientPanel.objects.select_related("plan").all()
+    recent_logs = ControlAuditLog.objects.select_related("user", "client_panel", "olt")[:20]
+    context = {
+        "clients_count": client_qs.count(),
+        "users_count": UserProfile.objects.count(),
+        "olts_count": olt_qs.count(),
+        "active_olts": olt_qs.filter(service_enabled=True).count(),
+        "disabled_olts": olt_qs.filter(service_enabled=False).count(),
+        "suspended_clients": client_qs.filter(status="suspended").count(),
+        "total_onus": ConfiguredONU.objects.count(),
+        "recent_logs": recent_logs,
+    }
+    return render(request, "oltmanager/control_dashboard.html", context)
+
+
+@login_required
+@_control_admin_required
+def control_clients(request):
+    if request.method == "POST":
+        form = ClientPanelForm(request.POST)
+        if form.is_valid():
+            client = form.save()
+            _control_audit(request, "client_create", f"Client created: {client.name}", client_panel=client)
+            messages.success(request, f"Client `{client.name}` created.")
+            return redirect("control_clients")
+    else:
+        form = ClientPanelForm()
+
+    clients = []
+    for client in ClientPanel.objects.select_related("plan").annotate(
+        olt_total=Count("olts", distinct=True),
+        onu_total=Count("olts__configured_onus", distinct=True),
+        user_total=Count("users", distinct=True),
+    ).order_by("name"):
+        clients.append({
+            "client": client,
+            "olt_count": client.olt_total,
+            "onu_count": client.onu_total,
+            "user_count": client.user_total,
+        })
+    return render(request, "oltmanager/control_clients.html", {"form": form, "clients": clients})
+
+
+@login_required
+@_control_admin_required
+def control_client_detail(request, pk):
+    client = get_object_or_404(ClientPanel.objects.select_related("plan"), pk=pk)
+    if request.method == "POST":
+        form = ClientPanelForm(request.POST, instance=client)
+        if form.is_valid():
+            client = form.save()
+            _control_audit(request, "client_update", f"Client updated: {client.name}", client_panel=client)
+            messages.success(request, f"Client `{client.name}` updated.")
+            return redirect("control_client_detail", pk=client.pk)
+    else:
+        form = ClientPanelForm(instance=client)
+    return render(
+        request,
+        "oltmanager/control_client_detail.html",
+        {
+            "client": client,
+            "form": form,
+            "olts": OLT.objects.filter(client_panel=client).order_by("name"),
+            "users": UserProfile.objects.select_related("user").filter(client_panel=client).order_by("user__username"),
+            "onu_count": ConfiguredONU.objects.filter(olt__client_panel=client).count(),
+        },
+    )
+
+
+@login_required
+@_control_admin_required
+def control_plans(request):
+    if request.method == "POST":
+        form = SubscriptionPlanForm(request.POST)
+        if form.is_valid():
+            plan = form.save()
+            _control_audit(request, "plan_create", f"Plan created: {plan.name}")
+            messages.success(request, f"Plan `{plan.name}` created.")
+            return redirect("control_plans")
+    else:
+        form = SubscriptionPlanForm()
+    return render(request, "oltmanager/control_plans.html", {"form": form, "plans": SubscriptionPlan.objects.all()})
+
+
+@login_required
+@_control_admin_required
+def control_users(request):
+    if request.method == "POST":
+        form = ControlUserCreateForm(request.POST)
+        if form.is_valid():
+            User = get_user_model()
+            username = str(form.cleaned_data["username"] or "").strip()
+            if User.objects.filter(username=username).exists():
+                form.add_error("username", "This username already exists.")
+            else:
+                user = User.objects.create_user(
+                    username=username,
+                    password=form.cleaned_data["password"],
+                    first_name=str(form.cleaned_data["name"] or "").strip(),
+                    is_staff=bool(form.cleaned_data.get("is_staff")),
+                    is_active=bool(form.cleaned_data.get("is_active")),
+                )
+                profile = UserProfile.objects.create(
+                    user=user,
+                    client_panel=form.cleaned_data.get("client_panel"),
+                    role=form.cleaned_data.get("role") or "viewer",
+                )
+                _control_audit(request, "user_create", f"User created: {user.username}", client_panel=profile.client_panel)
+                messages.success(request, f"User `{user.username}` created.")
+                return redirect("control_users")
+    else:
+        form = ControlUserCreateForm()
+
+    profiles_by_user = {
+        profile.user_id: profile
+        for profile in UserProfile.objects.select_related("client_panel", "user")
+    }
+    users = [
+        {"user": user, "profile": profiles_by_user.get(user.pk)}
+        for user in get_user_model().objects.order_by("username")
+    ]
+    return render(request, "oltmanager/control_users.html", {"form": form, "users": users})
+
+
+@login_required
+@_control_admin_required
+def control_olts(request):
+    if request.method == "POST":
+        olt = get_object_or_404(OLT, pk=request.POST.get("olt_id"))
+        action = str(request.POST.get("action") or "update").strip().lower()
+        if action == "delete":
+            name = olt.name
+            client = olt.client_panel
+            olt.delete()
+            _control_audit(request, "olt_delete_db", f"OLT deleted from DB: {name}", client_panel=client)
+            messages.success(request, f"OLT `{name}` deleted from database.")
+            return redirect("control_olts")
+
+        form = OLTControlForm(request.POST)
+        if form.is_valid():
+            old_client = olt.client_panel
+            old_enabled = olt.service_enabled
+            olt.client_panel = form.cleaned_data.get("client_panel")
+            olt.service_enabled = bool(form.cleaned_data.get("service_enabled"))
+            olt.service_disabled_reason = str(form.cleaned_data.get("service_disabled_reason") or "").strip()
+            if olt.service_enabled:
+                olt.service_disabled_at = None
+                olt.service_disabled_reason = ""
+            elif old_enabled:
+                olt.service_disabled_at = timezone.now()
+            olt.save(update_fields=["client_panel", "service_enabled", "service_disabled_at", "service_disabled_reason"])
+            _control_audit(
+                request,
+                "olt_update",
+                f"OLT updated: {olt.name} | client {old_client or '-'} -> {olt.client_panel or '-'} | enabled {old_enabled} -> {olt.service_enabled}",
+                client_panel=olt.client_panel,
+                olt=olt,
+            )
+            messages.success(request, f"OLT `{olt.name}` updated.")
+            return redirect("control_olts")
+        messages.error(request, "Could not update OLT. Check submitted values.")
+
+    rows = []
+    for olt in OLT.objects.select_related("client_panel").annotate(onu_total=Count("configured_onus")).order_by("name"):
+        rows.append({
+            "olt": olt,
+            "onu_count": olt.onu_total,
+            "form": OLTControlForm(initial={
+                "client_panel": olt.client_panel_id,
+                "service_enabled": olt.service_enabled,
+                "service_disabled_reason": olt.service_disabled_reason,
+            }),
+        })
+    return render(request, "oltmanager/control_olts.html", {"rows": rows})
+
+
 def _report_parse_dbm(value):
     text = str(value or "").strip()
     if not text or text in {"--", "-"}:
@@ -6793,7 +6999,7 @@ def health_report(request):
     today = timezone.localdate()
     day_ago = now - timezone.timedelta(hours=24)
 
-    olts = list(OLT.objects.filter(is_ready=True).order_by("name"))
+    olts = list(_ready_olts().order_by("name"))
     olt_ids = [o.id for o in olts]
 
     # Pull every ONU once, bucket in Python (avoids N per-OLT queries).

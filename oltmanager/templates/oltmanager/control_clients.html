@@ -1,0 +1,42 @@
+﻿{% extends "oltmanager/control_base.html" %}
+{% block control_title %}Clients{% endblock %}
+{% block control_content %}
+<section class="panel">
+    <h2 style="margin-top:0;">Create Client Panel</h2>
+    <form method="post" class="control-form">
+        {% csrf_token %}
+        {% for field in form %}
+        <p class="{% if field.name == 'notes' %}wide{% endif %}">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.errors %}<span class="errorlist">{{ field.errors|striptags }}</span>{% endif %}
+        </p>
+        {% endfor %}
+        <p class="wide"><button class="btn btn-primary" type="submit">Create Client</button></p>
+    </form>
+</section>
+<section class="panel">
+    <h2 style="margin-top:0;">Client Panels</h2>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Name</th><th>Status</th><th>Plan</th><th>Price</th><th>Users</th><th>OLTs</th><th>ONUs</th><th>Action</th></tr></thead>
+            <tbody>
+                {% for row in clients %}
+                <tr>
+                    <td>{{ row.client.name }}</td>
+                    <td><span class="control-badge {% if row.client.status == 'active' %}ok{% else %}bad{% endif %}">{{ row.client.get_status_display }}</span></td>
+                    <td>{{ row.client.plan.name|default:"-" }}</td>
+                    <td>{{ row.client.effective_monthly_price }}</td>
+                    <td>{{ row.user_count }}</td>
+                    <td>{{ row.olt_count }}</td>
+                    <td>{{ row.onu_count }}</td>
+                    <td><a href="{% url 'control_client_detail' row.client.pk %}" class="btn btn-secondary">Manage</a></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8">No clients created.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

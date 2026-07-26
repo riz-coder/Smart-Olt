@@ -4,6 +4,77 @@ from django.conf import settings
 from django.db import models
 
 
+class SubscriptionPlan(models.Model):
+    BILLING_CHOICES = [
+        ("fixed", "Fixed monthly"),
+        ("per_olt", "Per OLT"),
+        ("per_onu", "Per ONU"),
+    ]
+    name = models.CharField(max_length=100, unique=True)
+    billing_mode = models.CharField(max_length=20, choices=BILLING_CHOICES, default="fixed")
+    monthly_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    max_olts = models.PositiveIntegerField(default=0, help_text="0 means unlimited")
+    max_onus = models.PositiveIntegerField(default=0, help_text="0 means unlimited")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["monthly_price", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class ClientPanel(models.Model):
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("suspended", "Suspended"),
+    ]
+    name = models.CharField(max_length=120, unique=True)
+    contact_name = models.CharField(max_length=120, blank=True, default="")
+    contact_email = models.EmailField(blank=True, default="")
+    contact_phone = models.CharField(max_length=60, blank=True, default="")
+    plan = models.ForeignKey(SubscriptionPlan, on_delete=models.SET_NULL, null=True, blank=True, related_name="clients")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active", db_index=True)
+    monthly_price_override = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_active(self):
+        return self.status == "active"
+
+    @property
+    def effective_monthly_price(self):
+        if self.monthly_price_override is not None:
+            return self.monthly_price_override
+        if self.plan_id:
+            return self.plan.monthly_price
+        return 0
+
+
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ("client_admin", "Client Admin"),
+        ("viewer", "Viewer"),
+    ]
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="olt_profile")
+    client_panel = models.ForeignKey(ClientPanel, on_delete=models.SET_NULL, null=True, blank=True, related_name="users")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="viewer")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} profile"
+
+
 class OLT(models.Model):
     name = models.CharField(max_length=100, unique=True)  # e.g., "Main OLT"
     ip_address = models.GenericIPAddressField(unique=True)
@@ -52,6 +123,10 @@ class OLT(models.Model):
     # When False, onboarding fetches only OLT details/cards/PON/uplink/VLAN and
     # skips importing the ONUs (asked at Add OLT time).
     import_onus = models.BooleanField(default=True)
+    client_panel = models.ForeignKey(ClientPanel, on_delete=models.SET_NULL, null=True, blank=True, related_name="olts")
+    service_enabled = models.BooleanField(default=True, db_index=True)
+    service_disabled_at = models.DateTimeField(blank=True, null=True)
+    service_disabled_reason = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -419,3 +494,21 @@ class AlertEvent(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class ControlAuditLog(models.Model):
+    action = models.CharField(max_length=80, db_index=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    client_panel = models.ForeignKey(ClientPanel, on_delete=models.SET_NULL, null=True, blank=True)
+    olt = models.ForeignKey(OLT, on_delete=models.SET_NULL, null=True, blank=True)
+    details = models.CharField(max_length=300, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["action", "created_at"], name="control_audit_action_time_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.action} @ {self.created_at}"

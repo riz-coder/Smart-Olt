@@ -1,0 +1,37 @@
+﻿{% extends "oltmanager/control_base.html" %}
+{% block control_title %}Control Overview{% endblock %}
+{% block control_content %}
+<section class="panel">
+    <div class="control-grid">
+        <div class="control-stat"><span>Clients</span><strong>{{ clients_count }}</strong></div>
+        <div class="control-stat"><span>Total OLTs</span><strong>{{ olts_count }}</strong></div>
+        <div class="control-stat"><span>Total ONUs</span><strong>{{ total_onus }}</strong></div>
+        <div class="control-stat"><span>Panel Users</span><strong>{{ users_count }}</strong></div>
+        <div class="control-stat"><span>Active OLTs</span><strong>{{ active_olts }}</strong></div>
+        <div class="control-stat"><span>Disabled OLTs</span><strong>{{ disabled_olts }}</strong></div>
+        <div class="control-stat"><span>Suspended Clients</span><strong>{{ suspended_clients }}</strong></div>
+    </div>
+</section>
+<section class="panel">
+    <h2 style="margin-top:0;">Recent Control Actions</h2>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Time</th><th>Action</th><th>User</th><th>Client</th><th>OLT</th><th>Details</th></tr></thead>
+            <tbody>
+                {% for row in recent_logs %}
+                <tr>
+                    <td>{{ row.created_at|date:"Y-m-d H:i" }}</td>
+                    <td>{{ row.action }}</td>
+                    <td>{{ row.user.username|default:"-" }}</td>
+                    <td>{{ row.client_panel.name|default:"-" }}</td>
+                    <td>{{ row.olt.name|default:"-" }}</td>
+                    <td>{{ row.details|default:"-" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6">No control actions yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

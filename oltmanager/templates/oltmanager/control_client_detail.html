@@ -1,0 +1,38 @@
+﻿{% extends "oltmanager/control_base.html" %}
+{% block control_title %}{{ client.name }}{% endblock %}
+{% block control_content %}
+<section class="panel">
+    <h2 style="margin-top:0;">Edit Client</h2>
+    <form method="post" class="control-form">
+        {% csrf_token %}
+        {% for field in form %}
+        <p class="{% if field.name == 'notes' %}wide{% endif %}">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.errors %}<span class="errorlist">{{ field.errors|striptags }}</span>{% endif %}
+        </p>
+        {% endfor %}
+        <p class="wide"><button class="btn btn-primary" type="submit">Save Client</button></p>
+    </form>
+</section>
+<section class="panel">
+    <div class="control-grid">
+        <div class="control-stat"><span>OLTs</span><strong>{{ olts|length }}</strong></div>
+        <div class="control-stat"><span>ONUs</span><strong>{{ onu_count }}</strong></div>
+        <div class="control-stat"><span>Users</span><strong>{{ users|length }}</strong></div>
+        <div class="control-stat"><span>Status</span><strong>{{ client.get_status_display }}</strong></div>
+    </div>
+</section>
+<section class="panel">
+    <h2 style="margin-top:0;">Assigned OLTs</h2>
+    <table><thead><tr><th>Name</th><th>IP</th><th>Status</th></tr></thead><tbody>
+        {% for olt in olts %}<tr><td>{{ olt.name }}</td><td>{{ olt.ip_address }}</td><td>{{ olt.service_enabled|yesno:"Active,Disabled" }}</td></tr>{% empty %}<tr><td colspan="3">No OLTs assigned.</td></tr>{% endfor %}
+    </tbody></table>
+</section>
+<section class="panel">
+    <h2 style="margin-top:0;">Panel Users</h2>
+    <table><thead><tr><th>User</th><th>Name</th><th>Role</th><th>Active</th></tr></thead><tbody>
+        {% for profile in users %}<tr><td>{{ profile.user.username }}</td><td>{{ profile.user.first_name|default:"-" }}</td><td>{{ profile.get_role_display }}</td><td>{{ profile.user.is_active|yesno:"Yes,No" }}</td></tr>{% empty %}<tr><td colspan="4">No users assigned.</td></tr>{% endfor %}
+    </tbody></table>
+</section>
+{% endblock %}
