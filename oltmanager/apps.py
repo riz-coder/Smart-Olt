@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.apps import AppConfig
 from django.conf import settings
 from django.db import close_old_connections
-from django.db.models import Q
 from django.utils import timezone
 
 logger = logging.getLogger("oltmanager.sync")
@@ -60,15 +59,6 @@ _SAMPLE_RETENTION_CLEANUP_LAST_TS = 0.0
 _SAMPLE_RETENTION_CLEANUP_LOCK = threading.Lock()
 
 
-def _serviceable_olt_queryset():
-    """OLTs that may be touched by background pollers."""
-    from .models import OLT
-
-    return OLT.objects.filter(service_enabled=True).filter(
-        Q(client_panel__isnull=True) | Q(client_panel__status="active")
-    )
-
-
 def _run_sample_retention_cleanup_if_due():
     global _SAMPLE_RETENTION_CLEANUP_LAST_TS
     interval = int(getattr(settings, "OLT_SAMPLE_RETENTION_CLEANUP_SECONDS", 3600) or 3600)
@@ -100,7 +90,7 @@ def _run_immediate_inventory_sync(olt_id):
 
     close_old_connections()
     try:
-        olt = _serviceable_olt_queryset().filter(pk=olt_id).first()
+        olt = OLT.objects.filter(pk=olt_id).first()
         if not olt:
             return
         result = sync_configured_onus_inventory(olt)
@@ -164,7 +154,7 @@ def _onu_inventory_sync_loop():
 
         close_old_connections()
         try:
-            olt = _serviceable_olt_queryset().filter(pk=olt_id).only("id", "name", "snmp_last_status").first()
+            olt = OLT.objects.filter(pk=olt_id).only("id", "name", "snmp_last_status").first()
             if not olt:
                 return
 
@@ -206,7 +196,7 @@ def _onu_inventory_sync_loop():
     while True:
         try:
             close_old_connections()
-            olt_ids = list(_serviceable_olt_queryset().order_by("id").values_list("id", flat=True))
+            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=ONU_SYNC_MAX_WORKERS, thread_name_prefix="onu-sync") as executor:
                     futures = [executor.submit(_sync_single_olt_cycle, olt_id) for olt_id in olt_ids]
@@ -255,14 +245,14 @@ def _snmp_monitor_loop():
         status_text = str(status_text or "").strip()[:300]
         if not status_text:
             return
-        current = _serviceable_olt_queryset().filter(pk=olt_id).only("snmp_last_status", "snmp_last_synced_at").first()
+        current = OLT.objects.filter(pk=olt_id).only("snmp_last_status", "snmp_last_synced_at").first()
         now = timezone.now()
         if current:
             same_status = str(getattr(current, "snmp_last_status", "") or "").strip() == status_text
             synced_at = getattr(current, "snmp_last_synced_at", None)
             if same_status and synced_at and (now - synced_at).total_seconds() < 30:
                 return
-        _serviceable_olt_queryset().filter(pk=olt_id).update(
+        OLT.objects.filter(pk=olt_id).update(
             snmp_last_status=status_text,
             snmp_last_synced_at=now,
         )
@@ -272,7 +262,7 @@ def _snmp_monitor_loop():
 
         close_old_connections()
         try:
-            olt = _serviceable_olt_queryset().filter(pk=olt_id).only("id", "name", "ip_address", "snmp_port", "snmp_community").first()
+            olt = OLT.objects.filter(pk=olt_id).only("id", "name", "ip_address", "snmp_port", "snmp_community").first()
             if not olt:
                 return olt_id, False, "OLT not found", False, "ICMP ping failed"
             snmp_probe = probe_snmp_reachability(olt)
@@ -291,7 +281,7 @@ def _snmp_monitor_loop():
         try:
             close_old_connections()
             now_ts = time.time()
-            olt_ids = list(_serviceable_olt_queryset().order_by("id").values_list("id", flat=True))
+            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=min(4, max(1, len(olt_ids))), thread_name_prefix="snmp-monitor") as executor:
                     futures = [executor.submit(_probe_single_olt, olt_id) for olt_id in olt_ids]
@@ -305,7 +295,7 @@ def _snmp_monitor_loop():
                             _SNMP_PENDING_STATUS.pop(olt_id, None)
                             up_streak = _SNMP_UP_STREAK.get(olt_id, 0) + 1
                             _SNMP_UP_STREAK[olt_id] = up_streak
-                            olt = _serviceable_olt_queryset().filter(pk=olt_id).first()
+                            olt = OLT.objects.filter(pk=olt_id).first()
                             if olt:
                                 # SNMP answered -> the OLT is reachable RIGHT NOW.
                                 # Always refresh the OLT status to reachable (both in
@@ -375,7 +365,7 @@ def _snmp_monitor_loop():
                                         close_old_connections()
                             continue
 
-                        olt = _serviceable_olt_queryset().filter(pk=olt_id).first()
+                        olt = OLT.objects.filter(pk=olt_id).first()
                         if not olt:
                             continue
                         # A failed probe breaks any recovery streak.
@@ -423,7 +413,7 @@ def _onu_status_sync_loop():
 
         close_old_connections()
         try:
-            olt = _serviceable_olt_queryset().filter(pk=olt_id).only("id", "name", "snmp_last_status").first()
+            olt = OLT.objects.filter(pk=olt_id).only("id", "name", "snmp_last_status").first()
             if not olt:
                 return
             return sync_runtime_statuses_for_olt(
@@ -438,7 +428,7 @@ def _onu_status_sync_loop():
     while True:
         try:
             close_old_connections()
-            olt_ids = list(_serviceable_olt_queryset().order_by("id").values_list("id", flat=True))
+            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=min(3, max(1, len(olt_ids))), thread_name_prefix="onu-status") as executor:
                     futures = [executor.submit(_sync_single_olt_status, olt_id) for olt_id in olt_ids]
@@ -465,7 +455,7 @@ def _onu_signal_sample_loop():
 
         close_old_connections()
         try:
-            olt = _serviceable_olt_queryset().filter(pk=olt_id).only("id", "name").first()
+            olt = OLT.objects.filter(pk=olt_id).only("id", "name").first()
             if not olt:
                 return
 
@@ -499,7 +489,7 @@ def _onu_signal_sample_loop():
     while True:
         try:
             close_old_connections()
-            olt_ids = list(_serviceable_olt_queryset().order_by("id").values_list("id", flat=True))
+            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=min(3, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
                     futures = [executor.submit(_sample_single_olt, olt_id) for olt_id in olt_ids]

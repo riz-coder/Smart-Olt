@@ -2,7 +2,7 @@
 
 from django import forms
 
-from .models import ClientPanel, OLT, SubscriptionPlan, UserProfile
+from .models import OLT
 from .utils import generate_snmp_community
 
 HUAWEI_HARDWARE_CHOICES = [
@@ -207,75 +207,5 @@ class VLANBulkAddForm(forms.Form):
         if existing:
             raise forms.ValidationError(f"These VLANs already exist on the OLT: {', '.join(existing[:6])}")
         return {"raw": f"{start}-{end}", "start": start, "end": end, "count": count}
-
-
-class SubscriptionPlanForm(forms.ModelForm):
-    class Meta:
-        model = SubscriptionPlan
-        fields = ["name", "billing_mode", "monthly_price", "max_olts", "max_onus", "is_active"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for field in self.fields.values():
-            field.widget.attrs["class"] = "form-control"
-
-
-class ClientPanelForm(forms.ModelForm):
-    class Meta:
-        model = ClientPanel
-        fields = [
-            "name",
-            "contact_name",
-            "contact_email",
-            "contact_phone",
-            "plan",
-            "status",
-            "monthly_price_override",
-            "notes",
-        ]
-        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["plan"].queryset = SubscriptionPlan.objects.filter(is_active=True).order_by("name")
-        for field in self.fields.values():
-            field.widget.attrs["class"] = "form-control"
-
-
-class ControlUserCreateForm(forms.Form):
-    ROLE_CHOICES = [
-        ("client_admin", "Client Admin"),
-        ("viewer", "Viewer"),
-    ]
-    name = forms.CharField(max_length=120)
-    username = forms.CharField(max_length=150)
-    password = forms.CharField(widget=forms.PasswordInput)
-    client_panel = forms.ModelChoiceField(queryset=ClientPanel.objects.none(), required=False)
-    role = forms.ChoiceField(choices=ROLE_CHOICES, initial="viewer")
-    is_staff = forms.BooleanField(required=False, label="Allow admin/settings access")
-    is_active = forms.BooleanField(required=False, initial=True)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["client_panel"].queryset = ClientPanel.objects.order_by("name")
-        for field in self.fields.values():
-            css_class = field.widget.attrs.get("class", "")
-            field.widget.attrs["class"] = f"{css_class} form-control".strip()
-        self.fields["is_staff"].widget.attrs["class"] = ""
-        self.fields["is_active"].widget.attrs["class"] = ""
-
-
-class OLTControlForm(forms.Form):
-    client_panel = forms.ModelChoiceField(queryset=ClientPanel.objects.none(), required=False, empty_label="Unassigned")
-    service_enabled = forms.BooleanField(required=False, label="OLT active")
-    service_disabled_reason = forms.CharField(max_length=255, required=False)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["client_panel"].queryset = ClientPanel.objects.order_by("name")
-        for field in self.fields.values():
-            css_class = field.widget.attrs.get("class", "")
-            field.widget.attrs["class"] = f"{css_class} form-control".strip()
-        self.fields["service_enabled"].widget.attrs["class"] = ""
 
 
