@@ -62,18 +62,22 @@
 </section>
 <section class="panel">
     <h2>Tenant OLTs</h2>
+    {% if tenant_olts_error %}<p style="color:var(--red);font-weight:900;">{{ tenant_olts_error }}</p>{% endif %}
     <div class="table-wrap"><table>
-        <thead><tr><th>OLT</th><th>IP</th><th>Hardware</th><th>SNMP Status</th><th>ONUs</th><th>Online</th><th>Offline</th><th>Updated</th></tr></thead>
-        <tbody>{% for olt in olt_snapshots %}<tr>
-            <td>{{ olt.name }}</td>
+        <thead><tr><th>OLT</th><th>IP</th><th>Hardware</th><th>SNMP Status</th><th>ONUs</th><th>Online</th><th>Offline</th><th>Action</th></tr></thead>
+        <tbody>{% for olt in tenant_olts %}<tr>
+            <td><a href="{% url 'control_tenant_olt_detail' tenant.pk olt.id %}">{{ olt.name }}</a></td>
             <td>{{ olt.ip_address|default:"-" }}</td>
             <td>{{ olt.hardware_version|default:"-" }}</td>
             <td>{{ olt.snmp_last_status|default:"-" }}</td>
             <td>{{ olt.onu_count }}</td>
             <td>{{ olt.online_count }}</td>
             <td>{{ olt.offline_count }}</td>
-            <td>{{ olt.updated_at|date:"Y-m-d H:i" }}</td>
-        </tr>{% empty %}<tr><td colspan="8">No OLT snapshot yet. Click Refresh From Tenant DB.</td></tr>{% endfor %}</tbody>
+            <td style="display:flex;gap:8px;flex-wrap:wrap;">
+                <a class="btn btn-dark" href="{% url 'control_tenant_olt_detail' tenant.pk olt.id %}">Open</a>
+                <form method="post" action="{% url 'control_tenant_olt_delete' tenant.pk olt.id %}" onsubmit="return confirm('Delete this OLT and related DB records from {{ tenant.name }}? This does not touch physical OLT.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete DB</button></form>
+            </td>
+        </tr>{% empty %}<tr><td colspan="8">No OLTs found in tenant DB.</td></tr>{% endfor %}</tbody>
     </table></div>
 </section>
 <section class="panel">

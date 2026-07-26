@@ -45,24 +45,22 @@ class TenantForm(forms.ModelForm):
 class TenantCreateForm(forms.ModelForm):
     class Meta:
         model = Tenant
-        fields = ["name", "owner_email", "panel_admin_username", "panel_admin_initial_password", "panel_host", "panel_port"]
+        fields = ["name", "owner_email", "panel_admin_username", "panel_admin_initial_password"]
         labels = {
             "name": "ISP / Tenant name",
             "owner_email": "Email",
             "panel_admin_username": "Panel username",
             "panel_admin_initial_password": "Panel initial password",
-            "panel_host": "Panel host/IP",
-            "panel_port": "Panel port",
         }
         help_texts = {
             "panel_admin_initial_password": "Leave blank to generate a strong handover password.",
-            "panel_host": "Default server/IP where this tenant panel will run.",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["panel_admin_initial_password"].required = False
-        self.fields["panel_host"].required = False
+        self.fields["owner_email"].required = True
+        self.fields["panel_admin_username"].required = True
+        self.fields["panel_admin_initial_password"].required = True
         _style_form(self)
 
     def clean_panel_admin_initial_password(self):

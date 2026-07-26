@@ -9,7 +9,16 @@ from django.utils import timezone
 
 from .forms import PlanForm, TenantContactForm, TenantCreateForm, TenantForm, TenantSnapshotForm
 from .models import ControlAuditLog, Plan, Tenant, TenantContact, TenantSnapshot
-from .services import TenantSnapshotError, refresh_tenant_database_snapshot
+from .services import (
+    TenantProvisionError,
+    TenantSnapshotError,
+    delete_tenant_olt,
+    delete_tenant_onu,
+    get_tenant_olt_onus,
+    get_tenant_olts,
+    provision_tenant_instance,
+    refresh_tenant_database_snapshot,
+)
 
 
 def owner_required(view_func):
@@ -64,8 +73,16 @@ def tenant_list(request):
         form = TenantCreateForm(request.POST)
         if form.is_valid():
             tenant = form.save()
-            audit(request, "tenant_create", tenant, f"Tenant created: {tenant.name}")
-            messages.success(request, f"Tenant `{tenant.name}` created.")
+            try:
+                result = provision_tenant_instance(tenant)
+                audit(request, "tenant_provision", tenant, f"Tenant provisioned: {result.get('panel_url')}")
+                messages.success(request, f"Tenant `{tenant.name}` created and started on {result.get('panel_url')}.")
+            except TenantProvisionError as exc:
+                tenant.status = Tenant.STATUS_PROVISIONING
+                tenant.notes = f"{tenant.notes}\nProvisioning failed: {exc}".strip()
+                tenant.save(update_fields=["status", "notes", "updated_at"])
+                audit(request, "tenant_provision_failed", tenant, str(exc))
+                messages.error(request, f"Tenant record created, but provisioning failed: {exc}")
             return redirect("control_tenant_detail", pk=tenant.pk)
     else:
         highest_port = Tenant.objects.order_by("-panel_port").values_list("panel_port", flat=True).first() or 8000
@@ -148,6 +165,13 @@ def tenant_detail(request, pk):
                 messages.success(request, f"Tenant `{tenant.name}` updated.")
                 return redirect("control_tenant_detail", pk=tenant.pk)
             messages.error(request, "Tenant could not be updated.")
+    tenant_olts = []
+    tenant_olts_error = ""
+    if tenant.database_path:
+        try:
+            tenant_olts = get_tenant_olts(tenant)
+        except TenantSnapshotError as exc:
+            tenant_olts_error = str(exc)
     context = {
         "tenant": tenant,
         "form": form,
@@ -156,10 +180,56 @@ def tenant_detail(request, pk):
         "status_choices": Tenant.STATUS_CHOICES,
         "contacts": tenant.contacts.all(),
         "olt_snapshots": tenant.olt_snapshots.all(),
+        "tenant_olts": tenant_olts,
+        "tenant_olts_error": tenant_olts_error,
         "snapshots": tenant.snapshots.all()[:12],
         "logs": ControlAuditLog.objects.filter(tenant=tenant).select_related("user")[:20],
     }
     return render(request, "controlmanager/tenant_detail.html", context)
+
+
+@login_required
+@owner_required
+def tenant_olt_detail(request, pk, tenant_olt_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    try:
+        olt, onus = get_tenant_olt_onus(tenant, tenant_olt_id)
+    except TenantSnapshotError as exc:
+        messages.error(request, str(exc))
+        return redirect("control_tenant_detail", pk=tenant.pk)
+    return render(request, "controlmanager/tenant_olt_detail.html", {"tenant": tenant, "olt": olt, "onus": onus})
+
+
+@login_required
+@owner_required
+def tenant_olt_delete(request, pk, tenant_olt_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    if request.method != "POST":
+        return redirect("control_tenant_olt_detail", pk=tenant.pk, tenant_olt_id=tenant_olt_id)
+    try:
+        output = delete_tenant_olt(tenant, tenant_olt_id)
+        audit(request, "tenant_olt_delete", tenant, output)
+        messages.success(request, f"OLT deleted from tenant DB. {output}")
+    except (TenantProvisionError, TenantSnapshotError) as exc:
+        audit(request, "tenant_olt_delete_failed", tenant, str(exc))
+        messages.error(request, str(exc))
+    return redirect("control_tenant_detail", pk=tenant.pk)
+
+
+@login_required
+@owner_required
+def tenant_onu_delete(request, pk, tenant_olt_id, onu_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    if request.method != "POST":
+        return redirect("control_tenant_olt_detail", pk=tenant.pk, tenant_olt_id=tenant_olt_id)
+    try:
+        output = delete_tenant_onu(tenant, onu_id)
+        audit(request, "tenant_onu_delete", tenant, output)
+        messages.success(request, f"ONU deleted from tenant DB. {output}")
+    except (TenantProvisionError, TenantSnapshotError) as exc:
+        audit(request, "tenant_onu_delete_failed", tenant, str(exc))
+        messages.error(request, str(exc))
+    return redirect("control_tenant_olt_detail", pk=tenant.pk, tenant_olt_id=tenant_olt_id)
 
 
 @login_required

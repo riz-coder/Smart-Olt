@@ -1,0 +1,35 @@
+{% extends "controlmanager/base.html" %}
+{% block heading %}{{ tenant.name }} / {{ olt.name }}{% endblock %}
+{% block top_actions %}<a class="btn btn-dark" href="{% url 'control_tenant_detail' tenant.pk %}">Back to Tenant</a>{% endblock %}
+{% block content %}
+<section class="panel">
+    <div class="grid">
+        <div class="stat"><span>OLT</span><strong>{{ olt.name }}</strong></div>
+        <div class="stat"><span>IP</span><strong>{{ olt.ip_address|default:"-" }}</strong></div>
+        <div class="stat"><span>Hardware</span><strong>{{ olt.hardware_version|default:"-" }}</strong></div>
+        <div class="stat"><span>ONUs</span><strong>{{ onus|length }}</strong></div>
+    </div>
+</section>
+<section class="panel">
+    <h2>ONUs</h2>
+    <p class="subtle">This list is read from the tenant database. Delete removes the ONU DB row only; it does not send CLI/SNMP to the physical OLT.</p>
+    <div class="table-wrap"><table>
+        <thead><tr><th>ONU</th><th>SN</th><th>Name</th><th>Status</th><th>VLANs</th><th>Signal</th><th>Distance</th><th>Action</th></tr></thead>
+        <tbody>{% for onu in onus %}<tr>
+            <td>{{ onu.slot }}/{{ onu.port }}/{{ onu.ont_id }}</td>
+            <td>{{ onu.sn|default:"-" }}</td>
+            <td>{{ onu.description|default:"-" }}</td>
+            <td>{{ onu.derived_status|default:"-" }}</td>
+            <td>{{ onu.attached_vlans_cache|default:"-" }}</td>
+            <td>{{ onu.onu_rx|default:"-" }} / {{ onu.olt_rx|default:"-" }}</td>
+            <td>{{ onu.ont_distance_m|default:"-" }}</td>
+            <td><form method="post" action="{% url 'control_tenant_onu_delete' tenant.pk olt.id onu.id %}" onsubmit="return confirm('Delete ONU {{ onu.slot }}/{{ onu.port }}/{{ onu.ont_id }} from {{ tenant.name }} DB?');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete DB</button></form></td>
+        </tr>{% empty %}<tr><td colspan="8">No ONUs found for this OLT.</td></tr>{% endfor %}</tbody>
+    </table></div>
+</section>
+<section class="panel">
+    <h2>Delete OLT</h2>
+    <p class="subtle">Deletes this OLT and related Django DB rows from tenant database only.</p>
+    <form method="post" action="{% url 'control_tenant_olt_delete' tenant.pk olt.id %}" onsubmit="return confirm('Delete OLT {{ olt.name }} from {{ tenant.name }} DB?');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete OLT From Tenant DB</button></form>
+</section>
+{% endblock %}
