@@ -48,7 +48,6 @@ def dashboard(request):
     totals = tenants.aggregate(
         total_olts=Sum("last_known_olt_count"),
         total_onus=Sum("last_known_onu_count"),
-        total_db_mb=Sum("last_known_db_size_mb"),
     )
     context = {
         "tenants_count": tenants.count(),
@@ -58,7 +57,6 @@ def dashboard(request):
         "provisioning_count": tenants.filter(status=Tenant.STATUS_PROVISIONING).count(),
         "total_olts": totals.get("total_olts") or 0,
         "total_onus": totals.get("total_onus") or 0,
-        "total_db_mb": totals.get("total_db_mb") or 0,
         "recent_tenants": tenants.order_by("-updated_at")[:8],
         "recent_logs": ControlAuditLog.objects.select_related("tenant", "user")[:20],
     }
