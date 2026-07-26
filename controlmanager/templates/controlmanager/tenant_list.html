@@ -1,35 +1,21 @@
 {% extends "controlmanager/base.html" %}
-{% block heading %}Tenants{% endblock %}
+{% block heading %}Running Tenants{% endblock %}
+{% block top_actions %}<a class="btn btn-blue" href="{% url 'control_tenant_create' %}">Create Tenant</a>{% endblock %}
 {% block content %}
 <section class="panel">
-    <h2>Add Tenant</h2>
-    <p class="subtle">Create the tenant record and handover credentials. Tenant app deployment still uses the same codebase with its own DB/port.</p>
-    <form method="post" class="form-grid">
-        {% csrf_token %}
-        {% for field in form %}
-        <div>
-            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% if field.help_text %}<p class="subtle">{{ field.help_text }}</p>{% endif %}
-            {% for error in field.errors %}<p style="color:var(--red);font-weight:800;">{{ error }}</p>{% endfor %}
-        </div>
-        {% endfor %}
-        <div class="wide"><button class="btn btn-blue" type="submit">Create Tenant</button></div>
-    </form>
-</section>
-<section class="panel">
     <h2>Tenant Registry</h2>
+    <p class="subtle">Click a tenant to open its OLT/ONU database view.</p>
     <div class="table-wrap"><table>
-        <thead><tr><th>Tenant</th><th>Status</th><th>URL</th><th>Admin User</th><th>Plan</th><th>OLTs</th><th>ONUs</th><th>Contacts</th></tr></thead>
+        <thead><tr><th>Tenant</th><th>Status</th><th>Panel URL</th><th>Admin User</th><th>OLTs</th><th>ONUs</th><th>DB Size</th><th>Updated</th></tr></thead>
         <tbody>{% for tenant in tenants %}<tr>
             <td><a href="{% url 'control_tenant_detail' tenant.pk %}">{{ tenant.name }}</a><br><span class="subtle">{{ tenant.slug }}</span></td>
             <td><span class="badge {{ tenant.status }}">{{ tenant.get_status_display }}</span></td>
             <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
             <td>{{ tenant.panel_admin_username|default:"-" }}</td>
-            <td>{{ tenant.plan.name|default:"-" }}</td>
             <td>{{ tenant.last_known_olt_count }}</td>
             <td>{{ tenant.last_known_onu_count }}</td>
-            <td>{{ tenant.contact_count }}</td>
+            <td>{{ tenant.last_known_db_size_mb }} MB</td>
+            <td>{{ tenant.updated_at|date:"Y-m-d H:i" }}</td>
         </tr>{% empty %}<tr><td colspan="8">No tenants created.</td></tr>{% endfor %}</tbody>
     </table></div>
 </section>

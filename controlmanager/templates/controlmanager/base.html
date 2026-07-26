@@ -58,6 +58,7 @@
         <nav class="nav">
             <a href="{% url 'control_dashboard' %}">Overview</a>
             <a href="{% url 'control_tenants' %}">Tenants</a>
+            <a href="{% url 'control_tenant_create' %}">Create Tenant</a>
             <a href="{% url 'control_plans' %}">Pricing</a>
             <a href="{% url 'admin:index' %}">Django Admin</a>
         </nav>
@@ -69,7 +70,7 @@
         <header class="topbar">
             <div>
                 <h1>{% block heading %}Control Plane{% endblock %}</h1>
-                <p class="subtle">Master tenant registry only. No tenant OLT/ONU polling runs here.</p>
+                <p class="subtle">Master tenant control. Tenant DB access is on-demand; no SNMP/Telnet polling runs here.</p>
             </div>
             {% block top_actions %}{% endblock %}
         </header>

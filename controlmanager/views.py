@@ -5,9 +5,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
-from .forms import PlanForm, TenantContactForm, TenantCreateForm, TenantForm, TenantSnapshotForm
+from .forms import PlanForm, TenantCreateForm
 from .models import ControlAuditLog, Plan, Tenant, TenantContact, TenantSnapshot
 from .services import (
     TenantProvisionError,
@@ -69,6 +68,13 @@ def dashboard(request):
 @login_required
 @owner_required
 def tenant_list(request):
+    tenants = Tenant.objects.select_related("plan").annotate(contact_count=Count("contacts")).order_by("name")
+    return render(request, "controlmanager/tenant_list.html", {"tenants": tenants})
+
+
+@login_required
+@owner_required
+def tenant_create(request):
     if request.method == "POST":
         form = TenantCreateForm(request.POST)
         if form.is_valid():
@@ -85,24 +91,14 @@ def tenant_list(request):
                 messages.error(request, f"Tenant record created, but provisioning failed: {exc}")
             return redirect("control_tenant_detail", pk=tenant.pk)
     else:
-        highest_port = Tenant.objects.order_by("-panel_port").values_list("panel_port", flat=True).first() or 8000
-        form = TenantCreateForm(initial={"panel_host": "10.101.11.22", "panel_port": max(8001, int(highest_port) + 1)})
-
-    tenants = Tenant.objects.select_related("plan").annotate(contact_count=Count("contacts")).order_by("name")
-    return render(request, "controlmanager/tenant_list.html", {"form": form, "tenants": tenants})
+        form = TenantCreateForm()
+    return render(request, "controlmanager/tenant_create.html", {"form": form})
 
 
 @login_required
 @owner_required
 def tenant_detail(request, pk):
     tenant = get_object_or_404(Tenant.objects.select_related("plan"), pk=pk)
-    form = TenantForm(instance=tenant)
-    contact_form = TenantContactForm()
-    snapshot_form = TenantSnapshotForm(initial={
-        "olt_count": tenant.last_known_olt_count,
-        "onu_count": tenant.last_known_onu_count,
-        "db_size_mb": tenant.last_known_db_size_mb,
-    })
     if request.method == "POST":
         action = str(request.POST.get("action") or "update").strip().lower()
         if action == "status":
@@ -117,24 +113,6 @@ def tenant_detail(request, pk):
                 audit(request, "tenant_status", tenant, f"Status changed {old_status} -> {new_status}")
                 messages.success(request, f"Tenant status updated to {tenant.get_status_display()}.")
             return redirect("control_tenant_detail", pk=tenant.pk)
-        if action == "snapshot":
-            snapshot_form = TenantSnapshotForm(request.POST)
-            if snapshot_form.is_valid():
-                snapshot = snapshot_form.save(commit=False)
-                snapshot.tenant = tenant
-                snapshot.save()
-                tenant.last_known_olt_count = snapshot.olt_count
-                tenant.last_known_onu_count = snapshot.onu_count
-                tenant.last_known_db_size_mb = snapshot.db_size_mb
-                tenant.last_reported_at = timezone.now()
-                tenant.save(update_fields=[
-                    "last_known_olt_count", "last_known_onu_count", "last_known_db_size_mb",
-                    "last_reported_at", "updated_at",
-                ])
-                audit(request, "tenant_snapshot", tenant, "Manual resource snapshot updated")
-                messages.success(request, "Tenant resource snapshot saved.")
-                return redirect("control_tenant_detail", pk=tenant.pk)
-            messages.error(request, "Snapshot could not be saved.")
         if action == "refresh_db":
             try:
                 result = refresh_tenant_database_snapshot(tenant)
@@ -147,24 +125,6 @@ def tenant_detail(request, pk):
                 audit(request, "tenant_db_refresh_failed", tenant, str(exc))
                 messages.error(request, str(exc))
             return redirect("control_tenant_detail", pk=tenant.pk)
-        if action == "contact":
-            contact_form = TenantContactForm(request.POST)
-            if contact_form.is_valid():
-                contact = contact_form.save(commit=False)
-                contact.tenant = tenant
-                contact.save()
-                audit(request, "tenant_contact", tenant, f"Contact added: {contact.name}")
-                messages.success(request, f"Contact `{contact.name}` added.")
-                return redirect("control_tenant_detail", pk=tenant.pk)
-            messages.error(request, "Contact could not be saved.")
-        if action == "update":
-            form = TenantForm(request.POST, instance=tenant)
-            if form.is_valid():
-                tenant = form.save()
-                audit(request, "tenant_update", tenant, f"Tenant updated: {tenant.name}")
-                messages.success(request, f"Tenant `{tenant.name}` updated.")
-                return redirect("control_tenant_detail", pk=tenant.pk)
-            messages.error(request, "Tenant could not be updated.")
     tenant_olts = []
     tenant_olts_error = ""
     if tenant.database_path:
@@ -174,11 +134,7 @@ def tenant_detail(request, pk):
             tenant_olts_error = str(exc)
     context = {
         "tenant": tenant,
-        "form": form,
-        "contact_form": contact_form,
-        "snapshot_form": snapshot_form,
         "status_choices": Tenant.STATUS_CHOICES,
-        "contacts": tenant.contacts.all(),
         "olt_snapshots": tenant.olt_snapshots.all(),
         "tenant_olts": tenant_olts,
         "tenant_olts_error": tenant_olts_error,

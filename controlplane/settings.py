@@ -109,4 +109,6 @@ STATIC_ROOT = BASE_DIR / "control_staticfiles"
 LOGIN_URL = "control_login"
 LOGIN_REDIRECT_URL = "control_dashboard"
 LOGOUT_REDIRECT_URL = "control_login"
+SESSION_COOKIE_NAME = os.environ.get("CONTROL_SESSION_COOKIE_NAME", "optiverse_control_sessionid")
+CSRF_COOKIE_NAME = os.environ.get("CONTROL_CSRF_COOKIE_NAME", "optiverse_control_csrftoken")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

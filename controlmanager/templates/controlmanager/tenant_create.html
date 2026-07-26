@@ -1,0 +1,21 @@
+{% extends "controlmanager/base.html" %}
+{% block heading %}Create Tenant{% endblock %}
+{% block top_actions %}<a class="btn btn-dark" href="{% url 'control_tenants' %}">Back to Tenants</a>{% endblock %}
+{% block content %}
+<section class="panel">
+    <h2>New ISP Tenant</h2>
+    <p class="subtle">This creates a separate tenant database, assigns a new port, creates the first tenant superuser, and starts a tenant service using the same codebase.</p>
+    <form method="post" class="form-grid">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="subtle">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p style="color:var(--red);font-weight:800;">{{ error }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="wide"><button class="btn btn-blue" type="submit">Create Tenant</button></div>
+    </form>
+</section>
+{% endblock %}
