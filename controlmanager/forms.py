@@ -53,7 +53,7 @@ class TenantCreateForm(forms.ModelForm):
             "panel_admin_initial_password": "Panel initial password",
         }
         help_texts = {
-            "panel_admin_initial_password": "Leave blank to generate a strong handover password.",
+            "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
         }
 
     def __init__(self, *args, **kwargs):
