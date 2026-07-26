@@ -217,6 +217,35 @@ def _connect_tenant_db(tenant, *, read_only=True):
     return conn
 
 
+def _quote_sqlite_identifier(value):
+    return '"' + str(value).replace('"', '""') + '"'
+
+
+def _tenant_fk_references(cursor, target_table):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    references = []
+    for table_row in cursor.fetchall():
+        table_name = table_row["name"]
+        cursor.execute(f"PRAGMA foreign_key_list({_quote_sqlite_identifier(table_name)})")
+        for fk in cursor.fetchall():
+            if fk["table"] == target_table:
+                references.append((table_name, fk["from"]))
+    return references
+
+
+def _clear_fk_references(cursor, target_table, target_id, *, set_null_tables=None):
+    set_null_tables = set(set_null_tables or [])
+    for table_name, column_name in _tenant_fk_references(cursor, target_table):
+        if not column_name:
+            continue
+        table_sql = _quote_sqlite_identifier(table_name)
+        column_sql = _quote_sqlite_identifier(column_name)
+        if table_name in set_null_tables:
+            cursor.execute(f"UPDATE {table_sql} SET {column_sql}=NULL WHERE {column_sql}=?", [target_id])
+        else:
+            cursor.execute(f"DELETE FROM {table_sql} WHERE {column_sql}=?", [target_id])
+
+
 def get_tenant_olts(tenant):
     conn = _connect_tenant_db(tenant, read_only=True)
     try:
@@ -267,27 +296,59 @@ def get_tenant_olt_onus(tenant, tenant_olt_id):
 
 
 def delete_tenant_olt(tenant, tenant_olt_id):
-    code = (
-        "from oltmanager.models import OLT; "
-        f"qs=OLT.objects.filter(pk={int(tenant_olt_id)}); "
-        "name=qs.first().name if qs.exists() else ''; "
-        "deleted=qs.delete()[0]; print(f'deleted={deleted} name={name}')"
-    )
-    output = _run_tenant_manage(tenant, ["shell", "-c", code], timeout=180)
+    tenant_olt_id = int(tenant_olt_id)
+    conn = _connect_tenant_db(tenant, read_only=False)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("SELECT name FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        row = cursor.fetchone()
+        if not row:
+            raise TenantSnapshotError("OLT not found in tenant database.")
+        name = str(row["name"] or "")
+        _clear_fk_references(
+            cursor,
+            "oltmanager_olt",
+            tenant_olt_id,
+            set_null_tables={"oltmanager_alertevent"},
+        )
+        cursor.execute("DELETE FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        deleted = cursor.rowcount
+        conn.commit()
+    except sqlite3.Error as exc:
+        conn.rollback()
+        raise TenantSnapshotError(f"Could not delete OLT from tenant database: {exc}") from exc
+    finally:
+        conn.close()
     refresh_tenant_database_snapshot(tenant)
-    return output
+    return f"deleted={deleted} name={name}"
 
 
 def delete_tenant_onu(tenant, onu_id):
-    code = (
-        "from oltmanager.models import ConfiguredONU; "
-        f"qs=ConfiguredONU.objects.filter(pk={int(onu_id)}); "
-        "label=str(qs.first()) if qs.exists() else ''; "
-        "deleted=qs.delete()[0]; print(f'deleted={deleted} onu={label}')"
-    )
-    output = _run_tenant_manage(tenant, ["shell", "-c", code], timeout=180)
+    onu_id = int(onu_id)
+    conn = _connect_tenant_db(tenant, read_only=False)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        _clear_fk_references(cursor, "oltmanager_configuredonu", onu_id)
+        cursor.execute(
+            "SELECT slot, port, ont_id, sn FROM oltmanager_configuredonu WHERE id=?",
+            [onu_id],
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise TenantSnapshotError("ONU not found in tenant database.")
+        label = f"{row['slot']}/{row['port']}/{row['ont_id']} {row['sn'] or ''}".strip()
+        cursor.execute("DELETE FROM oltmanager_configuredonu WHERE id=?", [onu_id])
+        deleted = cursor.rowcount
+        conn.commit()
+    except sqlite3.Error as exc:
+        conn.rollback()
+        raise TenantSnapshotError(f"Could not delete ONU from tenant database: {exc}") from exc
+    finally:
+        conn.close()
     refresh_tenant_database_snapshot(tenant)
-    return output
+    return f"deleted={deleted} onu={label}"
 
 
 def refresh_tenant_database_snapshot(tenant):
