@@ -1,0 +1,37 @@
+{% extends "controlmanager/base.html" %}
+{% block heading %}Master Overview{% endblock %}
+{% block content %}
+<section class="panel">
+    <div class="grid">
+        <div class="stat"><span>Tenants</span><strong>{{ tenants_count }}</strong></div>
+        <div class="stat"><span>Active</span><strong>{{ active_count }}</strong></div>
+        <div class="stat"><span>Provisioning</span><strong>{{ provisioning_count }}</strong></div>
+        <div class="stat"><span>Suspended/Disabled</span><strong>{{ suspended_count|add:disabled_count }}</strong></div>
+        <div class="stat"><span>Reported OLTs</span><strong>{{ total_olts }}</strong></div>
+        <div class="stat"><span>Reported ONUs</span><strong>{{ total_onus }}</strong></div>
+        <div class="stat"><span>Reported DB MB</span><strong>{{ total_db_mb }}</strong></div>
+    </div>
+</section>
+<section class="panel">
+    <h2>Recent Tenants</h2>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Tenant</th><th>Status</th><th>URL</th><th>Plan</th><th>OLTs</th><th>ONUs</th><th>Updated</th></tr></thead>
+            <tbody>{% for tenant in recent_tenants %}<tr>
+                <td><a href="{% url 'control_tenant_detail' tenant.pk %}">{{ tenant.name }}</a></td>
+                <td><span class="badge {{ tenant.status }}">{{ tenant.get_status_display }}</span></td>
+                <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
+                <td>{{ tenant.plan.name|default:"-" }}</td>
+                <td>{{ tenant.last_known_olt_count }}</td><td>{{ tenant.last_known_onu_count }}</td><td>{{ tenant.updated_at|date:"Y-m-d H:i" }}</td>
+            </tr>{% empty %}<tr><td colspan="7">No tenants yet.</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
+<section class="panel">
+    <h2>Recent Control Actions</h2>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Action</th><th>Tenant</th><th>User</th><th>Details</th></tr></thead>
+        <tbody>{% for log in recent_logs %}<tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.action }}</td><td>{{ log.tenant.name|default:"-" }}</td><td>{{ log.user.username|default:"-" }}</td><td>{{ log.details|default:"-" }}</td></tr>{% empty %}<tr><td colspan="5">No activity yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+</section>
+{% endblock %}

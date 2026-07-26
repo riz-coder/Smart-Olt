@@ -1,0 +1,35 @@
+{% extends "controlmanager/base.html" %}
+{% block heading %}Tenants{% endblock %}
+{% block content %}
+<section class="panel">
+    <h2>Add Tenant</h2>
+    <form method="post" class="form-grid">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="{% if field.name in 'notes codebase_path database_path env_path' %}wide{% endif %}">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<p class="subtle">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p style="color:var(--red);font-weight:800;">{{ error }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="wide"><button class="btn btn-blue" type="submit">Create Tenant</button></div>
+    </form>
+</section>
+<section class="panel">
+    <h2>Tenant Registry</h2>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Tenant</th><th>Status</th><th>URL</th><th>DB Path</th><th>Plan</th><th>OLTs</th><th>ONUs</th><th>Contacts</th></tr></thead>
+        <tbody>{% for tenant in tenants %}<tr>
+            <td><a href="{% url 'control_tenant_detail' tenant.pk %}">{{ tenant.name }}</a><br><span class="subtle">{{ tenant.slug }}</span></td>
+            <td><span class="badge {{ tenant.status }}">{{ tenant.get_status_display }}</span></td>
+            <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
+            <td>{{ tenant.database_path|default:"-" }}</td>
+            <td>{{ tenant.plan.name|default:"-" }}</td>
+            <td>{{ tenant.last_known_olt_count }}</td>
+            <td>{{ tenant.last_known_onu_count }}</td>
+            <td>{{ tenant.contact_count }}</td>
+        </tr>{% empty %}<tr><td colspan="8">No tenants created.</td></tr>{% endfor %}</tbody>
+    </table></div>
+</section>
+{% endblock %}

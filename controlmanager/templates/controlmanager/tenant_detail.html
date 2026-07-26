@@ -1,0 +1,58 @@
+{% extends "controlmanager/base.html" %}
+{% block heading %}{{ tenant.name }}{% endblock %}
+{% block top_actions %}<a class="btn btn-dark" href="{% url 'control_tenants' %}">Back</a>{% endblock %}
+{% block content %}
+<section class="panel">
+    <div class="grid">
+        <div class="stat"><span>Status</span><strong><span class="badge {{ tenant.status }}">{{ tenant.get_status_display }}</span></strong></div>
+        <div class="stat"><span>Monthly Price</span><strong>{{ tenant.effective_monthly_price }}</strong></div>
+        <div class="stat"><span>Reported OLTs</span><strong>{{ tenant.last_known_olt_count }}</strong></div>
+        <div class="stat"><span>Reported ONUs</span><strong>{{ tenant.last_known_onu_count }}</strong></div>
+    </div>
+</section>
+<section class="panel">
+    <h2>Tenant Details</h2>
+    <form method="post" class="form-grid">
+        {% csrf_token %}<input type="hidden" name="action" value="update">
+        {% for field in form %}
+        <div class="{% if field.name in 'notes codebase_path database_path env_path' %}wide{% endif %}">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+            {% if field.help_text %}<p class="subtle">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}<p style="color:var(--red);font-weight:800;">{{ error }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="wide"><button class="btn btn-blue" type="submit">Save Tenant</button></div>
+    </form>
+</section>
+<section class="panel">
+    <h2>Status Control</h2>
+    <form method="post" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+        {% csrf_token %}<input type="hidden" name="action" value="status">
+        <div><label>Status</label><select name="status" class="cp-input">{% for value,label in status_choices %}<option value="{{ value }}" {% if tenant.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <button class="btn btn-blue" type="submit">Update Status</button>
+    </form>
+    <p class="subtle">This updates control-plane metadata only. Tenant service/database is not touched.</p>
+</section>
+<section class="panel">
+    <h2>Manual Resource Snapshot</h2>
+    <form method="post" class="form-grid">
+        {% csrf_token %}<input type="hidden" name="action" value="snapshot">
+        {% for field in snapshot_form %}<div><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endfor %}
+        <div class="wide"><button class="btn btn-blue" type="submit">Save Snapshot</button></div>
+    </form>
+</section>
+<section class="panel">
+    <h2>Contacts</h2>
+    <form method="post" class="form-grid">
+        {% csrf_token %}<input type="hidden" name="action" value="contact">
+        {% for field in contact_form %}<div><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endfor %}
+        <div class="wide"><button class="btn btn-blue" type="submit">Add Contact</button></div>
+    </form>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th>Active</th></tr></thead><tbody>{% for contact in contacts %}<tr><td>{{ contact.name }}</td><td>{{ contact.get_role_display }}</td><td>{{ contact.email|default:"-" }}</td><td>{{ contact.phone|default:"-" }}</td><td>{{ contact.is_active|yesno:"Yes,No" }}</td></tr>{% empty %}<tr><td colspan="5">No contacts yet.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+<section class="panel">
+    <h2>Delete From Control DB</h2>
+    <p class="subtle">This removes only the master registry row. It will not delete tenant app files, service, or database.</p>
+    <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} from control DB only?');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant Registry</button></form>
+</section>
+{% endblock %}

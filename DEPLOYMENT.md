@@ -125,6 +125,59 @@ source .venv/bin/activate
 python manage.py createsuperuser
 ```
 
+## Optional master control plane
+
+The control plane is separate from the tenant OLT portal. It uses:
+
+- `manage_control.py`
+- `controlplane.settings`
+- `CONTROL_SQLITE_DB_PATH`
+- no `oltmanager` app
+- no SNMP/Telnet/background OLT polling
+
+Create a separate environment file:
+
+```bash
+cd /opt/optiverse/Smart-Olt
+cp .env.example .env.control
+nano .env.control
+```
+
+Important values:
+
+```env
+CONTROL_DJANGO_DEBUG=False
+CONTROL_DJANGO_ALLOWED_HOSTS=10.101.11.22,127.0.0.1,localhost
+CONTROL_DJANGO_CSRF_TRUSTED_ORIGINS=http://10.101.11.22
+CONTROL_SQLITE_DB_PATH=/opt/optiverse/controlplane.sqlite3
+```
+
+Initialize the control DB:
+
+```bash
+source .venv/bin/activate
+python manage_control.py migrate --noinput
+python manage_control.py createsuperuser
+```
+
+Manual run:
+
+```bash
+python manage_control.py runserver 0.0.0.0:9000
+```
+
+Systemd example:
+
+```bash
+sudo cp scripts/optiverse-control.service.example /etc/systemd/system/optiverse-control.service
+sudo nano /etc/systemd/system/optiverse-control.service
+sudo systemctl daemon-reload
+sudo systemctl disable optiverse-control
+sudo systemctl start optiverse-control
+```
+
+The service is intentionally disabled for reboot autostart unless you run `systemctl enable` yourself.
+
 ## Notes
 
 - Daphne is used instead of multi-worker Gunicorn because this app starts background OLT/ONU sync loops. Running multiple web workers can duplicate those loops and increase device/database load.
