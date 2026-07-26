@@ -6,16 +6,16 @@
     <title>OptiVerse Control Login</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --text:#283247;
-            --muted:#7c879b;
-            --brand:#ef9f9f;
-            --mint:#9be7cf;
-            --lavender:#c9b7ff;
-            --line:#eadbd0;
-            --red:#e75d74;
+            --panel:#121b2e;
+            --line:#25344f;
+            --text:#edf4ff;
+            --muted:#9aa9bf;
+            --blue:#3b82f6;
+            --cyan:#24c6dc;
+            --red:#ef4444;
         }
         * { box-sizing:border-box; }
         body {
@@ -25,94 +25,69 @@
             place-items:center;
             padding:22px;
             color:var(--text);
-            font-family:"Space Grotesk","Trebuchet MS",sans-serif;
+            font:500 13px/1.45 "Manrope", "Segoe UI", sans-serif;
             background:
-                radial-gradient(circle at 13% 10%, rgba(239,159,159,.34), transparent 28%),
-                radial-gradient(circle at 88% 18%, rgba(201,183,255,.30), transparent 24%),
-                radial-gradient(circle at 58% 92%, rgba(155,231,207,.32), transparent 28%),
-                linear-gradient(135deg,#fff8f2 0%,#f7fbff 52%,#fff5ed 100%);
-        }
-        body:before {
-            content:"";
-            position:fixed;
-            inset:0;
-            pointer-events:none;
-            opacity:.34;
-            background-image:
-                linear-gradient(rgba(94,73,96,.055) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(94,73,96,.04) 1px, transparent 1px);
-            background-size:44px 44px;
+                radial-gradient(circle at 14% 8%, rgba(36,198,220,.16), transparent 30%),
+                radial-gradient(circle at 92% 20%, rgba(59,130,246,.13), transparent 26%),
+                linear-gradient(135deg,#0b1220 0%,#101b2f 50%,#0a1020 100%);
         }
         .card {
-            width:min(430px,94vw);
-            padding:32px;
+            width:min(390px,94vw);
+            padding:26px;
             border:1px solid var(--line);
-            border-radius:28px;
-            background:linear-gradient(145deg,rgba(255,253,249,.94),rgba(255,246,239,.90));
-            box-shadow:0 28px 70px rgba(145,105,91,.20), inset 0 1px 0 rgba(255,255,255,.75);
-            position:relative;
-            overflow:hidden;
-        }
-        .card:after {
-            content:"";
-            position:absolute;
-            right:-62px;
-            top:-62px;
-            width:180px;
-            height:180px;
-            border-radius:999px;
-            background:rgba(239,159,159,.16);
+            border-radius:18px;
+            background:linear-gradient(145deg,rgba(18,27,46,.97),rgba(13,21,36,.96));
+            box-shadow:0 24px 60px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.04);
         }
         .mark {
-            width:42px;
-            height:42px;
-            border-radius:15px;
-            background:conic-gradient(from 210deg,var(--brand),var(--lavender),var(--mint),var(--brand));
-            box-shadow:0 10px 24px rgba(239,159,159,.26);
-            margin-bottom:18px;
+            width:32px;
+            height:32px;
+            border-radius:10px;
+            background:linear-gradient(135deg,var(--cyan),var(--blue));
+            box-shadow:0 0 24px rgba(36,198,220,.30);
+            margin-bottom:16px;
         }
-        h1 { margin:0 0 8px; font-size:34px; line-height:.98; letter-spacing:-.055em; }
-        .sub { color:var(--muted); margin:0 0 24px; }
-        .field { margin-bottom:15px; }
+        h1 { margin:0 0 6px; font-size:25px; line-height:1.05; letter-spacing:-.04em; }
+        .sub { color:var(--muted); margin:0 0 20px; font-size:12px; }
+        .field { margin-bottom:13px; }
         label {
             display:block;
-            margin-bottom:7px;
-            font-size:11px;
-            font-weight:700;
-            letter-spacing:.12em;
-            color:#725985;
+            margin-bottom:6px;
+            color:#a8c4ef;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:.09em;
             text-transform:uppercase;
         }
         input {
             width:100%;
-            padding:13px 14px;
-            border-radius:15px;
-            border:1px solid #dac8bd;
-            background:rgba(255,255,255,.86);
+            padding:10px 11px;
+            border:1px solid #334766;
+            border-radius:10px;
+            background:#0b1424;
             color:var(--text);
-            font:inherit;
             outline:0;
+            font:600 13px/1.35 "Manrope", "Segoe UI", sans-serif;
         }
-        input:focus { border-color:#dd8d9a; box-shadow:0 0 0 3px rgba(239,159,159,.18); }
+        input:focus { border-color:#60a5fa; box-shadow:0 0 0 3px rgba(59,130,246,.18); }
         .btn {
             width:100%;
-            padding:13px 16px;
+            padding:11px 14px;
             border:0;
-            border-radius:15px;
-            background:linear-gradient(135deg,#f7b4b4,#a8d8ff);
-            color:#2b2430;
-            font:700 15px/1 "Space Grotesk","Trebuchet MS",sans-serif;
+            border-radius:10px;
+            background:linear-gradient(135deg,#2563eb,#24c6dc);
+            color:white;
             cursor:pointer;
-            box-shadow:0 14px 28px rgba(239,159,159,.20);
+            font:800 12px/1 "Manrope", "Segoe UI", sans-serif;
+            box-shadow:0 10px 24px rgba(37,99,235,.24);
         }
-        .btn:hover { transform:translateY(-1px); }
         .err {
-            padding:11px 13px;
-            border-radius:14px;
-            background:rgba(231,93,116,.13);
-            border:1px solid rgba(231,93,116,.44);
-            color:#b5213b;
-            font-weight:700;
+            padding:10px 12px;
+            border-radius:10px;
+            background:rgba(239,68,68,.12);
+            border:1px solid rgba(239,68,68,.42);
+            color:#fda4af;
+            font-weight:800;
         }
     </style>
 </head>

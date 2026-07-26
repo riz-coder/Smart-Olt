@@ -6,227 +6,235 @@
     <title>{% block title %}OptiVerse Control Plane{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg:#fff8f2;
-            --panel:#fffdf9;
-            --panel2:#fff4eb;
-            --panel3:#f6fbff;
-            --line:#eadbd0;
-            --line-strong:#dfbfae;
-            --text:#283247;
-            --muted:#7c879b;
-            --blue:#5b8def;
-            --green:#48bf84;
-            --red:#e75d74;
-            --amber:#f2ad4e;
-            --brand:#ef9f9f;
-            --mint:#9be7cf;
-            --lavender:#c9b7ff;
-            --ink:#2b2430;
+            --bg:#0d1424;
+            --side:#0a1020;
+            --panel:#121b2e;
+            --panel2:#17243a;
+            --line:#25344f;
+            --line-strong:#3f5f8e;
+            --text:#edf4ff;
+            --muted:#9aa9bf;
+            --blue:#3b82f6;
+            --cyan:#24c6dc;
+            --green:#22c55e;
+            --red:#ef4444;
+            --amber:#f59e0b;
+            --ink:#07111f;
         }
         * { box-sizing:border-box; }
         body {
             margin:0;
             min-height:100vh;
-            font-family:"Space Grotesk", "Trebuchet MS", sans-serif;
+            font:500 13px/1.45 "Manrope", "Segoe UI", sans-serif;
             color:var(--text);
             background:
-                radial-gradient(circle at 13% 10%, rgba(239,159,159,.34), transparent 28%),
-                radial-gradient(circle at 88% 18%, rgba(201,183,255,.30), transparent 24%),
-                radial-gradient(circle at 58% 92%, rgba(155,231,207,.32), transparent 28%),
-                linear-gradient(135deg,#fff8f2 0%,#f7fbff 52%,#fff5ed 100%);
+                radial-gradient(circle at 14% 8%, rgba(36,198,220,.16), transparent 30%),
+                radial-gradient(circle at 92% 20%, rgba(59,130,246,.13), transparent 26%),
+                linear-gradient(135deg,#0b1220 0%,#101b2f 50%,#0a1020 100%);
         }
-        body:before {
-            content:"";
-            position:fixed;
-            inset:0;
-            pointer-events:none;
-            opacity:.34;
-            background-image:
-                linear-gradient(rgba(94,73,96,.055) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(94,73,96,.04) 1px, transparent 1px);
-            background-size:44px 44px;
-            mask-image:linear-gradient(to bottom, black, transparent 88%);
-        }
-        a { color:#315ec7; text-decoration:none; font-weight:800; }
-        a:hover { color:#b04768; text-decoration:underline; text-underline-offset:3px; }
-        .layout { display:grid; grid-template-columns:246px 1fr; min-height:100vh; position:relative; }
+        a { color:#75b6ff; font-weight:800; text-decoration:none; }
+        a:hover { color:#9eeaff; text-decoration:underline; text-underline-offset:3px; }
+        .layout { display:grid; grid-template-columns:220px 1fr; min-height:100vh; }
         .side {
             position:sticky;
             top:0;
             height:100vh;
-            padding:24px 18px;
-            background:linear-gradient(180deg,rgba(255,253,249,.88),rgba(255,244,235,.82));
+            padding:20px 14px;
+            background:linear-gradient(180deg,rgba(10,16,32,.98),rgba(14,25,44,.96));
             border-right:1px solid var(--line);
-            box-shadow:18px 0 60px rgba(145,105,91,.12);
-            backdrop-filter:blur(18px);
+            box-shadow:16px 0 46px rgba(0,0,0,.22);
         }
         .brand {
             display:flex;
             align-items:center;
-            gap:10px;
-            font-size:26px;
-            font-weight:700;
-            margin:0 0 28px;
-            letter-spacing:-.05em;
+            gap:9px;
+            margin:0 0 22px;
+            font-size:21px;
+            font-weight:800;
+            letter-spacing:-.04em;
         }
         .brand:before {
             content:"";
-            width:34px;
-            height:34px;
-            border-radius:12px;
-            background:conic-gradient(from 210deg,var(--brand),var(--lavender),var(--mint),var(--brand));
-            box-shadow:0 10px 24px rgba(239,159,159,.26);
+            width:28px;
+            height:28px;
+            border-radius:9px;
+            background:linear-gradient(135deg,var(--cyan),var(--blue));
+            box-shadow:0 0 22px rgba(36,198,220,.28);
         }
-        .nav { display:grid; gap:9px; }
+        .nav { display:grid; gap:7px; }
         .nav a, .logout button {
             display:block;
             width:100%;
-            padding:12px 14px;
-            border-radius:14px;
-            color:#30324b;
-            background:transparent;
+            padding:10px 12px;
             border:1px solid transparent;
+            border-radius:11px;
+            background:transparent;
+            color:#dbe8ff;
+            font:800 13px/1.2 "Manrope", "Segoe UI", sans-serif;
             text-align:left;
-            font-weight:800;
-            letter-spacing:-.01em;
+            cursor:pointer;
         }
         .nav a:hover, .logout button:hover {
-            background:rgba(255,255,255,.72);
-            border-color:var(--line-strong);
-            transform:translateX(2px);
+            background:rgba(59,130,246,.14);
+            border-color:rgba(117,182,255,.34);
             text-decoration:none;
-            box-shadow:0 10px 24px rgba(145,105,91,.10);
         }
-        .logout { margin-top:30px; }
-        .logout button { cursor:pointer; font-family:inherit; }
-        .main { padding:28px; position:relative; }
+        .nav .soon { float:right; color:#ffcd77; font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+        .logout { margin-top:26px; }
+        .main { padding:22px; }
         .topbar, .panel {
             border:1px solid var(--line);
-            background:linear-gradient(145deg,rgba(255,253,249,.92),rgba(255,246,239,.86));
-            border-radius:24px;
-            box-shadow:0 22px 55px rgba(145,105,91,.13), inset 0 1px 0 rgba(255,255,255,.70);
-            backdrop-filter:blur(14px);
+            background:linear-gradient(145deg,rgba(18,27,46,.96),rgba(13,21,36,.94));
+            border-radius:16px;
+            box-shadow:0 18px 42px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.03);
         }
         .topbar {
-            padding:24px 26px;
             display:flex;
             align-items:center;
             justify-content:space-between;
-            gap:16px;
-            margin-bottom:20px;
+            gap:14px;
+            margin-bottom:16px;
+            padding:18px 20px;
         }
-        h1, h2, h3 { margin:0; letter-spacing:-.045em; }
-        h1 { font-size:clamp(30px,3.5vw,48px); line-height:.95; }
-        h2 { font-size:24px; margin-bottom:4px; }
-        .subtle { color:var(--muted); margin:7px 0 0; line-height:1.45; }
-        .panel { padding:20px; margin-bottom:20px; }
-        .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:15px; }
+        h1, h2, h3 { margin:0; letter-spacing:-.03em; }
+        h1 { font-size:28px; line-height:1.05; }
+        h2 { font-size:18px; margin-bottom:4px; }
+        h3 { font-size:15px; }
+        .subtle { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
+        .panel { padding:16px; margin-bottom:16px; }
+        .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
         .stat {
             position:relative;
             overflow:hidden;
-            background:linear-gradient(160deg,rgba(255,255,255,.92),rgba(255,244,235,.78));
-            border:1px solid var(--line);
-            border-radius:20px;
-            padding:18px;
+            min-height:94px;
+            padding:14px;
+            border:1px solid rgba(63,95,142,.72);
+            border-radius:14px;
+            background:linear-gradient(160deg,rgba(23,36,58,.94),rgba(13,21,36,.90));
         }
         .stat:after {
             content:"";
             position:absolute;
-            right:-34px;
-            bottom:-42px;
-            width:110px;
-            height:110px;
+            right:-28px;
+            bottom:-34px;
+            width:96px;
+            height:96px;
             border-radius:999px;
-            background:rgba(239,159,159,.16);
+            background:rgba(36,198,220,.08);
         }
         .stat span {
             display:block;
-            color:#8b6f84;
+            color:#9fb5d8;
             text-transform:uppercase;
-            font-size:11px;
-            font-weight:700;
-            letter-spacing:.12em;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:.10em;
         }
-        .stat strong { display:block; font-size:34px; margin-top:9px; letter-spacing:-.05em; }
-        .table-wrap { overflow:auto; border-radius:18px; border:1px solid rgba(223,191,174,.74); background:rgba(255,255,255,.52); }
-        table { width:100%; border-collapse:separate; border-spacing:0; min-width:760px; background:rgba(255,255,255,.58); }
-        th, td { padding:14px 13px; border-bottom:1px solid rgba(223,191,174,.52); text-align:left; vertical-align:top; }
+        .stat strong { display:block; margin-top:7px; font-size:24px; line-height:1.1; letter-spacing:-.04em; }
+        .table-wrap { overflow:auto; border:1px solid rgba(63,95,142,.50); border-radius:13px; background:#0d1526; }
+        table { width:100%; min-width:760px; border-collapse:separate; border-spacing:0; background:#101a2d; }
+        th, td { padding:11px 12px; border-bottom:1px solid rgba(63,95,142,.38); text-align:left; vertical-align:middle; }
         tr:last-child td { border-bottom:0; }
-        tbody tr { transition:background .16s ease, transform .16s ease; }
-        tbody tr:hover { background:rgba(239,159,159,.10); }
+        tbody tr:hover { background:rgba(59,130,246,.09); }
         th {
             position:sticky;
             top:0;
             z-index:1;
-            color:#725985;
-            background:rgba(255,246,239,.96);
-            font-size:11px;
+            background:#14213a;
+            color:#93c5fd;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:.09em;
             text-transform:uppercase;
-            letter-spacing:.10em;
         }
-        .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+        .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
         .wide { grid-column:1 / -1; }
-        label { display:block; font-size:11px; color:#725985; font-weight:800; margin:0 0 7px; text-transform:uppercase; letter-spacing:.10em; }
+        label {
+            display:block;
+            margin:0 0 6px;
+            color:#a8c4ef;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:.09em;
+            text-transform:uppercase;
+        }
         .cp-input {
             width:100%;
-            border:1px solid #dac8bd;
-            border-radius:14px;
-            background:rgba(255,255,255,.86);
+            padding:10px 11px;
+            border:1px solid #334766;
+            border-radius:10px;
+            background:#0b1424;
             color:var(--text);
-            padding:12px 13px;
             outline:0;
-            font-family:inherit;
-            box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+            font:600 13px/1.35 "Manrope", "Segoe UI", sans-serif;
         }
-        .cp-input:focus { border-color:#dd8d9a; box-shadow:0 0 0 3px rgba(239,159,159,.18); }
-        textarea.cp-input { min-height:92px; }
+        .cp-input:focus { border-color:#60a5fa; box-shadow:0 0 0 3px rgba(59,130,246,.18); }
+        textarea.cp-input { min-height:88px; }
         .btn {
             display:inline-flex;
             align-items:center;
             justify-content:center;
-            gap:8px;
-            min-height:40px;
-            padding:10px 15px;
+            gap:7px;
+            min-height:34px;
+            padding:8px 13px;
             border:1px solid transparent;
-            border-radius:14px;
-            font-weight:700;
-            color:#2b2430;
+            border-radius:10px;
+            color:#fff;
             cursor:pointer;
-            font-family:inherit;
-            transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+            font:800 12px/1 "Manrope", "Segoe UI", sans-serif;
+            transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
         }
-        .btn:hover { transform:translateY(-1px); }
-        .btn-blue { background:linear-gradient(135deg,#f7b4b4,#a8d8ff); box-shadow:0 12px 26px rgba(239,159,159,.20); }
-        .btn-red { background:rgba(231,93,116,.12); border-color:rgba(231,93,116,.46); color:#b5213b; }
-        .btn-dark { background:rgba(255,255,255,.72); border-color:#dac8bd; color:#394058; }
-        .badge { display:inline-flex; padding:6px 11px; border-radius:999px; font-size:11px; font-weight:700; border:1px solid; text-transform:uppercase; letter-spacing:.06em; }
-        .active { color:#147a52; background:rgba(72,191,132,.16); border-color:rgba(72,191,132,.40); }
-        .suspended, .disabled { color:#b5213b; background:rgba(231,93,116,.13); border-color:rgba(231,93,116,.42); }
-        .provisioning { color:#9a6411; background:rgba(242,173,78,.18); border-color:rgba(242,173,78,.48); }
-        .messages { list-style:none; padding:0; margin:0 0 16px; display:grid; gap:8px; }
-        .messages li { padding:13px 15px; border-radius:15px; border:1px solid var(--line); background:rgba(255,253,249,.92); font-weight:800; }
-        .messages .success { background:rgba(72,191,132,.15); border-color:rgba(72,191,132,.44); color:#147a52; }
-        .messages .error { background:rgba(231,93,116,.13); border-color:rgba(231,93,116,.44); color:#b5213b; }
+        .btn:hover { transform:translateY(-1px); text-decoration:none; }
+        .btn-blue { background:linear-gradient(135deg,#2563eb,#24c6dc); box-shadow:0 10px 22px rgba(37,99,235,.22); }
+        .btn-red { background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.55); color:#ffb4b4; }
+        .btn-dark { background:#1b2a44; border-color:#3b506f; color:#dceaff; }
+        .badge {
+            display:inline-flex;
+            align-items:center;
+            gap:7px;
+            padding:5px 10px;
+            border:1px solid;
+            border-radius:999px;
+            font-size:10px;
+            font-weight:800;
+            letter-spacing:.06em;
+            text-transform:uppercase;
+        }
+        .badge:before {
+            content:"";
+            width:8px;
+            height:8px;
+            border-radius:999px;
+            background:currentColor;
+            box-shadow:0 0 10px currentColor;
+        }
+        .active { color:#4ade80; background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.44); }
+        .suspended, .disabled { color:#fb7185; background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.42); }
+        .provisioning { color:#fbbf24; background:rgba(245,158,11,.12); border-color:rgba(245,158,11,.46); }
+        .messages { display:grid; gap:8px; list-style:none; margin:0 0 14px; padding:0; }
+        .messages li { padding:11px 13px; border:1px solid var(--line); border-radius:12px; background:#121b2e; font-weight:800; }
+        .messages .success { color:#86efac; background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.40); }
+        .messages .error { color:#fda4af; background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.40); }
         .coming-soon {
             display:grid;
-            gap:14px;
             place-items:start;
-            min-height:260px;
-            padding:34px;
-            border-radius:24px;
-            background:linear-gradient(135deg,rgba(255,255,255,.74),rgba(255,244,235,.70));
-            border:1px dashed #dcb9aa;
+            gap:12px;
+            min-height:220px;
+            padding:26px;
+            border:1px dashed #3f5f8e;
+            border-radius:16px;
+            background:linear-gradient(135deg,rgba(23,36,58,.86),rgba(13,21,36,.92));
         }
         .coming-soon .pill {
             display:inline-flex;
-            padding:7px 12px;
+            padding:6px 10px;
             border-radius:999px;
-            background:rgba(201,183,255,.24);
-            color:#6a4ca0;
-            font-size:12px;
+            background:rgba(36,198,220,.13);
+            color:#67e8f9;
+            font-size:10px;
             font-weight:800;
             letter-spacing:.10em;
             text-transform:uppercase;
@@ -247,7 +255,7 @@
             <a href="{% url 'control_dashboard' %}">Overview</a>
             <a href="{% url 'control_tenants' %}">Tenants</a>
             <a href="{% url 'control_tenant_create' %}">Create Tenant</a>
-            <a href="{% url 'control_plans' %}">Pricing <span style="color:#b04768;">Soon</span></a>
+            <a href="{% url 'control_plans' %}">Pricing <span class="soon">Soon</span></a>
         </nav>
         {% if user.is_authenticated %}
         <form class="logout" method="post" action="{% url 'control_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
