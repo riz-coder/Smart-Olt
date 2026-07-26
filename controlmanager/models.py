@@ -61,6 +61,8 @@ class Tenant(models.Model):
     database_path = models.CharField(max_length=255, blank=True, default="")
     env_path = models.CharField(max_length=255, blank=True, default="")
     service_name = models.CharField(max_length=120, blank=True, default="")
+    panel_admin_username = models.CharField(max_length=120, blank=True, default="")
+    panel_admin_initial_password = models.CharField(max_length=160, blank=True, default="")
 
     last_known_olt_count = models.PositiveIntegerField(default=0)
     last_known_onu_count = models.PositiveIntegerField(default=0)
@@ -150,6 +152,27 @@ class TenantSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.tenant.name} @ {self.captured_at:%Y-%m-%d %H:%M}"
+
+
+class TenantOLTSnapshot(models.Model):
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="olt_snapshots")
+    tenant_olt_id = models.PositiveIntegerField(default=0, db_index=True)
+    name = models.CharField(max_length=160)
+    ip_address = models.CharField(max_length=64, blank=True, default="")
+    hardware_version = models.CharField(max_length=100, blank=True, default="")
+    sw_version = models.CharField(max_length=100, blank=True, default="")
+    snmp_last_status = models.CharField(max_length=300, blank=True, default="")
+    onu_count = models.PositiveIntegerField(default=0)
+    online_count = models.PositiveIntegerField(default=0)
+    offline_count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["tenant__name", "name"]
+        unique_together = [("tenant", "tenant_olt_id")]
+
+    def __str__(self):
+        return f"{self.tenant.name} - {self.name}"
 
 
 class ControlAuditLog(models.Model):

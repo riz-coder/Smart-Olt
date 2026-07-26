@@ -7,8 +7,9 @@ from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .forms import PlanForm, TenantContactForm, TenantForm, TenantSnapshotForm
+from .forms import PlanForm, TenantContactForm, TenantCreateForm, TenantForm, TenantSnapshotForm
 from .models import ControlAuditLog, Plan, Tenant, TenantContact, TenantSnapshot
+from .services import TenantSnapshotError, refresh_tenant_database_snapshot
 
 
 def owner_required(view_func):
@@ -60,14 +61,15 @@ def dashboard(request):
 @owner_required
 def tenant_list(request):
     if request.method == "POST":
-        form = TenantForm(request.POST)
+        form = TenantCreateForm(request.POST)
         if form.is_valid():
             tenant = form.save()
             audit(request, "tenant_create", tenant, f"Tenant created: {tenant.name}")
             messages.success(request, f"Tenant `{tenant.name}` created.")
             return redirect("control_tenant_detail", pk=tenant.pk)
     else:
-        form = TenantForm(initial={"panel_scheme": "http", "panel_port": 8000})
+        highest_port = Tenant.objects.order_by("-panel_port").values_list("panel_port", flat=True).first() or 8000
+        form = TenantCreateForm(initial={"panel_host": "10.101.11.22", "panel_port": max(8001, int(highest_port) + 1)})
 
     tenants = Tenant.objects.select_related("plan").annotate(contact_count=Count("contacts")).order_by("name")
     return render(request, "controlmanager/tenant_list.html", {"form": form, "tenants": tenants})
@@ -116,6 +118,18 @@ def tenant_detail(request, pk):
                 messages.success(request, "Tenant resource snapshot saved.")
                 return redirect("control_tenant_detail", pk=tenant.pk)
             messages.error(request, "Snapshot could not be saved.")
+        if action == "refresh_db":
+            try:
+                result = refresh_tenant_database_snapshot(tenant)
+                audit(request, "tenant_db_refresh", tenant, f"DB-only refresh: {result['olt_count']} OLTs, {result['onu_count']} ONUs")
+                messages.success(
+                    request,
+                    f"DB snapshot refreshed: {result['olt_count']} OLTs, {result['onu_count']} ONUs.",
+                )
+            except TenantSnapshotError as exc:
+                audit(request, "tenant_db_refresh_failed", tenant, str(exc))
+                messages.error(request, str(exc))
+            return redirect("control_tenant_detail", pk=tenant.pk)
         if action == "contact":
             contact_form = TenantContactForm(request.POST)
             if contact_form.is_valid():
@@ -141,6 +155,7 @@ def tenant_detail(request, pk):
         "snapshot_form": snapshot_form,
         "status_choices": Tenant.STATUS_CHOICES,
         "contacts": tenant.contacts.all(),
+        "olt_snapshots": tenant.olt_snapshots.all(),
         "snapshots": tenant.snapshots.all()[:12],
         "logs": ControlAuditLog.objects.filter(tenant=tenant).select_related("user")[:20],
     }

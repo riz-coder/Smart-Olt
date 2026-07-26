@@ -1,3 +1,6 @@
+import secrets
+import string
+
 from django import forms
 
 from .models import Plan, Tenant, TenantContact, TenantSnapshot
@@ -20,7 +23,7 @@ class TenantForm(forms.ModelForm):
             "name", "slug", "isp_name", "owner_name", "owner_email", "owner_phone",
             "plan", "status", "monthly_price_override", "panel_scheme", "panel_host",
             "panel_port", "panel_base_path", "codebase_path", "database_path",
-            "env_path", "service_name", "notes",
+            "env_path", "service_name", "panel_admin_username", "panel_admin_initial_password", "notes",
         ]
         help_texts = {
             "slug": "Leave blank to generate automatically.",
@@ -37,6 +40,48 @@ class TenantForm(forms.ModelForm):
     def clean_slug(self):
         value = str(self.cleaned_data.get("slug") or "").strip().lower()
         return value
+
+
+class TenantCreateForm(forms.ModelForm):
+    class Meta:
+        model = Tenant
+        fields = ["name", "owner_email", "panel_admin_username", "panel_admin_initial_password", "panel_host", "panel_port"]
+        labels = {
+            "name": "ISP / Tenant name",
+            "owner_email": "Email",
+            "panel_admin_username": "Panel username",
+            "panel_admin_initial_password": "Panel initial password",
+            "panel_host": "Panel host/IP",
+            "panel_port": "Panel port",
+        }
+        help_texts = {
+            "panel_admin_initial_password": "Leave blank to generate a strong handover password.",
+            "panel_host": "Default server/IP where this tenant panel will run.",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["panel_admin_initial_password"].required = False
+        self.fields["panel_host"].required = False
+        _style_form(self)
+
+    def clean_panel_admin_initial_password(self):
+        value = str(self.cleaned_data.get("panel_admin_initial_password") or "").strip()
+        if value:
+            return value
+        alphabet = string.ascii_letters + string.digits + "!@#$%*-_"
+        return "".join(secrets.choice(alphabet) for _ in range(14))
+
+    def save(self, commit=True):
+        tenant = super().save(commit=False)
+        tenant.isp_name = tenant.name
+        tenant.owner_name = tenant.name
+        tenant.status = Tenant.STATUS_PROVISIONING
+        if not tenant.panel_scheme:
+            tenant.panel_scheme = "http"
+        if commit:
+            tenant.save()
+        return tenant
 
 
 class TenantContactForm(forms.ModelForm):

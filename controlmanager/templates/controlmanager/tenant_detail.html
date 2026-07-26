@@ -11,6 +11,20 @@
     </div>
 </section>
 <section class="panel">
+    <h2>Tenant Handover</h2>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>Service</th></tr></thead>
+        <tbody><tr>
+            <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
+            <td>{{ tenant.panel_admin_username|default:"-" }}</td>
+            <td>{{ tenant.panel_admin_initial_password|default:"-" }}</td>
+            <td>{{ tenant.database_path|default:"-" }}</td>
+            <td>{{ tenant.service_name|default:"-" }}</td>
+        </tr></tbody>
+    </table></div>
+    <p class="subtle">Credentials are for handover/provisioning. Change the tenant panel password after first login.</p>
+</section>
+<section class="panel">
     <h2>Tenant Details</h2>
     <form method="post" class="form-grid">
         {% csrf_token %}<input type="hidden" name="action" value="update">
@@ -34,12 +48,33 @@
     <p class="subtle">This updates control-plane metadata only. Tenant service/database is not touched.</p>
 </section>
 <section class="panel">
-    <h2>Manual Resource Snapshot</h2>
+    <h2>Resource Snapshot</h2>
+    <form method="post" style="margin-bottom:14px;">
+        {% csrf_token %}<input type="hidden" name="action" value="refresh_db">
+        <button class="btn btn-blue" type="submit">Refresh From Tenant DB</button>
+    </form>
+    <p class="subtle">Reads the tenant SQLite database only. No SNMP/Telnet/device polling runs from the control plane.</p>
     <form method="post" class="form-grid">
         {% csrf_token %}<input type="hidden" name="action" value="snapshot">
         {% for field in snapshot_form %}<div><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endfor %}
         <div class="wide"><button class="btn btn-blue" type="submit">Save Snapshot</button></div>
     </form>
+</section>
+<section class="panel">
+    <h2>Tenant OLTs</h2>
+    <div class="table-wrap"><table>
+        <thead><tr><th>OLT</th><th>IP</th><th>Hardware</th><th>SNMP Status</th><th>ONUs</th><th>Online</th><th>Offline</th><th>Updated</th></tr></thead>
+        <tbody>{% for olt in olt_snapshots %}<tr>
+            <td>{{ olt.name }}</td>
+            <td>{{ olt.ip_address|default:"-" }}</td>
+            <td>{{ olt.hardware_version|default:"-" }}</td>
+            <td>{{ olt.snmp_last_status|default:"-" }}</td>
+            <td>{{ olt.onu_count }}</td>
+            <td>{{ olt.online_count }}</td>
+            <td>{{ olt.offline_count }}</td>
+            <td>{{ olt.updated_at|date:"Y-m-d H:i" }}</td>
+        </tr>{% empty %}<tr><td colspan="8">No OLT snapshot yet. Click Refresh From Tenant DB.</td></tr>{% endfor %}</tbody>
+    </table></div>
 </section>
 <section class="panel">
     <h2>Contacts</h2>

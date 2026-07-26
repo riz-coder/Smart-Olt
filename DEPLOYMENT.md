@@ -160,6 +160,23 @@ python manage_control.py migrate --noinput
 python manage_control.py createsuperuser
 ```
 
+Register the current deployed tenant app in the control plane:
+
+```bash
+python manage_control.py seed_current_tenant \
+  --name CC_ISP \
+  --host 10.101.11.22 \
+  --port 8000 \
+  --db /opt/optiverse/Smart-Olt/db.sqlite3 \
+  --codebase /opt/optiverse/Smart-Olt \
+  --env /opt/optiverse/Smart-Olt/.env \
+  --service optiverse \
+  --admin rizwan \
+  --refresh
+```
+
+The `--refresh` step reads the tenant SQLite DB only and copies lightweight OLT/ONU counts into the control plane DB. It does not run SNMP, Telnet, or any tenant background sync.
+
 Manual run:
 
 ```bash
