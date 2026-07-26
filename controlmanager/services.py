@@ -47,6 +47,7 @@ def _tenant_start_port():
 def _tenant_env(tenant, *, disable_embedded_sync=False):
     env = os.environ.copy()
     env.update({
+        "DJANGO_SETTINGS_MODULE": "oltportal.settings",
         "DJANGO_SECRET_KEY": get_random_secret_key(),
         "DJANGO_DEBUG": "False",
         "DJANGO_ALLOWED_HOSTS": f"{tenant.panel_host},127.0.0.1,localhost",
@@ -250,6 +251,10 @@ def get_tenant_olts(tenant):
     conn = _connect_tenant_db(tenant, read_only=True)
     try:
         cursor = conn.cursor()
+        if not _table_exists(cursor, "oltmanager_olt"):
+            raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
+        if not _table_exists(cursor, "oltmanager_configuredonu"):
+            raise TenantSnapshotError("Tenant database is missing ONU tables. Run tenant provisioning/migrations again.")
         cursor.execute(
             """
             SELECT o.id, o.name, o.ip_address, o.hardware_version, o.sw_version, o.snmp_last_status,
@@ -277,6 +282,10 @@ def get_tenant_olt_onus(tenant, tenant_olt_id):
     conn = _connect_tenant_db(tenant, read_only=True)
     try:
         cursor = conn.cursor()
+        if not _table_exists(cursor, "oltmanager_olt"):
+            raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
+        if not _table_exists(cursor, "oltmanager_configuredonu"):
+            raise TenantSnapshotError("Tenant database is missing ONU tables. Run tenant provisioning/migrations again.")
         cursor.execute("SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status FROM oltmanager_olt WHERE id=?", [int(tenant_olt_id)])
         olt = cursor.fetchone()
         if not olt:
