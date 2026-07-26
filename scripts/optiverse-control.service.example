@@ -5,17 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=optiverse
-Group=optiverse
+User=root
+Group=root
 WorkingDirectory=/opt/optiverse/Smart-Olt
 EnvironmentFile=/opt/optiverse/Smart-Olt/.env.control
-ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/daphne -b 127.0.0.1 -p 9000 controlplane.asgi:application
+ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/python -m daphne -b 0.0.0.0 -p 9000 controlplane.asgi:application
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
 KillSignal=SIGINT
-StandardOutput=append:/opt/optiverse/Smart-Olt/logs/optiverse-control.out.log
-StandardError=append:/opt/optiverse/Smart-Olt/logs/optiverse-control.err.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
