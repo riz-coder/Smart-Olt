@@ -9,12 +9,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --text:#f3fff8;
-            --muted:#9fc2b8;
-            --brand:#7df0ca;
-            --amber:#f7c65c;
-            --line:rgba(148,191,176,.28);
-            --red:#ff6b7d;
+            --text:#283247;
+            --muted:#7c879b;
+            --brand:#ef9f9f;
+            --mint:#9be7cf;
+            --lavender:#c9b7ff;
+            --line:#eadbd0;
+            --red:#e75d74;
         }
         * { box-sizing:border-box; }
         body {
@@ -26,19 +27,20 @@
             color:var(--text);
             font-family:"Space Grotesk","Trebuchet MS",sans-serif;
             background:
-                radial-gradient(circle at 18% 12%, rgba(125,240,202,.22), transparent 30%),
-                radial-gradient(circle at 88% 18%, rgba(247,198,92,.16), transparent 24%),
-                linear-gradient(135deg,#050b0b 0%,#0d2220 48%,#091013 100%);
+                radial-gradient(circle at 13% 10%, rgba(239,159,159,.34), transparent 28%),
+                radial-gradient(circle at 88% 18%, rgba(201,183,255,.30), transparent 24%),
+                radial-gradient(circle at 58% 92%, rgba(155,231,207,.32), transparent 28%),
+                linear-gradient(135deg,#fff8f2 0%,#f7fbff 52%,#fff5ed 100%);
         }
         body:before {
             content:"";
             position:fixed;
             inset:0;
             pointer-events:none;
-            opacity:.22;
+            opacity:.34;
             background-image:
-                linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+                linear-gradient(rgba(94,73,96,.055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(94,73,96,.04) 1px, transparent 1px);
             background-size:44px 44px;
         }
         .card {
@@ -46,8 +48,8 @@
             padding:32px;
             border:1px solid var(--line);
             border-radius:28px;
-            background:linear-gradient(145deg,rgba(17,39,36,.94),rgba(8,18,20,.92));
-            box-shadow:0 28px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05);
+            background:linear-gradient(145deg,rgba(255,253,249,.94),rgba(255,246,239,.90));
+            box-shadow:0 28px 70px rgba(145,105,91,.20), inset 0 1px 0 rgba(255,255,255,.75);
             position:relative;
             overflow:hidden;
         }
@@ -59,14 +61,14 @@
             width:180px;
             height:180px;
             border-radius:999px;
-            background:rgba(125,240,202,.10);
+            background:rgba(239,159,159,.16);
         }
         .mark {
             width:42px;
             height:42px;
             border-radius:15px;
-            background:conic-gradient(from 210deg,var(--brand),var(--amber),#24433d,var(--brand));
-            box-shadow:0 0 34px rgba(125,240,202,.30);
+            background:conic-gradient(from 210deg,var(--brand),var(--lavender),var(--mint),var(--brand));
+            box-shadow:0 10px 24px rgba(239,159,159,.26);
             margin-bottom:18px;
         }
         h1 { margin:0 0 8px; font-size:34px; line-height:.98; letter-spacing:-.055em; }
@@ -78,38 +80,38 @@
             font-size:11px;
             font-weight:700;
             letter-spacing:.12em;
-            color:#bdf3df;
+            color:#725985;
             text-transform:uppercase;
         }
         input {
             width:100%;
             padding:13px 14px;
             border-radius:15px;
-            border:1px solid rgba(125,240,202,.26);
-            background:#071313;
+            border:1px solid #dac8bd;
+            background:rgba(255,255,255,.86);
             color:var(--text);
             font:inherit;
             outline:0;
         }
-        input:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(125,240,202,.12); }
+        input:focus { border-color:#dd8d9a; box-shadow:0 0 0 3px rgba(239,159,159,.18); }
         .btn {
             width:100%;
             padding:13px 16px;
             border:0;
             border-radius:15px;
-            background:linear-gradient(135deg,var(--brand),#50c7ff);
-            color:#06100f;
+            background:linear-gradient(135deg,#f7b4b4,#a8d8ff);
+            color:#2b2430;
             font:700 15px/1 "Space Grotesk","Trebuchet MS",sans-serif;
             cursor:pointer;
-            box-shadow:0 14px 28px rgba(71,183,255,.16);
+            box-shadow:0 14px 28px rgba(239,159,159,.20);
         }
         .btn:hover { transform:translateY(-1px); }
         .err {
             padding:11px 13px;
             border-radius:14px;
-            background:rgba(255,107,125,.15);
-            border:1px solid rgba(255,107,125,.50);
-            color:#ffd2d8;
+            background:rgba(231,93,116,.13);
+            border:1px solid rgba(231,93,116,.44);
+            color:#b5213b;
             font-weight:700;
         }
     </style>

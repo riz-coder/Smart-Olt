@@ -6,8 +6,8 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import PlanForm, TenantCreateForm
-from .models import ControlAuditLog, Plan, Tenant, TenantContact, TenantSnapshot
+from .forms import TenantCreateForm
+from .models import ControlAuditLog, Tenant
 from .services import (
     TenantProvisionError,
     TenantSnapshotError,
@@ -191,17 +191,7 @@ def tenant_onu_delete(request, pk, tenant_olt_id, onu_id):
 @login_required
 @owner_required
 def plan_list(request):
-    if request.method == "POST":
-        form = PlanForm(request.POST)
-        if form.is_valid():
-            plan = form.save()
-            audit(request, "plan_create", details=f"Plan created: {plan.name}")
-            messages.success(request, f"Plan `{plan.name}` created.")
-            return redirect("control_plans")
-    else:
-        form = PlanForm()
-    plans = Plan.objects.annotate(tenant_count=Count("tenants")).order_by("monthly_price", "name")
-    return render(request, "controlmanager/plan_list.html", {"form": form, "plans": plans})
+    return render(request, "controlmanager/plan_list.html")
 
 
 @login_required
