@@ -171,7 +171,7 @@ def _onu_tech_label(olt, slot):
             return "xgspon"
         if "XG" in rt:
             return "xgpon"
-        if "EPON" in rt or "EPFD" in rt or "EPFC" in rt or "CGID" in rt:
+        if "EPON" in rt or "EPFD" in rt or "EPFC" in rt:
             return "epon"
         return "gpon"
     return "gpon"
@@ -8587,5 +8587,4 @@ def olt_export(request):
             ]
         )
     return response
-
 

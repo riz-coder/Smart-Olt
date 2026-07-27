@@ -32,6 +32,7 @@ BOARD_DEFAULT_PORTS = {
     "H802GPBD": 16,
     "H806GPFD": 16,
     "H831GPBH": 8,
+    "H901CGID": 8,
     # Huawei EPON service boards
     "H802EPFD": 16,
     "H807EPFC": 16,
@@ -4547,7 +4548,9 @@ def _classify_card_real_type(model, role=""):
         return "XGS-PON"
     if "XG" in text:
         return "XG-PON"
-    if "EP" in text or "CGID" in text:
+    if "CGID" in text:
+        return "GPON"
+    if "EP" in text:
         return "EPON"
     if "GP" in text:
         return "GPON"
@@ -4598,8 +4601,10 @@ def _is_pon_board_model(model):
     # Huawei XGS-PON / XG-PON board model-name substrings
     if "XG" in text:
         return True
-    # Huawei EPON board model-name substrings (EPFD, EPFC, CGID)
-    if "EPON" in text or "EPFD" in text or "EPFC" in text or "CGID" in text:
+    if "CGID" in text:
+        return True
+    # Huawei EPON board model-name substrings (EPFD, EPFC)
+    if "EPON" in text or "EPFD" in text or "EPFC" in text:
         return True
     return False
 
@@ -4620,7 +4625,9 @@ def _pon_tech_from_board_type(board_type):
         return "XGS-PON"
     if "XG" in text:
         return "XG-PON"
-    if "EPON" in text or "EPFD" in text or "EPFC" in text or "CGID" in text:
+    if "CGID" in text:
+        return "GPON"
+    if "EPON" in text or "EPFD" in text or "EPFC" in text:
         return "EPON"
     return "GPON"
 
