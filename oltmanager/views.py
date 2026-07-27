@@ -242,6 +242,7 @@ _LAST_DEVICE_SNAPSHOT_SCAN = None
 _OLT_ONBOARDING_LOCK = threading.Lock()
 _OLT_ONBOARDING_RUNNING = set()
 _OLT_ONBOARDING_ABORT_REQUESTED = set()
+OLT_ONBOARDING_STALE_SECONDS = 45 * 60
 _ONU_ATTACHED_VLAN_SYNC_LOCK = threading.Lock()
 _ONU_ATTACHED_VLAN_SYNCING = set()
 _ONU_IMPORTED_CONFIG_SYNC_LOCK = threading.Lock()
@@ -1080,6 +1081,29 @@ def _update_olt_onboarding(olt_id, *, status=None, progress=None, message=None, 
         olt.save(update_fields=list(dict.fromkeys(update_fields)))
 
 
+def _fail_stale_olt_onboarding_if_needed(olt):
+    if not olt or str(getattr(olt, "onboarding_status", "") or "").lower() not in {"queued", "running", "aborting"}:
+        return olt
+    started_at = getattr(olt, "onboarding_started_at", None)
+    if not started_at:
+        return olt
+    if (timezone.now() - started_at).total_seconds() < OLT_ONBOARDING_STALE_SECONDS:
+        return olt
+    message = "Onboarding timed out. Please retry after checking OLT SNMP/Telnet reachability."
+    OLT.objects.filter(pk=olt.pk, onboarding_status__in=["queued", "running", "aborting"]).update(
+        onboarding_status="failed",
+        onboarding_progress=100,
+        onboarding_message=message,
+        onboarding_log=_append_olt_onboarding_log(getattr(olt, "onboarding_log", ""), message),
+        onboarding_finished_at=timezone.now(),
+        is_ready=False,
+    )
+    with _OLT_ONBOARDING_LOCK:
+        _OLT_ONBOARDING_RUNNING.discard(int(olt.pk))
+        _OLT_ONBOARDING_ABORT_REQUESTED.discard(int(olt.pk))
+    return OLT.objects.filter(pk=olt.pk).first() or olt
+
+
 def _onu_onboarding_counts(olt):
     qs = ConfiguredONU.objects.filter(olt=olt)
     total = qs.count()
@@ -1735,7 +1759,7 @@ def _sync_snmp_after_save(olt):
         olt.save(update_fields=['snmp_last_status', 'snmp_last_synced_at'])
         return False, push_status
 
-    snapshot = fetch_snmp_snapshot(olt)
+    snapshot = fetch_snmp_snapshot(olt, include_entity_metrics=False, operation_timeout=3.0)
     status_text = str(snapshot.get('status', '') or 'SNMP synced')
     update_fields = ['snmp_last_status', 'snmp_last_synced_at']
     olt.snmp_last_status = status_text[:300]
@@ -1755,7 +1779,7 @@ def _sync_snmp_after_save(olt):
 
 
 def _fetch_snmp_only_after_save(olt):
-    snapshot = fetch_snmp_snapshot(olt)
+    snapshot = fetch_snmp_snapshot(olt, include_entity_metrics=False, operation_timeout=3.0)
     status_text = str(snapshot.get('status', '') or 'SNMP fetched')
     update_fields = ['snmp_last_status', 'snmp_last_synced_at']
     olt.snmp_last_status = status_text[:300]
@@ -7789,6 +7813,7 @@ def olt_add_progress(request, pk):
 @admin_required
 def olt_add_progress_status(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    olt = _fail_stale_olt_onboarding_if_needed(olt)
     log_lines = [line for line in str(olt.onboarding_log or "").splitlines() if line.strip()]
     return JsonResponse(
         {

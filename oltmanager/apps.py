@@ -196,7 +196,12 @@ def _onu_inventory_sync_loop():
     while True:
         try:
             close_old_connections()
-            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
+            olt_ids = list(
+                OLT.objects
+                .exclude(onboarding_status__in=["queued", "running", "aborting"])
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=ONU_SYNC_MAX_WORKERS, thread_name_prefix="onu-sync") as executor:
                     futures = [executor.submit(_sync_single_olt_cycle, olt_id) for olt_id in olt_ids]
@@ -281,7 +286,12 @@ def _snmp_monitor_loop():
         try:
             close_old_connections()
             now_ts = time.time()
-            olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
+            olt_ids = list(
+                OLT.objects
+                .exclude(onboarding_status__in=["queued", "running", "aborting"])
+                .order_by("id")
+                .values_list("id", flat=True)
+            )
             if olt_ids:
                 with ThreadPoolExecutor(max_workers=min(4, max(1, len(olt_ids))), thread_name_prefix="snmp-monitor") as executor:
                     futures = [executor.submit(_probe_single_olt, olt_id) for olt_id in olt_ids]

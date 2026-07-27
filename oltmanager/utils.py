@@ -141,7 +141,7 @@ def _format_snmp_uptime(raw_value):
     return f"{days} day(s), {hours:02}:{minutes:02}"
 
 
-def fetch_snmp_snapshot(olt):
+def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4.0):
     snapshot = {
         "status": "SNMP data unavailable",
         "sys_name": olt.name,
@@ -223,13 +223,20 @@ def fetch_snmp_snapshot(olt):
             engine.close_dispatcher()
             return rows
 
+        def _run_snmp_operation(awaitable):
+            if operation_timeout and operation_timeout > 0:
+                return asyncio.run(asyncio.wait_for(awaitable, timeout=float(operation_timeout)))
+            return asyncio.run(awaitable)
+
         def _pick_entity_metrics(mp_model):
+            if not include_entity_metrics:
+                return {"temperature": "--", "cpu": "--", "memory": "--"}
             try:
-                names = asyncio.run(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.7"))
-                classes = asyncio.run(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.5"))
-                cpus = asyncio.run(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5"))
-                mems = asyncio.run(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7"))
-                temps = asyncio.run(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11"))
+                names = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.7"))
+                classes = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.5"))
+                cpus = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5"))
+                mems = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7"))
+                temps = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11"))
             except Exception:
                 return {"temperature": "--", "cpu": "--", "memory": "--"}
 
@@ -275,7 +282,7 @@ def fetch_snmp_snapshot(olt):
 
         last_error = None
         for mp_model in (1, 0):  # Try v2c first, then v1.
-            error_indication, error_status, _, var_binds = asyncio.run(_snmp_get(mp_model))
+            error_indication, error_status, _, var_binds = _run_snmp_operation(_snmp_get(mp_model))
             if error_indication:
                 last_error = str(error_indication)
                 continue
