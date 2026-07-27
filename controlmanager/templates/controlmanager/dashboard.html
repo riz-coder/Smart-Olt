@@ -1,5 +1,16 @@
 {% extends "controlmanager/base.html" %}
 {% block heading %}Master Overview{% endblock %}
+{% block extra_css %}
+<style>
+    .control-log-scroll {
+        max-height: 402px;
+        overflow-y: auto;
+    }
+    .control-log-scroll table {
+        margin: 0;
+    }
+</style>
+{% endblock %}
 {% block content %}
 <section class="panel">
     <div class="grid">
@@ -28,7 +39,7 @@
 </section>
 <section class="panel">
     <h2>Recent Control Actions</h2>
-    <div class="table-wrap"><table>
+    <div class="table-wrap control-log-scroll"><table>
         <thead><tr><th>Time</th><th>Action</th><th>Tenant</th><th>User</th><th>Details</th></tr></thead>
         <tbody>{% for log in recent_logs %}<tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.action }}</td><td>{{ log.tenant.name|default:"-" }}</td><td>{{ log.user.username|default:"-" }}</td><td>{{ log.details|default:"-" }}</td></tr>{% empty %}<tr><td colspan="5">No activity yet.</td></tr>{% endfor %}</tbody>
     </table></div>
