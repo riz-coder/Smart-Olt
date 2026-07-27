@@ -138,6 +138,41 @@ def admin_required(view_func):
     return _wrapped
 
 
+def _billing_lock_context(olt):
+    return {
+        "olt": olt,
+        "lock_title": "Subscription Required",
+        "lock_message": olt.pricing_lock_message or "This OLT is currently locked. Please renew the subscription to continue.",
+        "pricing_label": olt.get_pricing_mode_display(),
+        "pricing_status": olt.pricing_status_label,
+        "pricing_expires_at": olt.pricing_expires_at,
+    }
+
+
+def _render_olt_subscription_locked(request, olt):
+    return render(request, "oltmanager/olt_subscription_locked.html", _billing_lock_context(olt), status=402)
+
+
+def _json_subscription_locked(olt):
+    return JsonResponse(
+        {
+            "ok": False,
+            "message": olt.pricing_lock_message or "Subscription expired. Please renew your subscription to access this OLT.",
+            "pricing_status": olt.pricing_status_label,
+        },
+        status=402,
+    )
+
+
+def _deny_olt_access_if_locked(request, olt):
+    if not getattr(olt, "pricing_access_locked", False):
+        return None
+    if request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):
+        return _json_subscription_locked(olt)
+    messages.error(request, olt.pricing_lock_message or "Subscription expired. Please renew your subscription to access this OLT.")
+    return redirect("olt_view", pk=olt.pk)
+
+
 def _display_onu_type_name(value):
     text = str(value or "").strip()
     return re.sub(r"(?i)_SOLT$", "", text) if text else ""
@@ -4985,9 +5020,14 @@ def unconfigured_onu_authorize(request):
     if not subscriber_name:
         return _finish_error("Authorize failed: client name is required.")
 
-    olt = OLT.objects.filter(pk=int(olt_id)).only("id", "name", "ip_address", "username", "password", "port").first()
+    olt = OLT.objects.filter(pk=int(olt_id)).only(
+        "id", "name", "ip_address", "username", "password", "port",
+        "pricing_mode", "pricing_expires_at", "pricing_locked", "pricing_locked_reason",
+    ).first()
     if not olt:
         return _finish_error("Authorize failed: OLT not found.")
+    if olt.pricing_access_locked:
+        return _finish_error(olt.pricing_lock_message or "Authorize failed: subscription expired.")
 
     # ── Reconfigure: drop the existing DB record for this ONU (matched by SN) so
     # it becomes a brand-new autofind ONU and runs the normal authorize flow. ──
@@ -5621,6 +5661,9 @@ def configured_onu_traffic_graph_data(request, olt_pk, slot, port, ont_id):
 @admin_required
 def configured_onu_catv_action(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
@@ -5650,6 +5693,8 @@ def configured_onu_catv_action(request, olt_pk, slot, port, ont_id):
 @login_required
 def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    if olt.pricing_access_locked:
+        return _render_olt_subscription_locked(request, olt)
     record = ConfiguredONU.objects.filter(
         olt=olt,
         slot=slot,
@@ -6111,6 +6156,9 @@ def configured_onu_speed_profile_progress(request, task_id):
 @admin_required
 def configured_onu_speed_profile_config(request, olt_pk, slot, port, ont_id, row_index):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
     row_index = max(0, int(row_index))
     attached_vlans = [item.strip() for item in str(record.attached_vlans_cache or "").split(",") if item.strip()]
@@ -6290,6 +6338,9 @@ def _run_add_vlan_bg_task(task_id, olt, vlan_kwargs, redirect_url, duplicate_vla
 @require_POST
 def configured_onu_service_port_delete(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
     sp_id = str(request.POST.get("service_port_id") or "").strip()
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
@@ -6334,6 +6385,9 @@ def configured_onu_service_port_delete(request, olt_pk, slot, port, ont_id):
 @admin_required
 def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
     existing_vlans = [item.strip() for item in str(record.attached_vlans_cache or "").split(",") if item.strip()]
     vlan_options = _olt_vlan_option_values(olt)
@@ -6441,6 +6495,9 @@ def _olt_vlan_option_values(olt):
 @admin_required
 def configured_onu_ethernet_port_config(request, olt_pk, slot, port, ont_id, eth_port):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     attached_vlans = [item.strip() for item in str(record.attached_vlans_cache or "").split(",") if item.strip()]
@@ -6580,6 +6637,9 @@ def configured_onu_ethernet_port_config(request, olt_pk, slot, port, ont_id, eth
 @require_POST
 def configured_onu_mac_address(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     snapshot = fetch_single_ont_mac_addresses(olt, slot, port, ont_id)
     status_code = 200 if snapshot.get("ok") else 400
     message = _ui_telnet_error_message(snapshot.get("message"))
@@ -6598,6 +6658,9 @@ def configured_onu_mac_address(request, olt_pk, slot, port, ont_id):
 @require_POST
 def configured_onu_live_status(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     snapshot = fetch_single_ont_live_status(olt, slot, port, ont_id)
     status_code = 200 if snapshot.get("ok") else 400
     message = _ui_telnet_error_message(snapshot.get("message"))
@@ -6616,6 +6679,9 @@ def configured_onu_live_status(request, olt_pk, slot, port, ont_id):
 @require_POST
 def configured_onu_running_config(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
     snapshot = fetch_single_ont_running_config(
         olt,
@@ -6648,6 +6714,9 @@ def configured_onu_fetch_config(request, olt_pk, slot, port, ont_id):
     whether anything actually changed so the UI can say "updated" vs "already in sync".
     """
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     result = sync_single_onu_attached_vlans(olt, slot, port, ont_id)
     ok = bool(result.get("ok"))
     updated = bool(result.get("updated"))
@@ -6679,6 +6748,9 @@ def configured_onu_fetch_config(request, olt_pk, slot, port, ont_id):
 @admin_required
 def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
     olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
     action_key = str(action or "").strip().lower()
     redirect_url = ""
@@ -7322,6 +7394,9 @@ def olt_telnet_connect(request, pk):
 @admin_required
 def olt_save_config(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     if request.method != 'POST':
         return redirect('olt_view', pk=olt.pk)
     from .utils import execute_olt_save_now
@@ -7341,6 +7416,9 @@ def olt_save_config(request, pk):
 @admin_required
 def olt_config_backup(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     if request.method != 'POST':
         return redirect('olt_view', pk=olt.pk)
     from .utils import fetch_olt_full_running_config
@@ -7378,6 +7456,9 @@ def olt_config_backup(request, pk):
 @require_POST
 def olt_sync_config(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     started_at = time.time()
     wants_json = (
         request.headers.get("x-requested-with") == "XMLHttpRequest"
@@ -7444,6 +7525,8 @@ def olt_view(request, pk):
     if selected_section not in available_sections:
         selected_section = 'olt-details'
     olt = _get_olt_for_view(pk, selected_section)
+    if olt.pricing_access_locked:
+        return _render_olt_subscription_locked(request, olt)
 
     olt_cards = []
     olt_cards_status = ''
@@ -7803,6 +7886,9 @@ def olt_add_progress_action(request, pk):
 @login_required
 def olt_details_refresh(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     live_lock = _try_acquire_olt_live_lock(olt.pk)
     if live_lock is None:
         payload = _serialize_olt_details_snapshot(olt, _build_saved_device_snapshot(olt))
@@ -7872,6 +7958,9 @@ def olt_details_refresh(request, pk):
 @admin_required
 def olt_cli_window(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     return render(request, 'oltmanager/olt_cli_window.html', {'olt': olt})
 
 
@@ -7880,6 +7969,9 @@ def olt_cli_window(request, pk):
 @admin_required
 def olt_cli_open(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     _cleanup_expired_cli_sessions()
     _close_user_cli_session(request.user.id, olt.pk)
 
@@ -7904,6 +7996,9 @@ def olt_cli_open(request, pk):
 @admin_required
 def olt_cli_run(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     _cleanup_expired_cli_sessions()
     adapter = get_olt_adapter(olt)
 
@@ -7958,6 +8053,9 @@ def olt_cli_run(request, pk):
 @admin_required
 def olt_cli_close(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     _close_user_cli_session(request.user.id, olt.pk)
     _record_olt_login(olt, request.user, 'cli_close', 'Interactive CLI session closed', request=request)
     return JsonResponse({'ok': True, 'message': 'CLI session closed.'})
@@ -7966,6 +8064,9 @@ def olt_cli_close(request, pk):
 @login_required
 def olt_refresh_ports(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     if request.method != 'POST':
         return redirect('olt_view', pk=pk)
     _schedule_cards_refresh(olt.pk)
@@ -7977,6 +8078,9 @@ def olt_refresh_ports(request, pk):
 @require_POST
 def olt_refresh_pon_ports(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     _schedule_pon_refresh(olt.pk)
     _record_olt_login(olt, request.user, 'refresh_pon', 'PON ports refresh started', request=request)
     return redirect(f"{redirect('olt_view', pk=pk).url}?section=pon-ports")
@@ -7986,6 +8090,9 @@ def olt_refresh_pon_ports(request, pk):
 @require_POST
 def olt_refresh_pon_sfp_tx(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
     if live_lock is None:
         messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
@@ -8163,6 +8270,9 @@ def olt_uplink_traffic_graph_data(request, pk):
 @require_POST
 def olt_refresh_uplink(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     _schedule_uplink_refresh(olt.pk)
     _record_olt_login(olt, request.user, 'refresh_uplink', 'Uplink refresh started', request=request)
     return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
@@ -8172,6 +8282,9 @@ def olt_refresh_uplink(request, pk):
 @require_POST
 def olt_refresh_uplink_vlans(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
     if live_lock is None:
         messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
@@ -8193,6 +8306,9 @@ def olt_refresh_uplink_vlans(request, pk):
 @require_POST
 def olt_refresh_vlans(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
     if live_lock is None:
         messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
@@ -8216,6 +8332,9 @@ def olt_refresh_vlans(request, pk):
 @admin_required
 def olt_add_vlan(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     if request.method != "POST":
         return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
@@ -8303,6 +8422,9 @@ def olt_add_vlan(request, pk):
 @admin_required
 def olt_add_vlan_bulk(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     if request.method != "POST":
         return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
@@ -8416,6 +8538,9 @@ def _update_cached_uplink_vlan(olt, vlan_id, uplink_port, *, remove=False, creat
 @admin_required
 def olt_add_vlan_uplink(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     new_vlan_raw = str(request.POST.get("new_vlan_id") or request.POST.get("vlan_id") or "").strip()
     description = str(request.POST.get("description") or "").strip()
     selected_vlan_raw = str(request.POST.get("existing_vlan_id") or "").strip()
@@ -8468,6 +8593,9 @@ def olt_add_vlan_uplink(request, pk):
 @admin_required
 def olt_remove_vlan_uplink(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     vlan_id_raw = str(request.POST.get("vlan_id") or "").strip()
     uplink_port = str(request.POST.get("uplink_port") or "").strip()
 
@@ -8501,6 +8629,9 @@ def olt_remove_vlan_uplink(request, pk):
 @admin_required
 def olt_delete_vlan(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
     vlan_id_raw = request.POST.get("vlan_id")
     try:
         vlan_id = int(vlan_id_raw)
@@ -8587,4 +8718,3 @@ def olt_export(request):
             ]
         )
     return response
-

@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timedelta
 from pathlib import Path
 import os
 import sqlite3
@@ -234,6 +235,80 @@ def _tenant_fk_references(cursor, target_table):
     return references
 
 
+TENANT_OLT_BILLING_COLUMNS = {
+    "pricing_mode",
+    "pricing_expires_at",
+    "pricing_locked",
+    "pricing_locked_reason",
+}
+
+TENANT_OLT_PRICING_LABELS = {
+    "demo": "Demo Account",
+    "standard": "Standard (1 month)",
+    "custom": "Custom",
+}
+
+
+def _tenant_olt_columns(cursor):
+    cursor.execute("PRAGMA table_info(oltmanager_olt)")
+    return {str(row["name"]) for row in cursor.fetchall()}
+
+
+def _ensure_tenant_olt_billing_columns(cursor):
+    columns = _tenant_olt_columns(cursor)
+    missing = sorted(TENANT_OLT_BILLING_COLUMNS - columns)
+    if missing:
+        raise TenantSnapshotError(
+            "Tenant database is missing pricing columns. Run tenant migrations first: "
+            + ", ".join(missing)
+        )
+
+
+def _sqlite_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.replace(microsecond=0).isoformat(sep=" ")
+
+
+def _parse_sqlite_datetime(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
+def _billing_status_from_row(row):
+    mode = str(row.get("pricing_mode") or "standard").strip().lower() or "standard"
+    expires_at = _parse_sqlite_datetime(row.get("pricing_expires_at"))
+    manually_locked = bool(int(row.get("pricing_locked") or 0))
+    expired = bool(expires_at and expires_at <= timezone.now())
+    if manually_locked:
+        status = "Disabled"
+    elif expired:
+        status = "Expired"
+    else:
+        status = "Active"
+    return {
+        "pricing_mode": mode,
+        "pricing_label": TENANT_OLT_PRICING_LABELS.get(mode, mode.title()),
+        "pricing_expires_at": expires_at,
+        "pricing_expires_display": timezone.localtime(expires_at).strftime("%Y-%m-%d %H:%M") if expires_at else "-",
+        "pricing_locked": manually_locked,
+        "pricing_status": status,
+        "pricing_reason": str(row.get("pricing_locked_reason") or "").strip(),
+    }
+
+
 def _clear_fk_references(cursor, target_table, target_id, *, set_null_tables=None):
     set_null_tables = set(set_null_tables or [])
     for table_name, column_name in _tenant_fk_references(cursor, target_table):
@@ -255,16 +330,23 @@ def get_tenant_olts(tenant):
             raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
         if not _table_exists(cursor, "oltmanager_configuredonu"):
             raise TenantSnapshotError("Tenant database is missing ONU tables. Run tenant provisioning/migrations again.")
+        has_billing_columns = TENANT_OLT_BILLING_COLUMNS.issubset(_tenant_olt_columns(cursor))
+        billing_select = (
+            "o.pricing_mode, o.pricing_expires_at, o.pricing_locked, o.pricing_locked_reason,"
+            if has_billing_columns
+            else "'standard' AS pricing_mode, NULL AS pricing_expires_at, 0 AS pricing_locked, '' AS pricing_locked_reason,"
+        )
         cursor.execute(
             """
             SELECT o.id, o.name, o.ip_address, o.hardware_version, o.sw_version, o.snmp_last_status,
+                   {billing_select}
                    COUNT(c.id) AS onu_count,
                    SUM(CASE WHEN LOWER(COALESCE(c.derived_status, '')) = 'online' THEN 1 ELSE 0 END) AS online_count
             FROM oltmanager_olt o
             LEFT JOIN oltmanager_configuredonu c ON c.olt_id = o.id
             GROUP BY o.id
             ORDER BY o.name COLLATE NOCASE
-            """
+            """.format(billing_select=billing_select)
         )
         rows = []
         for row in cursor.fetchall():
@@ -272,6 +354,7 @@ def get_tenant_olts(tenant):
             item["online_count"] = int(item.get("online_count") or 0)
             item["onu_count"] = int(item.get("onu_count") or 0)
             item["offline_count"] = max(0, item["onu_count"] - item["online_count"])
+            item.update(_billing_status_from_row(item))
             rows.append(item)
         return rows
     finally:
@@ -286,7 +369,13 @@ def get_tenant_olt_onus(tenant, tenant_olt_id):
             raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
         if not _table_exists(cursor, "oltmanager_configuredonu"):
             raise TenantSnapshotError("Tenant database is missing ONU tables. Run tenant provisioning/migrations again.")
-        cursor.execute("SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status FROM oltmanager_olt WHERE id=?", [int(tenant_olt_id)])
+        has_billing_columns = TENANT_OLT_BILLING_COLUMNS.issubset(_tenant_olt_columns(cursor))
+        billing_select = (
+            ", pricing_mode, pricing_expires_at, pricing_locked, pricing_locked_reason"
+            if has_billing_columns
+            else ", 'standard' AS pricing_mode, NULL AS pricing_expires_at, 0 AS pricing_locked, '' AS pricing_locked_reason"
+        )
+        cursor.execute(f"SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status{billing_select} FROM oltmanager_olt WHERE id=?", [int(tenant_olt_id)])
         olt = cursor.fetchone()
         if not olt:
             raise TenantSnapshotError("OLT not found in tenant database.")
@@ -299,9 +388,54 @@ def get_tenant_olt_onus(tenant, tenant_olt_id):
             """,
             [int(tenant_olt_id)],
         )
-        return dict(olt), [dict(row) for row in cursor.fetchall()]
+        olt_item = dict(olt)
+        olt_item.update(_billing_status_from_row(olt_item))
+        return olt_item, [dict(row) for row in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def update_tenant_olt_pricing(tenant, tenant_olt_id, *, pricing_mode=None, expires_at=None, locked=None, reason=""):
+    tenant_olt_id = int(tenant_olt_id)
+    conn = _connect_tenant_db(tenant, read_only=False)
+    try:
+        cursor = conn.cursor()
+        if not _table_exists(cursor, "oltmanager_olt"):
+            raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
+        _ensure_tenant_olt_billing_columns(cursor)
+        cursor.execute("SELECT id, name FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        row = cursor.fetchone()
+        if not row:
+            raise TenantSnapshotError("OLT not found in tenant database.")
+
+        update_parts = []
+        params = []
+        mode = str(pricing_mode or "").strip().lower()
+        if mode:
+            if mode not in TENANT_OLT_PRICING_LABELS:
+                raise TenantSnapshotError("Invalid pricing mode.")
+            if mode == "demo":
+                expires_at = timezone.now() + timedelta(days=3)
+            elif mode == "standard":
+                expires_at = timezone.now() + timedelta(days=30)
+            update_parts.extend(["pricing_mode=?", "pricing_expires_at=?"])
+            params.extend([mode, _sqlite_datetime(expires_at)])
+        if locked is not None:
+            update_parts.extend(["pricing_locked=?", "pricing_locked_reason=?"])
+            params.extend([1 if locked else 0, str(reason or "")[:255]])
+        if not update_parts:
+            return "No pricing changes submitted."
+        params.append(tenant_olt_id)
+        cursor.execute(f"UPDATE oltmanager_olt SET {', '.join(update_parts)} WHERE id=?", params)
+        conn.commit()
+        name = str(row["name"] or "")
+    except sqlite3.Error as exc:
+        conn.rollback()
+        raise TenantSnapshotError(f"Could not update OLT pricing in tenant database: {exc}") from exc
+    finally:
+        conn.close()
+    refresh_tenant_database_snapshot(tenant, record_snapshot=False)
+    return f"{name} pricing updated."
 
 
 def delete_tenant_olt(tenant, tenant_olt_id):

@@ -1,14 +1,69 @@
 {% extends "controlmanager/base.html" %}
 {% block heading %}Pricing{% endblock %}
 {% block content %}
+{% for block in tenant_rows %}
 <section class="panel">
-    <div class="coming-soon">
-        <span class="pill">Coming soon</span>
-        <div>
-            <h2>Pricing controls are being prepared.</h2>
-            <p class="subtle">Tenant billing, packages, limits, and payment history will be managed here in the next control-plane phase.</p>
-        </div>
-        <a class="btn btn-dark" href="{% url 'control_dashboard' %}">Back to Overview</a>
-    </div>
+    <h2>{{ block.tenant.name }}</h2>
+    <p class="subtle">Pricing is written directly to this tenant database only. No SNMP/Telnet/device polling runs here.</p>
+    {% if block.error %}
+    <p style="color:var(--red);font-weight:900;">{{ block.error }}</p>
+    {% else %}
+    <div class="table-wrap"><table>
+        <thead>
+            <tr>
+                <th>OLT</th>
+                <th>IP</th>
+                <th>ONUs</th>
+                <th>Pricing Mode</th>
+                <th>Expires</th>
+                <th>Access</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for olt in block.olts %}
+            <tr>
+                <td><a href="{% url 'control_tenant_olt_detail' block.tenant.pk olt.id %}">{{ olt.name }}</a></td>
+                <td>{{ olt.ip_address|default:"-" }}</td>
+                <td>{{ olt.onu_count }}</td>
+                <td>
+                    <form class="billing-row" method="post" action="{% url 'control_tenant_olt_pricing' block.tenant.pk olt.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="source" value="pricing">
+                        <input type="hidden" name="pricing_action" value="mode">
+                        <select name="pricing_mode" class="cp-input">
+                            <option value="demo" {% if olt.pricing_mode == "demo" %}selected{% endif %}>Demo Account</option>
+                            <option value="standard" {% if olt.pricing_mode == "standard" %}selected{% endif %}>Standard (1 month)</option>
+                            <option value="custom" {% if olt.pricing_mode == "custom" %}selected{% endif %}>Custom</option>
+                        </select>
+                        <input class="cp-input" type="datetime-local" name="custom_expires_at" title="Custom expiry only">
+                        <button class="btn btn-blue" type="submit">Apply</button>
+                    </form>
+                </td>
+                <td>{{ olt.pricing_expires_display }}</td>
+                <td><span class="badge {{ olt.pricing_status|lower }}">{{ olt.pricing_status }}</span></td>
+                <td>
+                    <div class="billing-row">
+                        {% if olt.pricing_locked %}
+                        <form method="post" action="{% url 'control_tenant_olt_pricing' block.tenant.pk olt.id %}">{% csrf_token %}<input type="hidden" name="source" value="pricing"><input type="hidden" name="pricing_action" value="unlock"><button class="btn btn-blue" type="submit">Unlock</button></form>
+                        {% else %}
+                        <form method="post" action="{% url 'control_tenant_olt_pricing' block.tenant.pk olt.id %}">{% csrf_token %}<input type="hidden" name="source" value="pricing"><input type="hidden" name="pricing_action" value="lock"><button class="btn btn-red" type="submit">Disable</button></form>
+                        {% endif %}
+                        <a class="btn btn-dark" href="{% url 'control_tenant_detail' block.tenant.pk %}">Tenant</a>
+                    </div>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7">No OLTs found in this tenant database.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table></div>
+    {% endif %}
 </section>
+{% empty %}
+<section class="panel">
+    <h2>No Tenants</h2>
+    <p class="subtle">Create a tenant first, then pricing controls will appear here.</p>
+</section>
+{% endfor %}
 {% endblock %}

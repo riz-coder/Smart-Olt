@@ -5,6 +5,8 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from .forms import TenantCreateForm
 from .models import ControlAuditLog, Tenant
@@ -17,6 +19,7 @@ from .services import (
     get_tenant_olts,
     provision_tenant_instance,
     refresh_tenant_database_snapshot,
+    update_tenant_olt_pricing,
 )
 
 
@@ -148,6 +151,55 @@ def tenant_detail(request, pk):
     return render(request, "controlmanager/tenant_detail.html", context)
 
 
+def _parse_control_datetime(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = parse_datetime(text)
+    if parsed is None:
+        parsed = parse_datetime(text.replace("T", " "))
+    if parsed is None:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
+@login_required
+@owner_required
+def tenant_olt_pricing_update(request, pk, tenant_olt_id):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    if request.method != "POST":
+        return redirect("control_tenant_detail", pk=tenant.pk)
+    source = (request.POST.get("source") or "tenant").strip().lower()
+    try:
+        action = (request.POST.get("pricing_action") or "mode").strip().lower()
+        if action == "lock":
+            output = update_tenant_olt_pricing(
+                tenant,
+                tenant_olt_id,
+                locked=True,
+                reason=request.POST.get("reason") or "Disabled from control plane.",
+            )
+        elif action == "unlock":
+            output = update_tenant_olt_pricing(tenant, tenant_olt_id, locked=False, reason="")
+        else:
+            output = update_tenant_olt_pricing(
+                tenant,
+                tenant_olt_id,
+                pricing_mode=request.POST.get("pricing_mode"),
+                expires_at=_parse_control_datetime(request.POST.get("custom_expires_at")),
+            )
+        audit(request, "tenant_olt_pricing", tenant, output)
+        messages.success(request, output)
+    except TenantSnapshotError as exc:
+        audit(request, "tenant_olt_pricing_failed", tenant, str(exc))
+        messages.error(request, str(exc))
+    if source == "pricing":
+        return redirect("control_plans")
+    return redirect("control_tenant_detail", pk=tenant.pk)
+
+
 @login_required
 @owner_required
 def tenant_olt_detail(request, pk, tenant_olt_id):
@@ -195,7 +247,17 @@ def tenant_onu_delete(request, pk, tenant_olt_id, onu_id):
 @login_required
 @owner_required
 def plan_list(request):
-    return render(request, "controlmanager/plan_list.html")
+    tenant_rows = []
+    for tenant in Tenant.objects.order_by("name"):
+        error = ""
+        olts = []
+        try:
+            refresh_tenant_database_snapshot(tenant, record_snapshot=False)
+            olts = get_tenant_olts(tenant)
+        except TenantSnapshotError as exc:
+            error = str(exc)
+        tenant_rows.append({"tenant": tenant, "olts": olts, "error": error})
+    return render(request, "controlmanager/plan_list.html", {"tenant_rows": tenant_rows})
 
 
 @login_required

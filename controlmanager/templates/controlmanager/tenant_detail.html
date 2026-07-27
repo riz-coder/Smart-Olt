@@ -39,7 +39,7 @@
     <h2>Tenant OLTs</h2>
     {% if tenant_olts_error %}<p style="color:var(--red);font-weight:900;">{{ tenant_olts_error }}</p>{% endif %}
     <div class="table-wrap"><table>
-        <thead><tr><th>OLT</th><th>IP</th><th>Hardware</th><th>SNMP Status</th><th>ONUs</th><th>Online</th><th>Offline</th><th>Action</th></tr></thead>
+        <thead><tr><th>OLT</th><th>IP</th><th>Hardware</th><th>SNMP Status</th><th>ONUs</th><th>Online</th><th>Offline</th><th>Pricing</th><th>Expires</th><th>Access</th><th>Action</th></tr></thead>
         <tbody>{% for olt in tenant_olts %}<tr>
             <td><a href="{% url 'control_tenant_olt_detail' tenant.pk olt.id %}">{{ olt.name }}</a></td>
             <td>{{ olt.ip_address|default:"-" }}</td>
@@ -48,11 +48,30 @@
             <td>{{ olt.onu_count }}</td>
             <td>{{ olt.online_count }}</td>
             <td>{{ olt.offline_count }}</td>
+            <td>
+                <form class="billing-row" method="post" action="{% url 'control_tenant_olt_pricing' tenant.pk olt.id %}">
+                    {% csrf_token %}<input type="hidden" name="source" value="tenant"><input type="hidden" name="pricing_action" value="mode">
+                    <select name="pricing_mode" class="cp-input">
+                        <option value="demo" {% if olt.pricing_mode == "demo" %}selected{% endif %}>Demo Account</option>
+                        <option value="standard" {% if olt.pricing_mode == "standard" %}selected{% endif %}>Standard (1 month)</option>
+                        <option value="custom" {% if olt.pricing_mode == "custom" %}selected{% endif %}>Custom</option>
+                    </select>
+                    <input class="cp-input" type="datetime-local" name="custom_expires_at" title="Custom expiry only">
+                    <button class="btn btn-blue" type="submit">Apply</button>
+                </form>
+            </td>
+            <td>{{ olt.pricing_expires_display }}</td>
+            <td><span class="badge {{ olt.pricing_status|lower }}">{{ olt.pricing_status }}</span></td>
             <td style="display:flex;gap:8px;flex-wrap:wrap;">
                 <a class="btn btn-dark" href="{% url 'control_tenant_olt_detail' tenant.pk olt.id %}">Open</a>
+                {% if olt.pricing_locked %}
+                <form method="post" action="{% url 'control_tenant_olt_pricing' tenant.pk olt.id %}">{% csrf_token %}<input type="hidden" name="source" value="tenant"><input type="hidden" name="pricing_action" value="unlock"><button class="btn btn-blue" type="submit">Unlock</button></form>
+                {% else %}
+                <form method="post" action="{% url 'control_tenant_olt_pricing' tenant.pk olt.id %}">{% csrf_token %}<input type="hidden" name="source" value="tenant"><input type="hidden" name="pricing_action" value="lock"><button class="btn btn-red" type="submit">Disable</button></form>
+                {% endif %}
                 <form method="post" action="{% url 'control_tenant_olt_delete' tenant.pk olt.id %}" onsubmit="return confirm('Delete this OLT and related DB records from {{ tenant.name }}? This does not touch physical OLT.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete DB</button></form>
             </td>
-        </tr>{% empty %}<tr><td colspan="8">No OLTs found in tenant DB.</td></tr>{% endfor %}</tbody>
+        </tr>{% empty %}<tr><td colspan="11">No OLTs found in tenant DB.</td></tr>{% endfor %}</tbody>
     </table></div>
 </section>
 <section class="panel">

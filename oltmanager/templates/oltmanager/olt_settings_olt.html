@@ -48,6 +48,24 @@
         background: rgba(210, 45, 62, 0.14);
         box-shadow: 0 0 18px rgba(255, 80, 96, 0.22);
     }
+    .pricing-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(82, 146, 255, 0.36);
+        background: rgba(47, 128, 255, 0.14);
+        color: #b7d5ff;
+        font-size: 12px;
+        font-weight: 900;
+        white-space: nowrap;
+    }
+    .pricing-badge.locked {
+        border-color: rgba(255, 107, 119, 0.48);
+        background: rgba(255, 107, 119, 0.14);
+        color: #ffb7c5;
+    }
     .action-cell { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 </style>
 {% endblock %}
@@ -83,6 +101,7 @@
                         <th>UDP</th>
                         <th>OLT hardware version</th>
                         <th>OLT SW version</th>
+                        <th>Pricing Mode</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -102,6 +121,11 @@
                         <td>{{ olt.snmp_port }}</td>
                         <td>{{ olt.hardware_version|default:"-" }}</td>
                         <td>{{ olt.sw_version|default:"-" }}</td>
+                        <td>
+                            <span class="pricing-badge {% if olt.pricing_access_locked %}locked{% endif %}" title="{{ olt.pricing_lock_message|default:'Active' }}">
+                                {{ olt.get_pricing_mode_display }} / {{ olt.pricing_status_label }}
+                            </span>
+                        </td>
                         <td class="actions">
                             <div class="action-cell">
                                 <a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a>

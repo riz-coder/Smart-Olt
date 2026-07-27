@@ -2,9 +2,19 @@ import re
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class OLT(models.Model):
+    PRICING_DEMO = "demo"
+    PRICING_STANDARD = "standard"
+    PRICING_CUSTOM = "custom"
+    PRICING_CHOICES = [
+        (PRICING_DEMO, "Demo Account"),
+        (PRICING_STANDARD, "Standard (1 month)"),
+        (PRICING_CUSTOM, "Custom"),
+    ]
+
     name = models.CharField(max_length=100, unique=True)  # e.g., "Main OLT"
     ip_address = models.GenericIPAddressField(unique=True)
     port = models.IntegerField(default=23, help_text='Telnet port')
@@ -52,10 +62,38 @@ class OLT(models.Model):
     # When False, onboarding fetches only OLT details/cards/PON/uplink/VLAN and
     # skips importing the ONUs (asked at Add OLT time).
     import_onus = models.BooleanField(default=True)
+    pricing_mode = models.CharField(max_length=20, choices=PRICING_CHOICES, default=PRICING_STANDARD, db_index=True)
+    pricing_expires_at = models.DateTimeField(blank=True, null=True)
+    pricing_locked = models.BooleanField(default=False, db_index=True)
+    pricing_locked_reason = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+    @property
+    def pricing_is_expired(self):
+        return bool(self.pricing_expires_at and self.pricing_expires_at <= timezone.now())
+
+    @property
+    def pricing_access_locked(self):
+        return bool(self.pricing_locked or self.pricing_is_expired)
+
+    @property
+    def pricing_status_label(self):
+        if self.pricing_locked:
+            return "Disabled"
+        if self.pricing_is_expired:
+            return "Expired"
+        return "Active"
+
+    @property
+    def pricing_lock_message(self):
+        if self.pricing_locked:
+            return self.pricing_locked_reason or "This OLT is disabled by the service provider."
+        if self.pricing_is_expired:
+            return "Subscription expired. Please renew your subscription to access this OLT."
+        return ""
 
 
 class SpeedProfile(models.Model):
