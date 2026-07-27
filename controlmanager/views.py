@@ -204,12 +204,17 @@ def tenant_olt_pricing_update(request, pk, tenant_olt_id):
 @owner_required
 def tenant_olt_detail(request, pk, tenant_olt_id):
     tenant = get_object_or_404(Tenant, pk=pk)
+    search_query = str(request.GET.get("q") or "").strip()
     try:
-        olt, onus = get_tenant_olt_onus(tenant, tenant_olt_id)
+        olt, onus = get_tenant_olt_onus(tenant, tenant_olt_id, search_query=search_query)
     except TenantSnapshotError as exc:
         messages.error(request, str(exc))
         return redirect("control_tenant_detail", pk=tenant.pk)
-    return render(request, "controlmanager/tenant_olt_detail.html", {"tenant": tenant, "olt": olt, "onus": onus})
+    return render(
+        request,
+        "controlmanager/tenant_olt_detail.html",
+        {"tenant": tenant, "olt": olt, "onus": onus, "search_query": search_query},
+    )
 
 
 @login_required

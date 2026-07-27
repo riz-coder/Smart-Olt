@@ -13,6 +13,12 @@
 <section class="panel">
     <h2>ONUs</h2>
     <p class="subtle">This list is read from the tenant database. Delete removes the ONU DB row only; it does not send CLI/SNMP to the physical OLT.</p>
+    <form method="get" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 10px;">
+        <input class="cp-input" type="search" name="q" value="{{ search_query }}" placeholder="Search SN, name, VLAN, or ONU position" style="max-width:420px;">
+        <button class="btn btn-blue" type="submit">Search</button>
+        {% if search_query %}<a class="btn btn-dark" href="{% url 'control_tenant_olt_detail' tenant.pk olt.id %}">Clear</a>{% endif %}
+        <span class="subtle">{{ onus|length }} ONU(s){% if search_query %} matched{% endif %}</span>
+    </form>
     <div class="table-wrap"><table>
         <thead><tr><th>ONU</th><th>SN</th><th>Name</th><th>Status</th><th>VLANs</th><th>Signal</th><th>Distance</th><th>Action</th></tr></thead>
         <tbody>{% for onu in onus %}<tr>

@@ -361,7 +361,7 @@ def get_tenant_olts(tenant):
         conn.close()
 
 
-def get_tenant_olt_onus(tenant, tenant_olt_id):
+def get_tenant_olt_onus(tenant, tenant_olt_id, search_query=""):
     conn = _connect_tenant_db(tenant, read_only=True)
     try:
         cursor = conn.cursor()
@@ -379,14 +379,29 @@ def get_tenant_olt_onus(tenant, tenant_olt_id):
         olt = cursor.fetchone()
         if not olt:
             raise TenantSnapshotError("OLT not found in tenant database.")
-        cursor.execute(
+        params = [int(tenant_olt_id)]
+        where_extra = ""
+        search_text = str(search_query or "").strip()
+        if search_text:
+            like_text = f"%{search_text.lower()}%"
+            where_extra = """
+              AND (
+                LOWER(COALESCE(sn, '')) LIKE ?
+                OR LOWER(COALESCE(description, '')) LIKE ?
+                OR LOWER(COALESCE(attached_vlans_cache, '')) LIKE ?
+                OR (CAST(slot AS TEXT) || '/' || CAST(port AS TEXT) || '/' || CAST(ont_id AS TEXT)) LIKE ?
+              )
             """
+            params.extend([like_text, like_text, like_text, f"%{search_text}%"])
+        cursor.execute(
+            f"""
             SELECT id, slot, port, ont_id, sn, description, derived_status, attached_vlans_cache, onu_rx, olt_rx, ont_distance_m
             FROM oltmanager_configuredonu
             WHERE olt_id=?
+            {where_extra}
             ORDER BY slot, port, ont_id
             """,
-            [int(tenant_olt_id)],
+            params,
         )
         olt_item = dict(olt)
         olt_item.update(_billing_status_from_row(olt_item))
