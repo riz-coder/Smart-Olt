@@ -360,7 +360,7 @@ def delete_tenant_onu(tenant, onu_id):
     return f"deleted={deleted} onu={label}"
 
 
-def refresh_tenant_database_snapshot(tenant):
+def refresh_tenant_database_snapshot(tenant, *, record_snapshot=True):
     """Read a tenant SQLite DB and copy lightweight resource counts only.
 
     This function is intentionally DB-only. It does not import tenant app code and
@@ -434,13 +434,15 @@ def refresh_tenant_database_snapshot(tenant):
     TenantOLTSnapshot.objects.filter(tenant=tenant).exclude(tenant_olt_id__in=seen).delete()
 
     db_size_mb = Decimal(str(round(db_path.stat().st_size / (1024 * 1024), 2)))
-    snapshot = TenantSnapshot.objects.create(
-        tenant=tenant,
-        olt_count=len(olt_rows),
-        onu_count=total_onus,
-        db_size_mb=db_size_mb,
-        status_note=f"DB-only refresh. Online ONUs: {total_online}. Offline ONUs: {max(0, total_onus - total_online)}.",
-    )
+    snapshot = None
+    if record_snapshot:
+        snapshot = TenantSnapshot.objects.create(
+            tenant=tenant,
+            olt_count=len(olt_rows),
+            onu_count=total_onus,
+            db_size_mb=db_size_mb,
+            status_note=f"DB-only refresh. Online ONUs: {total_online}. Offline ONUs: {max(0, total_onus - total_online)}.",
+        )
     tenant.last_known_olt_count = len(olt_rows)
     tenant.last_known_onu_count = total_onus
     tenant.last_known_db_size_mb = db_size_mb

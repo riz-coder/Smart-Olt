@@ -44,6 +44,11 @@ def audit(request, action, tenant=None, details=""):
 @login_required
 @owner_required
 def dashboard(request):
+    for tenant in Tenant.objects.only("id", "database_path"):
+        try:
+            refresh_tenant_database_snapshot(tenant, record_snapshot=False)
+        except TenantSnapshotError:
+            continue
     tenants = Tenant.objects.select_related("plan")
     totals = tenants.aggregate(
         total_olts=Sum("last_known_olt_count"),
@@ -127,6 +132,7 @@ def tenant_detail(request, pk):
     tenant_olts_error = ""
     if tenant.database_path:
         try:
+            refresh_tenant_database_snapshot(tenant, record_snapshot=False)
             tenant_olts = get_tenant_olts(tenant)
         except TenantSnapshotError as exc:
             tenant_olts_error = str(exc)
