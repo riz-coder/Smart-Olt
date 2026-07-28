@@ -70,19 +70,29 @@
         white-space: nowrap;
     }
     .billing-package.standard {
-        border-color: rgba(47, 216, 129, 0.44);
-        background: rgba(47, 216, 129, 0.13);
-        color: #84ffc2;
+        border-color: rgba(31, 236, 255, 0.64);
+        background:
+            radial-gradient(circle at 20% 0%, rgba(31, 236, 255, 0.24), transparent 60%),
+            rgba(16, 77, 110, 0.34);
+        color: #9ff8ff;
+        box-shadow: 0 0 18px rgba(31, 236, 255, 0.20), inset 0 0 14px rgba(31, 236, 255, 0.08);
     }
     .billing-package.demo {
-        border-color: rgba(255, 190, 80, 0.52);
-        background: rgba(255, 190, 80, 0.15);
-        color: #ffd38a;
+        border-color: rgba(255, 72, 137, 0.66);
+        background:
+            radial-gradient(circle at 20% 0%, rgba(255, 72, 137, 0.25), transparent 60%),
+            rgba(100, 24, 62, 0.34);
+        color: #ffb7d2;
+        box-shadow: 0 0 18px rgba(255, 72, 137, 0.22), inset 0 0 14px rgba(255, 72, 137, 0.08);
     }
     .billing-package.custom {
-        border-color: rgba(86, 196, 255, 0.50);
+        border-color: rgba(184, 112, 255, 0.68);
         background: rgba(36, 198, 220, 0.14);
-        color: #8eeaff;
+        background:
+            radial-gradient(circle at 20% 0%, rgba(184, 112, 255, 0.25), transparent 60%),
+            rgba(66, 40, 130, 0.34);
+        color: #dec0ff;
+        box-shadow: 0 0 18px rgba(184, 112, 255, 0.23), inset 0 0 14px rgba(184, 112, 255, 0.08);
     }
     .billing-sub {
         color: var(--muted);
@@ -128,19 +138,28 @@
         background: #e8f1ff;
     }
     html[data-theme="light"] .billing-package.standard {
-        color: #007a45;
-        border-color: #75d9a4;
-        background: #dcffec;
+        color: #006d7a;
+        border-color: #6bdceb;
+        background:
+            radial-gradient(circle at 20% 0%, rgba(31, 236, 255, 0.34), transparent 62%),
+            #e7fcff;
+        box-shadow: 0 0 16px rgba(31, 180, 210, 0.20), inset 0 0 12px rgba(31, 180, 210, 0.08);
     }
     html[data-theme="light"] .billing-package.demo {
-        color: #8a5a00;
-        border-color: #f0c36c;
-        background: #fff4d8;
+        color: #a20f4b;
+        border-color: #f392b7;
+        background:
+            radial-gradient(circle at 20% 0%, rgba(255, 72, 137, 0.30), transparent 62%),
+            #fff0f6;
+        box-shadow: 0 0 16px rgba(220, 40, 110, 0.17), inset 0 0 12px rgba(220, 40, 110, 0.07);
     }
     html[data-theme="light"] .billing-package.custom {
-        color: #04718a;
-        border-color: #8dd9ea;
-        background: #e5fbff;
+        color: #6731a8;
+        border-color: #c6a0f5;
+        background:
+            radial-gradient(circle at 20% 0%, rgba(184, 112, 255, 0.30), transparent 62%),
+            #f6efff;
+        box-shadow: 0 0 16px rgba(130, 70, 220, 0.18), inset 0 0 12px rgba(130, 70, 220, 0.07);
     }
 </style>
 {% endblock %}
