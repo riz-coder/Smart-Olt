@@ -612,6 +612,112 @@
             font-weight: 800;
             border-color: rgba(22, 45, 80, 0.16);
         }
+        .subscription-warning-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 90;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(2, 8, 20, 0.62);
+            backdrop-filter: blur(4px);
+        }
+        .subscription-warning-card {
+            width: min(520px, 100%);
+            border: 1px solid rgba(255, 190, 80, 0.42);
+            border-radius: 20px;
+            background:
+                radial-gradient(circle at 100% 0%, rgba(255, 190, 80, 0.18), transparent 36%),
+                #111d35;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+            padding: 22px;
+        }
+        .subscription-warning-kicker {
+            color: #ffca73;
+            font-size: 12px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .subscription-warning-card h3 {
+            margin: 0 0 8px;
+            font-family: "Sora", "Manrope", sans-serif;
+            font-size: 22px;
+            color: #fff4d8;
+        }
+        .subscription-warning-card p {
+            margin: 0 0 14px;
+            color: #d8e5ff;
+            font-weight: 700;
+            line-height: 1.45;
+        }
+        .subscription-warning-list {
+            display: grid;
+            gap: 8px;
+            margin: 0 0 18px;
+            padding: 0;
+            list-style: none;
+        }
+        .subscription-warning-list li {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 10px 12px;
+            color: #f7fbff;
+            font-weight: 900;
+        }
+        .subscription-warning-list small {
+            color: #ffca73;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+        .subscription-warning-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .subscription-warning-close {
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.08);
+            color: #e8f0ff;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font: inherit;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        html[data-theme="light"] .subscription-warning-overlay {
+            background: rgba(14, 28, 52, 0.34);
+        }
+        html[data-theme="light"] .subscription-warning-card {
+            background:
+                radial-gradient(circle at 100% 0%, rgba(255, 180, 55, 0.22), transparent 38%),
+                #ffffff;
+            border-color: #f0b84b;
+            box-shadow: 0 24px 70px rgba(45, 71, 110, 0.22);
+        }
+        html[data-theme="light"] .subscription-warning-card h3 {
+            color: #10213d;
+        }
+        html[data-theme="light"] .subscription-warning-card p,
+        html[data-theme="light"] .subscription-warning-list li {
+            color: #172946;
+        }
+        html[data-theme="light"] .subscription-warning-list li {
+            border-color: #d8e4f4;
+            background: #f8fbff;
+        }
+        html[data-theme="light"] .subscription-warning-close {
+            color: #17365f;
+            background: #eef5ff;
+            border-color: #a9c0df;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -640,8 +746,41 @@
         </div>
     </header>
     {% endif %}
+    {% if expiring_olt_subscriptions %}
+    <div class="subscription-warning-overlay" data-subscription-warning>
+        <section class="subscription-warning-card" role="alertdialog" aria-modal="true" aria-labelledby="subscriptionWarningTitle">
+            <div class="subscription-warning-kicker">Subscription warning</div>
+            <h3 id="subscriptionWarningTitle">OLT subscription expiring soon</h3>
+            <p>
+                The following OLT subscription will expire within 24 hours. Please renew the subscription to avoid feature lock.
+            </p>
+            <ul class="subscription-warning-list">
+                {% for warn_olt in expiring_olt_subscriptions %}
+                <li>
+                    <span>{{ warn_olt.name }}</span>
+                    <small>{{ warn_olt.pricing_expires_at|date:"d M Y, h:i A" }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="subscription-warning-actions">
+                <a href="{% url 'olt_settings_olt' %}" class="btn btn-primary">Open OLTs</a>
+                <button type="button" class="subscription-warning-close" data-subscription-warning-close>Close</button>
+            </div>
+        </section>
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
     {% block extra_js %}{% endblock %}
+    <script>
+        (function () {
+            var overlay = document.querySelector('[data-subscription-warning]');
+            var closeBtn = document.querySelector('[data-subscription-warning-close]');
+            if (!overlay || !closeBtn) return;
+            closeBtn.addEventListener('click', function () {
+                overlay.remove();
+            });
+        })();
+    </script>
     <script>
         (function () {
             var btn = document.getElementById('themeToggleBtn');
