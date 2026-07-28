@@ -6901,6 +6901,7 @@ def settings_billing(request):
             {
                 "olt": olt,
                 "package": olt.get_pricing_mode_display(),
+                "package_class": str(olt.pricing_mode or "").strip().lower() or "standard",
                 "expires_at": expires_at,
                 "days_label": days_label,
                 "days_class": days_class,

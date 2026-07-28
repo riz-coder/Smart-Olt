@@ -55,6 +55,35 @@
         background: rgba(159, 178, 208, 0.10);
         color: #c6d4eb;
     }
+    .billing-package {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 132px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(116, 170, 255, 0.36);
+        background: rgba(48, 128, 255, 0.14);
+        color: #cfe1ff;
+        font-size: 12px;
+        font-weight: 900;
+        white-space: nowrap;
+    }
+    .billing-package.standard {
+        border-color: rgba(47, 216, 129, 0.44);
+        background: rgba(47, 216, 129, 0.13);
+        color: #84ffc2;
+    }
+    .billing-package.demo {
+        border-color: rgba(255, 190, 80, 0.52);
+        background: rgba(255, 190, 80, 0.15);
+        color: #ffd38a;
+    }
+    .billing-package.custom {
+        border-color: rgba(86, 196, 255, 0.50);
+        background: rgba(36, 198, 220, 0.14);
+        color: #8eeaff;
+    }
     .billing-sub {
         color: var(--muted);
         font-size: 12px;
@@ -93,6 +122,26 @@
         border-color: #cbd8ea;
         background: #f3f7fd;
     }
+    html[data-theme="light"] .billing-package {
+        color: #1557b0;
+        border-color: #94baf2;
+        background: #e8f1ff;
+    }
+    html[data-theme="light"] .billing-package.standard {
+        color: #007a45;
+        border-color: #75d9a4;
+        background: #dcffec;
+    }
+    html[data-theme="light"] .billing-package.demo {
+        color: #8a5a00;
+        border-color: #f0c36c;
+        background: #fff4d8;
+    }
+    html[data-theme="light"] .billing-package.custom {
+        color: #04718a;
+        border-color: #8dd9ea;
+        background: #e5fbff;
+    }
 </style>
 {% endblock %}
 
@@ -125,7 +174,7 @@
                     <tr>
                         <td><strong>{{ row.olt.name }}</strong></td>
                         <td>{{ row.olt.ip_address }}</td>
-                        <td>{{ row.package }}</td>
+                        <td><span class="billing-package {{ row.package_class }}">{{ row.package }}</span></td>
                         <td>
                             <span class="billing-badge {% if row.locked %}bad{% else %}good{% endif %}">
                                 {{ row.status }}
