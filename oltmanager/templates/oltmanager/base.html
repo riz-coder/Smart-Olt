@@ -763,7 +763,6 @@
                 {% endfor %}
             </ul>
             <div class="subscription-warning-actions">
-                <a href="{% url 'olt_settings_olt' %}" class="btn btn-primary">Open OLTs</a>
                 <button type="button" class="subscription-warning-close" data-subscription-warning-close>Close</button>
             </div>
         </section>
@@ -779,6 +778,9 @@
             closeBtn.addEventListener('click', function () {
                 overlay.remove();
             });
+            window.setTimeout(function () {
+                if (overlay && overlay.parentNode) overlay.remove();
+            }, 2000);
         })();
     </script>
     <script>
