@@ -1,4 +1,5 @@
 from functools import wraps
+import os
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -22,6 +23,8 @@ from .services import (
     update_tenant_olt_pricing,
 )
 
+_CPU_STAT_LAST = None
+
 
 def owner_required(view_func):
     @wraps(view_func)
@@ -30,6 +33,76 @@ def owner_required(view_func):
             raise PermissionDenied("Control plane owner access is required.")
         return view_func(request, *args, **kwargs)
     return _wrapped
+
+
+def _read_proc_cpu_stat():
+    try:
+        with open("/proc/stat", "r", encoding="utf-8") as handle:
+            parts = handle.readline().split()
+    except OSError:
+        return None
+    if not parts or parts[0] != "cpu":
+        return None
+    try:
+        values = [int(value) for value in parts[1:8]]
+    except (TypeError, ValueError):
+        return None
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    total = sum(values)
+    return total, idle
+
+
+def _host_machine_metrics():
+    global _CPU_STAT_LAST
+    cpu_count = os.cpu_count() or 1
+    load_label = "N/A"
+    load_note = "Load average unavailable"
+    load_class = "neutral"
+    try:
+        one_min, five_min, fifteen_min = os.getloadavg()
+        load_pct = (one_min / max(1, cpu_count)) * 100
+        load_label = f"{one_min:.2f}"
+        load_note = f"{load_pct:.0f}% of {cpu_count} CPU cores"
+        if load_pct >= 90:
+            load_class = "bad"
+        elif load_pct >= 65:
+            load_class = "warn"
+        else:
+            load_class = "good"
+    except (AttributeError, OSError):
+        pass
+
+    cpu_label = "Collecting"
+    cpu_note = f"{cpu_count} CPU cores"
+    cpu_class = "neutral"
+    current = _read_proc_cpu_stat()
+    if current:
+        if _CPU_STAT_LAST:
+            total_delta = current[0] - _CPU_STAT_LAST[0]
+            idle_delta = current[1] - _CPU_STAT_LAST[1]
+            if total_delta > 0:
+                cpu_pct = max(0.0, min(100.0, (1 - (idle_delta / total_delta)) * 100))
+                cpu_label = f"{cpu_pct:.1f}%"
+                cpu_note = "Current CPU usage"
+                if cpu_pct >= 90:
+                    cpu_class = "bad"
+                elif cpu_pct >= 65:
+                    cpu_class = "warn"
+                else:
+                    cpu_class = "good"
+        _CPU_STAT_LAST = current
+    else:
+        cpu_label = "N/A"
+        cpu_note = "CPU usage unavailable"
+
+    return {
+        "cpu_label": cpu_label,
+        "cpu_note": cpu_note,
+        "cpu_class": cpu_class,
+        "load_label": load_label,
+        "load_note": load_note,
+        "load_class": load_class,
+    }
 
 
 def audit(request, action, tenant=None, details=""):
@@ -65,6 +138,7 @@ def dashboard(request):
         "provisioning_count": tenants.filter(status=Tenant.STATUS_PROVISIONING).count(),
         "total_olts": totals.get("total_olts") or 0,
         "total_onus": totals.get("total_onus") or 0,
+        "system_metrics": _host_machine_metrics(),
         "recent_tenants": tenants.order_by("-updated_at")[:8],
         "recent_logs": ControlAuditLog.objects.select_related("tenant", "user")[:20],
     }

@@ -9,6 +9,21 @@
     .control-log-scroll table {
         margin: 0;
     }
+    .stat.system-metric strong {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .stat.system-metric small {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0;
+    }
+    .stat.system-metric.good strong { color: #4ade80; }
+    .stat.system-metric.warn strong { color: #fbbf24; }
+    .stat.system-metric.bad strong { color: #fb7185; }
+    .stat.system-metric.neutral strong { color: #dbe8ff; }
 </style>
 {% endblock %}
 {% block content %}
@@ -20,6 +35,16 @@
         <div class="stat"><span>Suspended/Disabled</span><strong>{{ suspended_count|add:disabled_count }}</strong></div>
         <div class="stat"><span>Reported OLTs</span><strong>{{ total_olts }}</strong></div>
         <div class="stat"><span>Reported ONUs</span><strong>{{ total_onus }}</strong></div>
+        <div class="stat system-metric {{ system_metrics.cpu_class }}">
+            <span>Machine CPU</span>
+            <strong>{{ system_metrics.cpu_label }}</strong>
+            <small>{{ system_metrics.cpu_note }}</small>
+        </div>
+        <div class="stat system-metric {{ system_metrics.load_class }}">
+            <span>Machine Load</span>
+            <strong>{{ system_metrics.load_label }}</strong>
+            <small>{{ system_metrics.load_note }}</small>
+        </div>
     </div>
 </section>
 <section class="panel">
