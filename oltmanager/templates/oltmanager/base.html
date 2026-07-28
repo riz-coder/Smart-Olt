@@ -614,24 +614,25 @@
         }
         .subscription-warning-overlay {
             position: fixed;
-            inset: 0;
+            top: 18px;
+            right: 18px;
             z-index: 90;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-            background: rgba(2, 8, 20, 0.62);
-            backdrop-filter: blur(4px);
+            justify-content: flex-end;
+            width: min(420px, calc(100vw - 28px));
+            pointer-events: none;
         }
         .subscription-warning-card {
-            width: min(520px, 100%);
+            width: 100%;
             border: 1px solid rgba(255, 190, 80, 0.42);
-            border-radius: 20px;
+            border-radius: 16px;
             background:
                 radial-gradient(circle at 100% 0%, rgba(255, 190, 80, 0.18), transparent 36%),
                 #111d35;
-            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-            padding: 22px;
+            box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+            padding: 16px;
+            pointer-events: auto;
+            animation: subscriptionToastIn 180ms ease-out both;
         }
         .subscription-warning-kicker {
             color: #ffca73;
@@ -644,14 +645,15 @@
         .subscription-warning-card h3 {
             margin: 0 0 8px;
             font-family: "Sora", "Manrope", sans-serif;
-            font-size: 22px;
+            font-size: 17px;
             color: #fff4d8;
         }
         .subscription-warning-card p {
-            margin: 0 0 14px;
+            margin: 0 0 12px;
             color: #d8e5ff;
             font-weight: 700;
             line-height: 1.45;
+            font-size: 12px;
         }
         .subscription-warning-list {
             display: grid;
@@ -670,6 +672,7 @@
             padding: 10px 12px;
             color: #f7fbff;
             font-weight: 900;
+            font-size: 12px;
         }
         .subscription-warning-list small {
             color: #ffca73;
@@ -692,8 +695,15 @@
             font-weight: 900;
             cursor: pointer;
         }
-        html[data-theme="light"] .subscription-warning-overlay {
-            background: rgba(14, 28, 52, 0.34);
+        @keyframes subscriptionToastIn {
+            from {
+                opacity: 0;
+                transform: translateX(18px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
         html[data-theme="light"] .subscription-warning-card {
             background:
@@ -748,7 +758,7 @@
     {% endif %}
     {% if expiring_olt_subscriptions %}
     <div class="subscription-warning-overlay" data-subscription-warning>
-        <section class="subscription-warning-card" role="alertdialog" aria-modal="true" aria-labelledby="subscriptionWarningTitle">
+        <section class="subscription-warning-card" role="alert" aria-labelledby="subscriptionWarningTitle">
             <div class="subscription-warning-kicker">Subscription warning</div>
             <h3 id="subscriptionWarningTitle">OLT subscription expiring soon</h3>
             <p>
