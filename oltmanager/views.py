@@ -5232,7 +5232,7 @@ def unconfigured_onu_authorize(request):
                 _AUTHORIZE_TASKS.pop(tid, None)
             _AUTHORIZE_TASKS[task_id] = {
                 "done": False, "ok": False, "step": 0,
-                "label": "Opening the Telnet session...",
+                "label": "Queued for Telnet access...",
                 "message": "", "transcript": "", "redirect_url": "",
                 "created_at": now_ts,
             }

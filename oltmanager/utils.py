@@ -52,6 +52,9 @@ BOARD_DEFAULT_PORTS = {
 
 TELNET_OPEN_ATTEMPTS = 3
 TELNET_OPEN_RETRY_DELAYS = (0.7, 1.4)
+MAX_GLOBAL_TELNET_JOBS = max(1, int(getattr(settings, "MAX_GLOBAL_TELNET_JOBS", 3) or 3))
+MAX_TELNET_PER_OLT = max(1, int(getattr(settings, "MAX_TELNET_PER_OLT", 1) or 1))
+TELNET_QUEUE_WAIT_SECONDS = max(1.0, float(getattr(settings, "TELNET_QUEUE_WAIT_SECONDS", 25) or 25))
 DB_SIGNED_BIGINT_MAX = 9223372036854775807
 DB_SIGNED_BIGINT_MIN = -9223372036854775808
 TELNET_SESSION_RECOVERY_GRACE_SECONDS = 20
@@ -60,6 +63,9 @@ PROMPT_LINE_PATTERN = re.compile(r"^[^\r\n]*[>#\]]\s*$")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _TELNET_SESSION_LOCK = threading.Lock()
 _TELNET_SESSIONS = {}
+_TELNET_QUEUE_GLOBAL = threading.BoundedSemaphore(MAX_GLOBAL_TELNET_JOBS)
+_TELNET_QUEUE_LOCK = threading.Lock()
+_TELNET_QUEUE_PER_OLT = {}
 _OLT_SAVE_QUEUE_LOCK = threading.Lock()
 _OLT_SAVE_TIMERS = {}
 _ONU_TRAFFIC_IFINDEX_CACHE_LOCK = threading.Lock()
@@ -68,6 +74,24 @@ _DASHBOARD_STATUS_SAMPLE_LOCK = threading.Lock()
 _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS = 0.0
 _ONU_SNMP_RUNTIME_STATUS_LOCK = threading.Lock()
 _ONU_SNMP_RUNTIME_STATUS_DEBOUNCE = {}
+
+
+class _TelnetQueueHandle:
+    def __init__(self, host_key, olt_sem):
+        self.host_key = host_key
+        self.olt_sem = olt_sem
+        self._released = False
+        self._lock = threading.Lock()
+
+    def release(self):
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        try:
+            self.olt_sem.release()
+        finally:
+            _TELNET_QUEUE_GLOBAL.release()
 
 
 def _telnet_auth_output_detected(text):
@@ -3316,7 +3340,43 @@ def _telnet_host_key(olt=None, host="", port=None):
     return f"{host}:{port or 23}"
 
 
-def _register_telnet_session(olt, tn):
+def _get_telnet_olt_semaphore(host_key):
+    with _TELNET_QUEUE_LOCK:
+        sem = _TELNET_QUEUE_PER_OLT.get(host_key)
+        if sem is None:
+            sem = threading.BoundedSemaphore(MAX_TELNET_PER_OLT)
+            _TELNET_QUEUE_PER_OLT[host_key] = sem
+        return sem
+
+
+def _acquire_telnet_queue_slot(olt, wait_seconds=None):
+    host_key = _telnet_host_key(olt=olt)
+    wait_seconds = TELNET_QUEUE_WAIT_SECONDS if wait_seconds is None else float(wait_seconds)
+    deadline = time.monotonic() + max(0.1, wait_seconds)
+    olt_sem = _get_telnet_olt_semaphore(host_key)
+
+    if not olt_sem.acquire(timeout=max(0.1, wait_seconds)):
+        return None, "OLT is busy. Another Telnet task is already running for this OLT."
+
+    remaining = max(0.1, deadline - time.monotonic())
+    if not _TELNET_QUEUE_GLOBAL.acquire(timeout=remaining):
+        olt_sem.release()
+        return None, "Telnet queue is busy. Please retry in a few seconds."
+
+    return _TelnetQueueHandle(host_key, olt_sem), ""
+
+
+def _release_telnet_queue_handle(handle):
+    if handle is None:
+        return
+    try:
+        handle.release()
+    except ValueError:
+        # Semaphore was already released by a competing cleanup path.
+        pass
+
+
+def _register_telnet_session(olt, tn, queue_handle=None):
     if tn is None:
         return
     host_key = _telnet_host_key(olt=olt)
@@ -3327,6 +3387,7 @@ def _register_telnet_session(olt, tn):
             "tn": tn,
             "host_key": host_key,
             "updated_at": now,
+            "queue_handle": queue_handle,
         }
 
 
@@ -3345,7 +3406,9 @@ def _unregister_telnet_session(tn):
         return
     session_id = id(tn)
     with _TELNET_SESSION_LOCK:
-        _TELNET_SESSIONS.pop(session_id, None)
+        session = _TELNET_SESSIONS.pop(session_id, None)
+    if session is not None:
+        _release_telnet_queue_handle(session.get("queue_handle"))
 
 
 def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
@@ -3369,9 +3432,10 @@ def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
             elif age_seconds >= TELNET_SESSION_RECOVERY_GRACE_SECONDS:
                 is_stale = True
             if is_stale:
-                stale_sessions.append(tn)
+                stale_sessions.append((tn, session.get("queue_handle")))
                 _TELNET_SESSIONS.pop(session_id, None)
-    for session_tn in stale_sessions:
+    for session_tn, queue_handle in stale_sessions:
+        _release_telnet_queue_handle(queue_handle)
         try:
             session_tn.write(b"\r\n")
             session_tn.write(b"quit\r\n")
@@ -3479,6 +3543,10 @@ def open_telnet_authenticated_session(olt):
     telnet_port = int(getattr(olt, "tcp_port", 23) or 23)
     last_status = "Telnet timeout while opening session."
     recovered_sessions = False
+    _close_competing_telnet_sessions(olt)
+    queue_handle, queue_status = _acquire_telnet_queue_slot(olt)
+    if queue_handle is None:
+        return None, queue_status
     for attempt in range(1, TELNET_OPEN_ATTEMPTS + 1):
         tn = None
         try:
@@ -3495,8 +3563,10 @@ def open_telnet_authenticated_session(olt):
                         recovered_sessions = True
                     time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                     continue
+                _release_telnet_queue_handle(queue_handle)
                 return None, _diagnose_telnet_open_failure(olt, status)
-            _register_telnet_session(olt, tn)
+            _register_telnet_session(olt, tn, queue_handle=queue_handle)
+            queue_handle = None
             return tn, status
         except (socket.timeout, TimeoutError):
             last_status = "Telnet timeout while opening session."
@@ -3507,6 +3577,7 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
+            _release_telnet_queue_handle(queue_handle)
             return None, _diagnose_telnet_open_failure(olt, last_status)
         except OSError as exc:
             last_status = f"Telnet connection error: {exc}"
@@ -3517,8 +3588,10 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
+            _release_telnet_queue_handle(queue_handle)
             return None, _diagnose_telnet_open_failure(olt, last_status)
 
+    _release_telnet_queue_handle(queue_handle)
     return None, _diagnose_telnet_open_failure(olt, last_status)
 
 
@@ -8368,7 +8441,7 @@ def authorize_autofind_onu(
     line_profile_seed = 4
     subscriber_desc = _sanitize_onu_authorize_desc(subscriber_name)
 
-    _emit(0, "Opening the Telnet session...")
+    _emit(0, "Queued for Telnet access...")
     last_retryable_message = ""
     for attempt in range(1, 3):
         transcript = []
@@ -8378,6 +8451,7 @@ def authorize_autofind_onu(
             return result
 
         try:
+            _emit(0, "Telnet session opened.")
             if attempt > 1:
                 _append_authorize_transcript(transcript, f"authorize retry attempt {attempt}", "Reopened the Telnet session after a transient transport failure.")
 
