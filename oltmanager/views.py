@@ -655,14 +655,22 @@ def _refresh_snapshot_worker(olt_id):
             update_fields.extend(['snmp_last_status', 'snmp_last_synced_at'])
         fetched_uptime = str(snapshot.get('uptime') or '').strip()
         fetched_temp = str(snapshot.get('temperature') or '').strip()
+        has_device_metrics = bool(
+            (fetched_uptime and fetched_uptime != '--') or
+            (fetched_temp and fetched_temp != '--')
+        )
         if fetched_uptime and fetched_uptime != '--' and fetched_uptime != (olt.dashboard_uptime or ''):
             olt.dashboard_uptime = fetched_uptime
             update_fields.append('dashboard_uptime')
         if fetched_temp and fetched_temp != '--' and fetched_temp != (olt.dashboard_temperature or ''):
             olt.dashboard_temperature = fetched_temp
             update_fields.append('dashboard_temperature')
-        olt.dashboard_snapshot_refreshed_at = timezone.now()
-        update_fields.append('dashboard_snapshot_refreshed_at')
+        # Do not mark a never-filled dashboard snapshot as fresh if the SNMP
+        # fetch returned no uptime/temperature. That lets new OLTs retry soon
+        # instead of showing "--" until another unrelated refresh happens.
+        if has_device_metrics or olt.dashboard_uptime or olt.dashboard_temperature:
+            olt.dashboard_snapshot_refreshed_at = timezone.now()
+            update_fields.append('dashboard_snapshot_refreshed_at')
         if update_fields:
             olt.save(update_fields=update_fields)
     except DatabaseError:
@@ -2245,6 +2253,55 @@ def _schedule_dashboard_snapshot_refreshes():
     for olt in _ready_olts().only("id", "dashboard_snapshot_refreshed_at").all():
         if _dashboard_snapshot_due(olt):
             _schedule_snapshot_refresh(olt.pk)
+
+
+def _refresh_missing_dashboard_snapshots_inline(limit=1):
+    """Fill brand-new blank OLT dashboard rows without waiting for async cache.
+
+    This is intentionally tiny: at most one OLT per AJAX poll, and only rows with
+    missing uptime/temp. Normal dashboard refresh still uses background threads.
+    """
+    if limit <= 0:
+        return
+    try:
+        candidates = list(
+            _ready_olts()
+            .filter(Q(dashboard_uptime="") | Q(dashboard_temperature=""))
+            .only(
+                "id",
+                "ip_address",
+                "snmp_port",
+                "snmp_community",
+                "dashboard_uptime",
+                "dashboard_temperature",
+                "dashboard_snapshot_refreshed_at",
+            )
+            .order_by("dashboard_snapshot_refreshed_at", "id")[: int(limit)]
+        )
+    except OperationalError:
+        return
+    for olt in candidates:
+        # Avoid stacking with an existing async refresh for this OLT.
+        with _SNAPSHOT_CACHE_LOCK:
+            if olt.pk in _SNAPSHOT_REFRESHING:
+                continue
+        last = getattr(olt, "dashboard_snapshot_refreshed_at", None)
+        if last and (timezone.now() - last).total_seconds() < 30:
+            continue
+        snapshot = fetch_snmp_snapshot(olt, include_entity_metrics=True, operation_timeout=3.0)
+        fetched_uptime = str(snapshot.get("uptime") or "").strip()
+        fetched_temp = str(snapshot.get("temperature") or "").strip()
+        update_fields = []
+        if fetched_uptime and fetched_uptime != "--" and fetched_uptime != (olt.dashboard_uptime or ""):
+            olt.dashboard_uptime = fetched_uptime
+            update_fields.append("dashboard_uptime")
+        if fetched_temp and fetched_temp != "--" and fetched_temp != (olt.dashboard_temperature or ""):
+            olt.dashboard_temperature = fetched_temp
+            update_fields.append("dashboard_temperature")
+        if update_fields:
+            olt.dashboard_snapshot_refreshed_at = timezone.now()
+            update_fields.append("dashboard_snapshot_refreshed_at")
+            olt.save(update_fields=update_fields)
 
 
 def _collect_dashboard_olt_uptimes(selected_olt_id=None):
@@ -4369,6 +4426,7 @@ def dashboard_pon_traffic_graph(request):
 def dashboard_olt_uptimes(request):
     graph_range = (request.GET.get("graph_range") or "1h").strip().lower()
     _schedule_dashboard_snapshot_refreshes()
+    _refresh_missing_dashboard_snapshots_inline(limit=1)
     selected_olt_filter = (request.GET.get("olt") or "").strip()
     onu_qs = ConfiguredONU.objects.all()
     selected_olt_id = None
