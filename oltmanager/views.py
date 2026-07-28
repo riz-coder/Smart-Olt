@@ -2139,6 +2139,46 @@ def _classify_onu_signal(olt_rx_text):
     return "bad"
 
 
+def _format_profile_speed_label_from_mbps(value):
+    try:
+        mbps = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if mbps <= 0:
+        return ""
+    if mbps >= 1000:
+        gbps = mbps / 1000.0
+        return f"{gbps:g}G"
+    return f"{mbps:g} Mbps"
+
+
+def _short_speed_profile_label(profile_name, fallback_index="", speed_label_by_index=None):
+    text = str(profile_name or "").strip()
+    if text and text != "-":
+        cleaned = re.sub(r"(?i)(?:[-_ ]+)?(?:down|up)$", "", text).strip(" -_")
+        gig_match = re.search(r"(?i)(\d+(?:\.\d+)?)\s*(?:g|gb|gbps|gig)\b", cleaned)
+        if gig_match:
+            try:
+                return f"{float(gig_match.group(1)):g}G"
+            except (TypeError, ValueError):
+                pass
+        mbps_match = re.search(r"(?i)(\d+(?:\.\d+)?)\s*(?:m|mb|mbps)\b", cleaned)
+        if mbps_match:
+            try:
+                mbps = float(mbps_match.group(1))
+            except (TypeError, ValueError):
+                mbps = 0
+            label = _format_profile_speed_label_from_mbps(mbps)
+            if label:
+                return label
+        return text
+
+    index_value = str(fallback_index or "").strip()
+    if index_value and speed_label_by_index:
+        return speed_label_by_index.get(index_value) or index_value
+    return "-"
+
+
 def _parse_temperature_celsius(text):
     value = str(text or "").strip()
     if not value or value == "--":
@@ -6042,13 +6082,16 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     upload_index_values = _split_positional(raw_upload_indices)
     download_profile_values = _split_positional(raw_download_names)
     upload_profile_values = _split_positional(raw_upload_names)
-    profile_name_by_index = {}
-    for profile in SpeedProfile.objects.filter(is_active=True).only("index_number", "name", "download_name", "upload_name"):
+    profile_speed_label_by_index = {}
+    for profile in SpeedProfile.objects.filter(is_active=True).only("index_number", "name", "download_name", "upload_name", "speed_mbps_value"):
         base_index = int(profile.index_number or 0)
         if not base_index:
             continue
-        profile_name_by_index[str(base_index)] = str(profile.download_name or profile.name or base_index).strip()
-        profile_name_by_index[str(base_index + 1)] = str(profile.upload_name or profile.name or (base_index + 1)).strip()
+        speed_label = _format_profile_speed_label_from_mbps(profile.speed_mbps_value)
+        if not speed_label:
+            speed_label = _short_speed_profile_label(profile.download_name or profile.upload_name or profile.name)
+        profile_speed_label_by_index[str(base_index)] = speed_label or str(base_index)
+        profile_speed_label_by_index[str(base_index + 1)] = speed_label or str(base_index + 1)
     speed_profile_rows = []
     speed_profile_count = max(
         len(service_port_values),
@@ -6079,12 +6122,12 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
 
     def _profile_row_value(name_values, index_values, index):
         name_value = (name_values[index] if index < len(name_values) else "").strip()
-        if name_value:
-            return name_value
         index_value = (index_values[index] if index < len(index_values) else "").strip()
-        if not index_value:
-            return "-"
-        return profile_name_by_index.get(index_value) or index_value
+        return _short_speed_profile_label(
+            name_value,
+            fallback_index=index_value,
+            speed_label_by_index=profile_speed_label_by_index,
+        )
 
     for index in range(speed_profile_count):
         speed_profile_rows.append(
