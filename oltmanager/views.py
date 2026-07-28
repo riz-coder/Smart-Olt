@@ -2509,8 +2509,13 @@ def _collect_dashboard_pon_signal_alerts(selected_olt=None, limit=10):
 
 def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
     """Build the dashboard's live alert widgets from active AlertEvents:
-    signal-degradation and possible-fiber-cut lists (scrollable)."""
-    from .models import AlertEvent
+    signal-degradation and possible-fiber-cut lists (scrollable).
+
+    Active AlertEvent rows remain the primary source. If the alert worker has
+    not populated that table yet, fall back to current cached ONU state so the
+    dashboard does not show empty widgets while signal/status data exists.
+    """
+    from .models import AlertConfig, AlertEvent, ConfiguredONU
 
     qs = AlertEvent.objects.filter(
         is_active=True, alert_type__in=["signal_degrade", "fiber_cut"]
@@ -2554,6 +2559,92 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
                 "pct": (f"{pct}%" if pct is not None else ""),
                 "url": url,
             })
+
+    if len(degrade) < limit:
+        existing_keys = {
+            (item.get("olt_name"), item.get("loc"))
+            for item in degrade
+        }
+        fallback_qs = (
+            ConfiguredONU.objects
+            .select_related("olt")
+            .filter(signal_bucket__in=["bad", "warn"])
+            .exclude(olt_rx="")
+            .exclude(olt_rx="--")
+            .only("olt_id", "olt__name", "slot", "port", "ont_id", "olt_rx", "signal_bucket")
+        )
+        if selected_olt:
+            fallback_qs = fallback_qs.filter(olt=selected_olt)
+        rows = []
+        for onu in fallback_qs[: max(1, int(limit or 60)) * 8]:
+            olt_name = onu.olt.name if onu.olt_id else "-"
+            loc = f"0/{onu.slot}/{onu.port}:{onu.ont_id}"
+            if (olt_name, loc) in existing_keys:
+                continue
+            dbm = _parse_dbm_value(onu.olt_rx)
+            rows.append({
+                "olt_name": olt_name,
+                "loc": loc,
+                "value": str(onu.olt_rx or "--"),
+                "drop": "critical" if str(onu.signal_bucket or "").lower() == "bad" else "warning",
+                "url": reverse("configured_onu_detail", args=[onu.olt_id, onu.slot, onu.port, onu.ont_id]) if onu.olt_id else "",
+                "_sort": dbm if dbm is not None else 99.0,
+            })
+        rows.sort(key=lambda item: item["_sort"])
+        for row in rows[: max(0, int(limit or 60) - len(degrade))]:
+            row.pop("_sort", None)
+            degrade.append(row)
+
+    if len(fiber) < limit:
+        cfg = AlertConfig.get()
+        min_onus = max(2, int(getattr(cfg, "fiber_cut_min_onus", 4) or 4))
+        ratio_pct = min(100, max(1, int(getattr(cfg, "fiber_cut_ratio", 60) or 60)))
+        recent_cutoff = timezone.now() - timezone.timedelta(minutes=30)
+        groups = {}
+        fiber_qs = (
+            ConfiguredONU.objects
+            .select_related("olt")
+            .only("olt_id", "olt__name", "slot", "port", "derived_status", "status_source", "status_first_seen_at")
+        )
+        if selected_olt:
+            fiber_qs = fiber_qs.filter(olt=selected_olt)
+        for onu in fiber_qs:
+            ds = str(onu.derived_status or "").strip().lower()
+            if ds == "admin_disabled":
+                continue
+            key = (onu.olt_id, onu.olt.name if onu.olt_id else "-", onu.slot, onu.port)
+            group = groups.setdefault(key, {"total": 0, "recent_down": 0, "down": 0})
+            group["total"] += 1
+            if ds in {"offline", "loss_of_signal", "power_failure"}:
+                group["down"] += 1
+                if (
+                    str(onu.status_source or "") != "snmp_down"
+                    and onu.status_first_seen_at is not None
+                    and onu.status_first_seen_at >= recent_cutoff
+                ):
+                    group["recent_down"] += 1
+        rows = []
+        existing_fiber_keys = {(item.get("olt_name"), item.get("loc")) for item in fiber}
+        for (olt_id, olt_name, slot, port), group in groups.items():
+            total = int(group["total"] or 0)
+            recent_down = int(group["recent_down"] or 0)
+            if total < min_onus:
+                continue
+            pct = (recent_down * 100 // total) if total else 0
+            loc = f"0/{slot}/{port}"
+            if recent_down >= min_onus and pct >= ratio_pct and (olt_name, loc) not in existing_fiber_keys:
+                rows.append({
+                    "olt_name": olt_name,
+                    "loc": loc,
+                    "value": f"{recent_down}/{total} down",
+                    "pct": f"{pct}%",
+                    "url": f"{reverse('configured_onus')}?olt={olt_id}&board={slot}&port={port}" if olt_id else "",
+                    "_sort": (-recent_down, -pct, olt_name, str(slot), str(port)),
+                })
+        rows.sort(key=lambda item: item["_sort"])
+        for row in rows[: max(0, int(limit or 60) - len(fiber))]:
+            row.pop("_sort", None)
+            fiber.append(row)
 
     return {"degrade": degrade[:limit], "fiber": fiber[:limit]}
 
