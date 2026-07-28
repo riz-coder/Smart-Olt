@@ -30,6 +30,7 @@ urlpatterns = [
     path('report/', views.health_report, name='health_report'),
     path('settings/', views.settings_home, name='settings_home'),
     path('settings/alerts/', views.settings_alerts, name='settings_alerts'),
+    path('settings/billing/', views.settings_billing, name='settings_billing'),
     path('settings/olt/', views.olt_settings_olt, name='olt_settings_olt'),
     path('settings/users/', views.settings_users, name='settings_users'),
     path('settings/onu-types/', views.settings_onu_types, name='settings_onu_types'),

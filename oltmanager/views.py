@@ -6866,6 +6866,59 @@ def settings_home(request):
     return render(request, "oltmanager/settings_home.html")
 
 
+@login_required
+@admin_required
+def settings_billing(request):
+    now = timezone.now()
+    rows = []
+    olts = (
+        OLT.objects.only(
+            "id",
+            "name",
+            "ip_address",
+            "pricing_mode",
+            "pricing_expires_at",
+            "pricing_locked",
+            "pricing_locked_reason",
+        )
+        .order_by("name")
+    )
+    for olt in olts:
+        expires_at = olt.pricing_expires_at
+        if not expires_at:
+            days_label = "No expiry"
+            days_class = "neutral"
+        elif expires_at <= now:
+            days_label = "Expired"
+            days_class = "bad"
+        else:
+            seconds_left = max(0, int((expires_at - now).total_seconds()))
+            days_left = max(1, (seconds_left + 86399) // 86400)
+            days_label = f"{days_left} day{'s' if days_left != 1 else ''}"
+            days_class = "warn" if days_left <= 2 else "good"
+
+        rows.append(
+            {
+                "olt": olt,
+                "package": olt.get_pricing_mode_display(),
+                "expires_at": expires_at,
+                "days_label": days_label,
+                "days_class": days_class,
+                "status": olt.pricing_status_label,
+                "locked": olt.pricing_access_locked,
+            }
+        )
+
+    return render(
+        request,
+        "oltmanager/settings_billing.html",
+        {
+            "rows": rows,
+            "generated_at": now,
+        },
+    )
+
+
 def _report_parse_dbm(value):
     text = str(value or "").strip()
     if not text or text in {"--", "-"}:

@@ -68,6 +68,11 @@
                 <p class="settings-copy">In-app alerts for OLT down/recovery, high temperature, fiber cuts and signal degradation.</p>
                 <a href="{% url 'settings_alerts' %}" class="btn btn-primary">Open Alerts</a>
             </div>
+            <div class="settings-card">
+                <h2 class="settings-title">Billing</h2>
+                <p class="settings-copy">Review OLT subscription packages, expiry dates, and remaining days.</p>
+                <a href="{% url 'settings_billing' %}" class="btn btn-primary">Open Billing</a>
+            </div>
             {% if user.is_staff or user.is_superuser %}
             <div class="settings-card">
                 <h2 class="settings-title">Users</h2>

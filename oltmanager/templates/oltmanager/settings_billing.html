@@ -1,0 +1,156 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Settings - Billing{% endblock %}
+
+{% block extra_css %}
+<style>
+    .billing-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+    .billing-head h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        letter-spacing: -0.04em;
+    }
+    .billing-head p {
+        margin: 0;
+        color: var(--muted);
+        font-weight: 700;
+    }
+    .billing-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 92px;
+        padding: 7px 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(116, 170, 255, 0.36);
+        background: rgba(48, 128, 255, 0.14);
+        color: #cfe1ff;
+        font-size: 12px;
+        font-weight: 900;
+        white-space: nowrap;
+    }
+    .billing-badge.good {
+        border-color: rgba(47, 216, 129, 0.44);
+        background: rgba(47, 216, 129, 0.13);
+        color: #84ffc2;
+    }
+    .billing-badge.warn {
+        border-color: rgba(255, 190, 80, 0.52);
+        background: rgba(255, 190, 80, 0.15);
+        color: #ffd38a;
+    }
+    .billing-badge.bad {
+        border-color: rgba(255, 91, 110, 0.5);
+        background: rgba(255, 91, 110, 0.15);
+        color: #ffadb8;
+    }
+    .billing-badge.neutral {
+        border-color: rgba(159, 178, 208, 0.28);
+        background: rgba(159, 178, 208, 0.10);
+        color: #c6d4eb;
+    }
+    .billing-sub {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+    }
+    html[data-theme="light"] .billing-head h1,
+    html[data-theme="light"] td strong {
+        color: #14213a;
+    }
+    html[data-theme="light"] .billing-head p,
+    html[data-theme="light"] .billing-sub {
+        color: #52647f;
+    }
+    html[data-theme="light"] .billing-badge {
+        color: #1557b0;
+        border-color: #94baf2;
+        background: #e8f1ff;
+    }
+    html[data-theme="light"] .billing-badge.good {
+        color: #007a45;
+        border-color: #75d9a4;
+        background: #dcffec;
+    }
+    html[data-theme="light"] .billing-badge.warn {
+        color: #8a5a00;
+        border-color: #f0c36c;
+        background: #fff4d8;
+    }
+    html[data-theme="light"] .billing-badge.bad {
+        color: #b31532;
+        border-color: #f09aaa;
+        background: #ffe6eb;
+    }
+    html[data-theme="light"] .billing-badge.neutral {
+        color: #52647f;
+        border-color: #cbd8ea;
+        background: #f3f7fd;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shell">
+    <section class="panel">
+        <div class="billing-head">
+            <div>
+                <h1>Billing</h1>
+                <p>OLT subscription package, expiry date, and remaining days.</p>
+            </div>
+            <a href="{% url 'settings_home' %}" class="btn btn-secondary">Back</a>
+        </div>
+
+        {% if rows %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>OLT</th>
+                        <th>OLT IP</th>
+                        <th>Subscription Package</th>
+                        <th>Status</th>
+                        <th>Expiry Date</th>
+                        <th>Expires In</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td><strong>{{ row.olt.name }}</strong></td>
+                        <td>{{ row.olt.ip_address }}</td>
+                        <td>{{ row.package }}</td>
+                        <td>
+                            <span class="billing-badge {% if row.locked %}bad{% else %}good{% endif %}">
+                                {{ row.status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if row.expires_at %}
+                            {{ row.expires_at|date:"d M Y, h:i A" }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="billing-badge {{ row.days_class }}">{{ row.days_label }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="subtle">No OLT records found.</p>
+        {% endif %}
+
+        <p class="billing-sub">Last generated: {{ generated_at|date:"d M Y, h:i A" }}</p>
+    </section>
+</div>
+{% endblock %}
