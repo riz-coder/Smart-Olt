@@ -53,9 +53,6 @@ RECONCILE_THROTTLE_SECONDS = 30
 # Per-OLT timestamp of last SNMP-based new-ONU detection check.
 _LAST_NEW_ONU_CHECK_AT = {}
 NEW_ONU_CHECK_SECONDS = 60
-AUTO_INVENTORY_SYNC_FROM_SNMP = str(
-    getattr(settings, "OLT_AUTO_INVENTORY_SYNC_FROM_SNMP", os.environ.get("OLT_AUTO_INVENTORY_SYNC_FROM_SNMP", "false"))
-).strip().lower() in {"1", "true", "yes", "on"}
 # Tracks OLT IDs for which an immediate inventory sync thread is already running
 # so we never stack concurrent Telnet syncs for the same OLT.
 _IMMEDIATE_SYNC_RUNNING = set()
@@ -376,13 +373,13 @@ def _snmp_monitor_loop():
                                         except Exception:
                                             close_old_connections()
 
-                                # Optional auto-discovery bridge: this is disabled by
-                                # default because a SNMP-visible new ONU can trigger a
-                                # full Telnet inventory sync. On busy installations that
-                                # becomes expensive; use OLT > Advanced > Sync Config
-                                # for the normal/manual import path.
+                                # New ONU detection: every 60 seconds, compare SNMP-visible
+                                # ONUs with DB. If any are missing, trigger an immediate
+                                # inventory sync (background Telnet thread) so newly
+                                # provisioned ONUs appear in the app within ~60 seconds
+                                # regardless of where they were configured (CLI, NETCONF, etc.).
                                 last_new_check = _LAST_NEW_ONU_CHECK_AT.get(olt_id, 0.0)
-                                if AUTO_INVENTORY_SYNC_FROM_SNMP and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
+                                if (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
                                     _LAST_NEW_ONU_CHECK_AT[olt_id] = now_ts
                                     try:
                                         from .utils import detect_new_onus_from_snmp
