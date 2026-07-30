@@ -28,7 +28,7 @@ SNMP_MONITOR_SECONDS = 10
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
-ONU_SIGNAL_SAMPLE_SECONDS = 300
+ONU_SIGNAL_SAMPLE_SECONDS = int(getattr(settings, "OLT_ONU_SIGNAL_SAMPLE_SECONDS", os.environ.get("OLT_ONU_SIGNAL_SAMPLE_SECONDS", 3600)) or 3600)
 # The monitor already runs every 10 seconds, so apply a failed SNMP probe on the
 # same cycle instead of waiting for a second/third failure.
 SNMP_DOWN_THRESHOLD_SECONDS = 0
@@ -40,6 +40,10 @@ _CAPABILITY_SYNC_CURSOR = {}
 _SIGNAL_SYNC_CURSOR = {}
 CAPABILITY_SYNC_BATCH_SIZE = 40
 SIGNAL_SYNC_BATCH_SIZE = 160
+SIGNAL_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "OLT_SIGNAL_SYNC_MAX_WORKERS", os.environ.get("OLT_SIGNAL_SYNC_MAX_WORKERS", 1)) or 1))
+SIGNAL_TELNET_FALLBACK_ENABLED = str(
+    getattr(settings, "OLT_SIGNAL_TELNET_FALLBACK_ENABLED", os.environ.get("OLT_SIGNAL_TELNET_FALLBACK_ENABLED", "false"))
+).strip().lower() in {"1", "true", "yes", "on"}
 ONU_SYNC_MAX_WORKERS = 3
 _SNMP_DOWN_SINCE = {}
 _SNMP_PENDING_STATUS = {}
@@ -151,6 +155,13 @@ def _sleep_until_next_sync_boundary():
     next_ts = ((int(now_ts) // ONU_INVENTORY_SYNC_SECONDS) + 1) * ONU_INVENTORY_SYNC_SECONDS
     sleep_for = max(1, next_ts - now_ts)
     time.sleep(sleep_for)
+
+
+def _sleep_until_next_signal_boundary():
+    now_ts = time.time()
+    interval = max(60, int(ONU_SIGNAL_SAMPLE_SECONDS or 3600))
+    next_ts = ((int(now_ts) // interval) + 1) * interval
+    time.sleep(max(1, next_ts - now_ts))
 
 
 def _onu_inventory_sync_loop():
@@ -487,7 +498,7 @@ def _onu_signal_sample_loop():
     from .models import OLT
     from .utils import sync_online_onu_power_for_olt, sync_onu_signals_from_snmp
 
-    time.sleep(150)
+    _sleep_until_next_signal_boundary()
 
     def _sample_single_olt(olt_id):
         from .models import OLT
@@ -514,7 +525,7 @@ def _onu_signal_sample_loop():
                     time.sleep(_SNMP_SIGNAL_RETRY_DELAY)
 
             # â”€â”€ 2. Telnet fallback â€” only if all SNMP attempts returned nothing â”€â”€
-            if snmp_filled == 0:
+            if snmp_filled == 0 and SIGNAL_TELNET_FALLBACK_ENABLED:
                 try:
                     cursor_pk = _SIGNAL_SYNC_CURSOR.get(olt.id) or 0
                     result = sync_online_onu_power_for_olt(olt, limit=SIGNAL_SYNC_BATCH_SIZE, start_pk=cursor_pk)
@@ -530,7 +541,7 @@ def _onu_signal_sample_loop():
             close_old_connections()
             olt_ids = list(OLT.objects.order_by("id").values_list("id", flat=True))
             if olt_ids:
-                with ThreadPoolExecutor(max_workers=min(3, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
+                with ThreadPoolExecutor(max_workers=min(SIGNAL_SYNC_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
                     futures = [executor.submit(_sample_single_olt, olt_id) for olt_id in olt_ids]
                     for future in as_completed(futures):
                         try:
