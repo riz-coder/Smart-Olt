@@ -271,6 +271,80 @@
         font-size: 13px;
         font-weight: 700;
     }
+    .onu-sync-widget {
+        min-width: 300px;
+        display: grid;
+        gap: 8px;
+        justify-items: end;
+    }
+    .onu-sync-countdown {
+        color: #9fc4ff;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+    }
+    .onu-sync-countdown strong {
+        color: #f4f8ff;
+        font-variant-numeric: tabular-nums;
+    }
+    .onu-sync-progress {
+        width: min(440px, 100%);
+        padding: 10px 12px;
+        border: 1px solid rgba(90, 153, 255, 0.28);
+        border-radius: 12px;
+        background: rgba(7, 16, 35, 0.82);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
+    }
+    .onu-sync-progress[hidden] {
+        display: none;
+    }
+    .onu-sync-progress-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    .onu-sync-progress-meta {
+        color: #9fc4ff;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+    }
+    .onu-sync-progress-label {
+        color: #eaf2ff;
+        font-size: 12px;
+        font-weight: 900;
+    }
+    .onu-sync-progress-percent {
+        color: #64e89b;
+        font-size: 12px;
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+    }
+    .onu-sync-progress-track {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.09);
+    }
+    .onu-sync-progress-fill {
+        display: block;
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #5aa2ff, #58ed9b, #5aa2ff);
+        background-size: 180% 100%;
+        box-shadow: 0 0 18px rgba(88, 237, 155, 0.28);
+        transition: width 0.55s ease;
+        animation: onu-sync-flow 1.2s linear infinite;
+    }
+    @keyframes onu-sync-flow {
+        from { background-position: 0% 0; }
+        to { background-position: 180% 0; }
+    }
 
     /* Row color coding by status */
     tr[data-status="online"] td {
@@ -324,6 +398,15 @@
     }
     html[data-theme="light"] .pager .current { background: #d8e6fb; color: #15233f; }
     html[data-theme="light"] .pager-summary { color: #5a6b86; }
+    html[data-theme="light"] .onu-sync-countdown { color: #1f65d1; }
+    html[data-theme="light"] .onu-sync-countdown strong { color: #16233c; }
+    html[data-theme="light"] .onu-sync-progress {
+        background: #f7faff;
+        border-color: #cdd9ec;
+        box-shadow: 0 12px 24px rgba(21, 35, 63, 0.08);
+    }
+    html[data-theme="light"] .onu-sync-progress-meta { color: #1f65d1; }
+    html[data-theme="light"] .onu-sync-progress-label { color: #15233f; }
 </style>
 {% endblock %}
 
@@ -427,6 +510,22 @@
                 {% if configured_onu_last_sync_display %}
                 <div class="pager-summary">Last auto ONU sync: {{ configured_onu_last_sync_display }}</div>
                 {% endif %}
+                <div class="onu-sync-widget"
+                     data-onu-sync-widget
+                     data-progress-url="{{ configured_onu_status_sync_progress_url }}"
+                     data-selected-olt="{{ configured_onu_olt_filter|default:'' }}">
+                    <div class="onu-sync-countdown">Status autorefresh in: <strong data-onu-sync-countdown>--:--</strong></div>
+                    <div class="onu-sync-progress" data-onu-sync-progress hidden>
+                        <div class="onu-sync-progress-meta" data-onu-sync-progress-meta>0/0 OLTs completed</div>
+                        <div class="onu-sync-progress-head">
+                            <span class="onu-sync-progress-label" data-onu-sync-progress-label>Waiting for ONU status sync...</span>
+                            <span class="onu-sync-progress-percent" data-onu-sync-progress-percent>0%</span>
+                        </div>
+                        <div class="onu-sync-progress-track">
+                            <span class="onu-sync-progress-fill" data-onu-sync-progress-fill></span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="table-wrap">
@@ -507,6 +606,150 @@
 {% endblock %}
 
 {% block extra_js %}
+  <script>
+  (() => {
+      const widget = document.querySelector('[data-onu-sync-widget]');
+      if (!widget) return;
+      const progressUrl = widget.dataset.progressUrl || '';
+      if (!progressUrl) return;
+
+      const selectedOlt = String(widget.dataset.selectedOlt || '').trim();
+      const countdownNode = widget.querySelector('[data-onu-sync-countdown]');
+      const progressBox = widget.querySelector('[data-onu-sync-progress]');
+      const metaNode = widget.querySelector('[data-onu-sync-progress-meta]');
+      const labelNode = widget.querySelector('[data-onu-sync-progress-label]');
+      const percentNode = widget.querySelector('[data-onu-sync-progress-percent]');
+      const fillNode = widget.querySelector('[data-onu-sync-progress-fill]');
+
+      let latestProgress = null;
+      let sawRunningCycle = false;
+      let reloading = false;
+
+      const formatCountdown = (targetIso) => {
+          if (!targetIso) return '--:--';
+          const target = Date.parse(targetIso);
+          if (!Number.isFinite(target)) return '--:--';
+          const remainingMs = target - Date.now();
+          if (remainingMs <= 0) return 'starting soon...';
+          const totalSeconds = Math.ceil(remainingMs / 1000);
+          const minutes = Math.floor(totalSeconds / 60);
+          const seconds = totalSeconds % 60;
+          return `${minutes}:${String(seconds).padStart(2, '0')}`;
+      };
+
+      const percentFor = (item, fallback) => {
+          const checked = Number(item?.checked || 0);
+          const total = Number(item?.total || 0);
+          if (total > 0) return Math.max(0, Math.min(100, (checked / total) * 100));
+          return fallback;
+      };
+
+      const overallCyclePercent = (progress) => {
+          const olts = Array.isArray(progress?.olts) ? progress.olts : [];
+          const totalOlts = Math.max(1, Number(progress?.total_olts || olts.length || 1));
+          const doneOlts = Number(progress?.done_olts || 0);
+          const partial = olts.reduce((sum, item) => {
+              if (!item.running || item.done) return sum;
+              const checked = Number(item.checked || 0);
+              const total = Number(item.total || 0);
+              if (total > 0) return sum + Math.max(0, Math.min(0.95, checked / total));
+              return sum + 0.12;
+          }, 0);
+          return Math.max(3, Math.min(99, ((doneOlts + partial) / totalOlts) * 100));
+      };
+
+      const pickOltProgress = (progress) => {
+          const olts = Array.isArray(progress?.olts) ? progress.olts : [];
+          if (!olts.length) return null;
+          if (selectedOlt) {
+              const selected = olts.find((item) => String(item.olt_id || '') === selectedOlt);
+              if (selected) return selected;
+          }
+          return (
+              olts.find((item) => item.running && Number(item.total || 0) > 0) ||
+              olts.find((item) => item.running) ||
+              olts.find((item) => !item.done) ||
+              olts[0]
+          );
+      };
+
+      const setProgress = (progress) => {
+          latestProgress = progress || {};
+          if (countdownNode) {
+              countdownNode.textContent = formatCountdown(latestProgress.next_run_at || '');
+          }
+
+          const isRunning = Boolean(latestProgress.running);
+          if (isRunning) sawRunningCycle = true;
+
+          if (!progressBox || !labelNode || !percentNode || !fillNode) return;
+
+          if (!isRunning) {
+              if (sawRunningCycle && !reloading) {
+                  reloading = true;
+                  progressBox.hidden = false;
+                  if (metaNode) {
+                      const totalOlts = Number(latestProgress.total_olts || 0);
+                      metaNode.textContent = `${totalOlts}/${totalOlts} OLTs completed`;
+                  }
+                  labelNode.textContent = 'ONU status sync completed. Refreshing latest records...';
+                  percentNode.textContent = '100%';
+                  fillNode.style.width = '100%';
+                  window.setTimeout(() => window.location.reload(), 900);
+                  return;
+              }
+              progressBox.hidden = true;
+              return;
+          }
+
+          const oltItem = pickOltProgress(latestProgress);
+          const activePercent = overallCyclePercent(latestProgress);
+          const checked = Number(oltItem?.checked || 0);
+          const total = Number(oltItem?.total || 0);
+          const updated = Number(oltItem?.updated || 0);
+          const name = String(oltItem?.olt || 'ONU status sync');
+          const totalOlts = Number(latestProgress.total_olts || 0);
+          const doneOlts = Number(latestProgress.done_olts || 0);
+          const runningOlts = Number(latestProgress.running_olts || 0);
+
+          progressBox.hidden = false;
+          if (metaNode) {
+              metaNode.textContent = `${doneOlts}/${totalOlts} OLTs completed${runningOlts ? ` - ${runningOlts} running` : ''}`;
+          }
+          if (total > 0) {
+              labelNode.textContent = `${name}: ${checked} out of ${total} ONU status checked (${updated} DB changes)`;
+          } else {
+              labelNode.textContent = `${name}: ${oltItem?.message || 'Preparing ONU status update...'}`;
+          }
+          percentNode.textContent = `${Math.round(activePercent)}%`;
+          fillNode.style.width = `${Math.max(4, Math.min(100, activePercent))}%`;
+      };
+
+      const pollProgress = async () => {
+          try {
+              const response = await fetch(progressUrl, {
+                  method: 'GET',
+                  headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                  credentials: 'same-origin',
+              });
+              if (!response.ok) return;
+              const payload = await response.json();
+              if (!payload.ok) return;
+              setProgress(payload.progress || {});
+          } catch (error) {
+              // Keep the last visible state during transient network errors.
+          }
+      };
+
+      window.setInterval(() => {
+          if (countdownNode && latestProgress) {
+              countdownNode.textContent = formatCountdown(latestProgress.next_run_at || '');
+          }
+      }, 1000);
+      pollProgress();
+      window.setInterval(pollProgress, 2000);
+  })();
+  </script>
   <script>
   (() => {
       const refreshUrl = "{{ configured_onu_signal_refresh_url|default:''|escapejs }}";

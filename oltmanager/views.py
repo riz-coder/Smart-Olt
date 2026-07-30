@@ -100,6 +100,7 @@ from .utils import (
     record_pon_traffic_samples,
     record_dashboard_status_samples,
     dashboard_online_status_q,
+    get_onu_status_sync_progress,
     sync_speed_profiles_from_file,
     create_speed_profile_in_file,
     delete_speed_profile_from_file,
@@ -4909,6 +4910,7 @@ def configured_onus(request):
         "configured_onu_last_sync_at": latest_inventory_sync,
         "configured_onu_last_sync_display": latest_inventory_sync_display,
         "configured_onu_signal_refresh_url": reverse("configured_onu_signals_refresh"),
+        "configured_onu_status_sync_progress_url": reverse("configured_onu_status_sync_progress"),
     }
     return render(request, "oltmanager/configured_onus.html", context)
 
@@ -5363,7 +5365,7 @@ def unconfigured_onu_authorize(request):
                 _AUTHORIZE_TASKS.pop(tid, None)
             _AUTHORIZE_TASKS[task_id] = {
                 "done": False, "ok": False, "step": 0,
-                "label": "Queued for Telnet access...",
+                "label": "Opening Telnet session...",
                 "message": "", "transcript": "", "redirect_url": "",
                 "created_at": now_ts,
             }
@@ -5840,6 +5842,11 @@ def configured_onu_signals_refresh(request):
             _schedule_onu_traffic_samples(olt.pk, traffic_sample_keys)
 
     return JsonResponse({"ok": True, "items": response_items})
+
+
+@login_required
+def configured_onu_status_sync_progress(request):
+    return JsonResponse({"ok": True, "progress": get_onu_status_sync_progress()})
 
 
 @login_required

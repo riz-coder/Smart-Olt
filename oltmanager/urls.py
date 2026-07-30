@@ -13,6 +13,7 @@ urlpatterns = [
     path('unconfigured/authorize/progress/<str:task_id>/', views.unconfigured_onu_authorize_progress, name='unconfigured_onu_authorize_progress'),
     path('configured/', views.configured_onus, name='configured_onus'),
     path('configured/signals/refresh/', views.configured_onu_signals_refresh, name='configured_onu_signals_refresh'),
+    path('configured/status-sync/progress/', views.configured_onu_status_sync_progress, name='configured_onu_status_sync_progress'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/signal-graph/', views.configured_onu_signal_graph_data, name='configured_onu_signal_graph_data'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/traffic-graph/', views.configured_onu_traffic_graph_data, name='configured_onu_traffic_graph_data'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/', views.configured_onu_detail, name='configured_onu_detail'),

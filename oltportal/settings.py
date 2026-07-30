@@ -233,9 +233,3 @@ EMAIL_TIMEOUT = int(os.environ.get('OLT_EMAIL_TIMEOUT', '20'))
 DEFAULT_FROM_EMAIL = os.environ.get(
     'OLT_EMAIL_FROM', EMAIL_HOST_USER or 'OptiVerse Alerts <alerts@optiverse.local>'
 )
-
-# Telnet safety limits. These protect the Linux host and Huawei OLTs from
-# multiple concurrent CLI sessions while preserving the existing command flow.
-MAX_GLOBAL_TELNET_JOBS = int(os.environ.get("MAX_GLOBAL_TELNET_JOBS", "3"))
-MAX_TELNET_PER_OLT = int(os.environ.get("MAX_TELNET_PER_OLT", "1"))
-TELNET_QUEUE_WAIT_SECONDS = float(os.environ.get("TELNET_QUEUE_WAIT_SECONDS", "25"))

@@ -52,9 +52,6 @@ BOARD_DEFAULT_PORTS = {
 
 TELNET_OPEN_ATTEMPTS = 3
 TELNET_OPEN_RETRY_DELAYS = (0.7, 1.4)
-MAX_GLOBAL_TELNET_JOBS = max(1, int(getattr(settings, "MAX_GLOBAL_TELNET_JOBS", 3) or 3))
-MAX_TELNET_PER_OLT = max(1, int(getattr(settings, "MAX_TELNET_PER_OLT", 1) or 1))
-TELNET_QUEUE_WAIT_SECONDS = max(1.0, float(getattr(settings, "TELNET_QUEUE_WAIT_SECONDS", 25) or 25))
 DB_SIGNED_BIGINT_MAX = 9223372036854775807
 DB_SIGNED_BIGINT_MIN = -9223372036854775808
 TELNET_SESSION_RECOVERY_GRACE_SECONDS = 20
@@ -63,9 +60,6 @@ PROMPT_LINE_PATTERN = re.compile(r"^[^\r\n]*[>#\]]\s*$")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _TELNET_SESSION_LOCK = threading.Lock()
 _TELNET_SESSIONS = {}
-_TELNET_QUEUE_GLOBAL = threading.BoundedSemaphore(MAX_GLOBAL_TELNET_JOBS)
-_TELNET_QUEUE_LOCK = threading.Lock()
-_TELNET_QUEUE_PER_OLT = {}
 _OLT_SAVE_QUEUE_LOCK = threading.Lock()
 _OLT_SAVE_TIMERS = {}
 _ONU_TRAFFIC_IFINDEX_CACHE_LOCK = threading.Lock()
@@ -74,24 +68,6 @@ _DASHBOARD_STATUS_SAMPLE_LOCK = threading.Lock()
 _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS = 0.0
 _ONU_SNMP_RUNTIME_STATUS_LOCK = threading.Lock()
 _ONU_SNMP_RUNTIME_STATUS_DEBOUNCE = {}
-
-
-class _TelnetQueueHandle:
-    def __init__(self, host_key, olt_sem):
-        self.host_key = host_key
-        self.olt_sem = olt_sem
-        self._released = False
-        self._lock = threading.Lock()
-
-    def release(self):
-        with self._lock:
-            if self._released:
-                return
-            self._released = True
-        try:
-            self.olt_sem.release()
-        finally:
-            _TELNET_QUEUE_GLOBAL.release()
 
 
 def _telnet_auth_output_detected(text):
@@ -3340,43 +3316,7 @@ def _telnet_host_key(olt=None, host="", port=None):
     return f"{host}:{port or 23}"
 
 
-def _get_telnet_olt_semaphore(host_key):
-    with _TELNET_QUEUE_LOCK:
-        sem = _TELNET_QUEUE_PER_OLT.get(host_key)
-        if sem is None:
-            sem = threading.BoundedSemaphore(MAX_TELNET_PER_OLT)
-            _TELNET_QUEUE_PER_OLT[host_key] = sem
-        return sem
-
-
-def _acquire_telnet_queue_slot(olt, wait_seconds=None):
-    host_key = _telnet_host_key(olt=olt)
-    wait_seconds = TELNET_QUEUE_WAIT_SECONDS if wait_seconds is None else float(wait_seconds)
-    deadline = time.monotonic() + max(0.1, wait_seconds)
-    olt_sem = _get_telnet_olt_semaphore(host_key)
-
-    if not olt_sem.acquire(timeout=max(0.1, wait_seconds)):
-        return None, "OLT is busy. Another Telnet task is already running for this OLT."
-
-    remaining = max(0.1, deadline - time.monotonic())
-    if not _TELNET_QUEUE_GLOBAL.acquire(timeout=remaining):
-        olt_sem.release()
-        return None, "Telnet queue is busy. Please retry in a few seconds."
-
-    return _TelnetQueueHandle(host_key, olt_sem), ""
-
-
-def _release_telnet_queue_handle(handle):
-    if handle is None:
-        return
-    try:
-        handle.release()
-    except ValueError:
-        # Semaphore was already released by a competing cleanup path.
-        pass
-
-
-def _register_telnet_session(olt, tn, queue_handle=None):
+def _register_telnet_session(olt, tn):
     if tn is None:
         return
     host_key = _telnet_host_key(olt=olt)
@@ -3387,7 +3327,6 @@ def _register_telnet_session(olt, tn, queue_handle=None):
             "tn": tn,
             "host_key": host_key,
             "updated_at": now,
-            "queue_handle": queue_handle,
         }
 
 
@@ -3406,9 +3345,7 @@ def _unregister_telnet_session(tn):
         return
     session_id = id(tn)
     with _TELNET_SESSION_LOCK:
-        session = _TELNET_SESSIONS.pop(session_id, None)
-    if session is not None:
-        _release_telnet_queue_handle(session.get("queue_handle"))
+        _TELNET_SESSIONS.pop(session_id, None)
 
 
 def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
@@ -3432,10 +3369,9 @@ def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
             elif age_seconds >= TELNET_SESSION_RECOVERY_GRACE_SECONDS:
                 is_stale = True
             if is_stale:
-                stale_sessions.append((tn, session.get("queue_handle")))
+                stale_sessions.append(tn)
                 _TELNET_SESSIONS.pop(session_id, None)
-    for session_tn, queue_handle in stale_sessions:
-        _release_telnet_queue_handle(queue_handle)
+    for session_tn in stale_sessions:
         try:
             session_tn.write(b"\r\n")
             session_tn.write(b"quit\r\n")
@@ -3544,9 +3480,6 @@ def open_telnet_authenticated_session(olt):
     last_status = "Telnet timeout while opening session."
     recovered_sessions = False
     _close_competing_telnet_sessions(olt)
-    queue_handle, queue_status = _acquire_telnet_queue_slot(olt)
-    if queue_handle is None:
-        return None, queue_status
     for attempt in range(1, TELNET_OPEN_ATTEMPTS + 1):
         tn = None
         try:
@@ -3563,10 +3496,8 @@ def open_telnet_authenticated_session(olt):
                         recovered_sessions = True
                     time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                     continue
-                _release_telnet_queue_handle(queue_handle)
                 return None, _diagnose_telnet_open_failure(olt, status)
-            _register_telnet_session(olt, tn, queue_handle=queue_handle)
-            queue_handle = None
+            _register_telnet_session(olt, tn)
             return tn, status
         except (socket.timeout, TimeoutError):
             last_status = "Telnet timeout while opening session."
@@ -3577,7 +3508,6 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
-            _release_telnet_queue_handle(queue_handle)
             return None, _diagnose_telnet_open_failure(olt, last_status)
         except OSError as exc:
             last_status = f"Telnet connection error: {exc}"
@@ -3588,10 +3518,8 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
-            _release_telnet_queue_handle(queue_handle)
             return None, _diagnose_telnet_open_failure(olt, last_status)
 
-    _release_telnet_queue_handle(queue_handle)
     return None, _diagnose_telnet_open_failure(olt, last_status)
 
 
@@ -8441,7 +8369,7 @@ def authorize_autofind_onu(
     line_profile_seed = 4
     subscriber_desc = _sanitize_onu_authorize_desc(subscriber_name)
 
-    _emit(0, "Queued for Telnet access...")
+    _emit(0, "Opening Telnet session...")
     last_retryable_message = ""
     for attempt in range(1, 3):
         transcript = []
@@ -11134,7 +11062,127 @@ def _debounced_snmp_runtime_status(record, snmp_status):
     return status
 
 
-def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_pk=None, write_samples=True):
+_ONU_STATUS_SYNC_PROGRESS_LOCK = threading.Lock()
+_ONU_STATUS_SYNC_PROGRESS = {
+    "running": False,
+    "cycle_started_at": None,
+    "cycle_completed_at": None,
+    "next_run_at": None,
+    "total_olts": 0,
+    "olts": {},
+}
+
+
+def _onu_status_progress_datetime(value):
+    if not value:
+        return ""
+    try:
+        return timezone.localtime(value).isoformat()
+    except Exception:
+        return str(value)
+
+
+def start_onu_status_sync_progress(olt_rows):
+    now = timezone.now()
+    olts = {}
+    for row in olt_rows or []:
+        olt_id = int(row.get("id") if isinstance(row, dict) else getattr(row, "id", 0) or 0)
+        if not olt_id:
+            continue
+        olts[str(olt_id)] = {
+            "olt_id": olt_id,
+            "olt": str(row.get("name") if isinstance(row, dict) else getattr(row, "name", "") or ""),
+            "running": False,
+            "done": False,
+            "failed": False,
+            "checked": 0,
+            "total": 0,
+            "updated": 0,
+            "status_changed": 0,
+            "message": "Waiting for this OLT...",
+            "started_at": "",
+            "completed_at": "",
+        }
+    with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _ONU_STATUS_SYNC_PROGRESS.update({
+            "running": True,
+            "cycle_started_at": now,
+            "cycle_completed_at": None,
+            "next_run_at": None,
+            "total_olts": len(olts),
+            "olts": olts,
+        })
+
+
+def update_onu_status_sync_progress(olt_id, **kwargs):
+    now = timezone.now()
+    key = str(int(olt_id or 0))
+    if key == "0":
+        return
+    with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        olts = _ONU_STATUS_SYNC_PROGRESS.setdefault("olts", {})
+        entry = olts.setdefault(key, {
+            "olt_id": int(olt_id),
+            "olt": str(kwargs.get("olt") or ""),
+            "running": False,
+            "done": False,
+            "failed": False,
+            "checked": 0,
+            "total": 0,
+            "updated": 0,
+            "status_changed": 0,
+            "message": "",
+            "started_at": "",
+            "completed_at": "",
+        })
+        if kwargs.get("running") and not entry.get("started_at"):
+            entry["started_at"] = _onu_status_progress_datetime(now)
+        if kwargs.get("done") or kwargs.get("failed"):
+            entry["completed_at"] = _onu_status_progress_datetime(now)
+        for field in ("olt", "running", "done", "failed", "checked", "total", "updated", "status_changed", "message"):
+            if field in kwargs:
+                entry[field] = kwargs[field]
+
+
+def finish_onu_status_sync_progress(next_run_at=None):
+    now = timezone.now()
+    with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _ONU_STATUS_SYNC_PROGRESS.update({
+            "running": False,
+            "cycle_completed_at": now,
+            "next_run_at": next_run_at,
+        })
+
+
+def get_onu_status_sync_progress():
+    with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        olts = []
+        for item in (_ONU_STATUS_SYNC_PROGRESS.get("olts") or {}).values():
+            olts.append(dict(item))
+        olts.sort(key=lambda item: str(item.get("olt") or "").lower())
+        checked = sum(int(item.get("checked") or 0) for item in olts)
+        total = sum(int(item.get("total") or 0) for item in olts)
+        done_olts = sum(1 for item in olts if item.get("done"))
+        failed_olts = sum(1 for item in olts if item.get("failed"))
+        running_olts = sum(1 for item in olts if item.get("running"))
+        total_olts = int(_ONU_STATUS_SYNC_PROGRESS.get("total_olts") or len(olts))
+        return {
+            "running": bool(_ONU_STATUS_SYNC_PROGRESS.get("running")),
+            "cycle_started_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_started_at")),
+            "cycle_completed_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")),
+            "next_run_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("next_run_at")),
+            "total_olts": total_olts,
+            "done_olts": done_olts,
+            "failed_olts": failed_olts,
+            "running_olts": running_olts,
+            "checked": checked,
+            "total": total,
+            "percent": round((checked / total) * 100, 1) if total else 0,
+            "olts": olts,
+        }
+
+
+def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_pk=None, write_samples=True, on_progress=None):
     from django.utils import timezone
     from .models import ConfiguredONU
     if write_samples:
@@ -11153,8 +11201,11 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
     else:
         records = list(qs[:limit] if limit else qs)
     if not records:
+        if on_progress:
+            on_progress({"checked": 0, "total": 0, "updated": 0, "status_changed": 0, "done": True, "message": "No ONU records to check."})
         return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
 
+    total_records = len(records)
     updated = 0
     checked = 0
     bulk = []
@@ -11162,6 +11213,8 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
     status_changed = 0
     now = timezone.now()
     try:
+        if on_progress:
+            on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
         snmp_status_map = (fetch_olt_snmp_status_map(olt).get("items") or {})
         for record in records:
@@ -11212,6 +11265,15 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             if changed:
                 updated += 1
                 bulk.append(record)
+            if on_progress and (checked == 1 or checked % 100 == 0 or checked == total_records):
+                on_progress({
+                    "checked": checked,
+                    "total": total_records,
+                    "updated": updated,
+                    "status_changed": status_changed,
+                    "running": True,
+                    "message": f"{checked} of {total_records} ONU status records checked.",
+                })
 
         if bulk:
             ConfiguredONU.objects.bulk_update(
@@ -11228,6 +11290,16 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             )
         if write_samples and status_samples:
             ONUStatusSample.objects.bulk_create(status_samples, batch_size=200)
+        if on_progress:
+            on_progress({
+                "checked": checked,
+                "total": total_records,
+                "updated": updated,
+                "status_changed": status_changed,
+                "running": False,
+                "done": True,
+                "message": f"Completed: {checked} checked, {updated} updated.",
+            })
         return {
             "olt": olt.name,
             "checked": checked,
@@ -11237,6 +11309,17 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             "wrapped": wrapped,
         }
     except Exception as exc:
+        if on_progress:
+            on_progress({
+                "checked": checked,
+                "total": total_records,
+                "updated": updated,
+                "status_changed": status_changed,
+                "running": False,
+                "done": True,
+                "failed": True,
+                "message": f"SNMP error during runtime sync: {exc}",
+            })
         return {
             "olt": olt.name,
             "checked": checked,
@@ -12640,11 +12723,7 @@ def prune_sample_history():
 
 
 def dashboard_online_status_q():
-    return Q(derived_status__iexact="online") | (
-        Q(run_state__iexact="online")
-        & ~Q(derived_status__iexact="admin_disabled")
-        & ~Q(status_source__iexact="snmp_down")
-    )
+    return Q(derived_status__iexact="online")
 
 
 def olt_background_enabled_q(now=None):
@@ -12672,26 +12751,6 @@ def _extract_cached_onu_count(value, key):
         return 0
 
 
-def _dashboard_pon_cache_counts_by_olt(olt_ids=None):
-    from .models import OLT
-
-    qs = OLT.objects.only("id", "pon_ports_cache")
-    if olt_ids is not None:
-        qs = qs.filter(id__in=[int(value) for value in olt_ids if value is not None])
-    counts = {}
-    for olt in qs:
-        online = 0
-        offline = 0
-        for group in list(getattr(olt, "pon_ports_cache", []) or []):
-            for port in list((group or {}).get("ports") or []):
-                onu_value = (port or {}).get("onus")
-                online += _extract_cached_onu_count(onu_value, "online")
-                offline += _extract_cached_onu_count(onu_value, "offline")
-        if online or offline:
-            counts[int(olt.id)] = {"online": online, "offline": offline, "total": online + offline}
-    return counts
-
-
 def _dashboard_status_counts_from_queryset(qs):
     from django.db.models import Count, Q
     online_q = dashboard_online_status_q()
@@ -12704,14 +12763,6 @@ def _dashboard_status_counts_from_queryset(qs):
         signal_warn=Count('id', filter=online_q & Q(signal_bucket='warn')),
         signal_bad=Count('id', filter=online_q & Q(signal_bucket='bad')),
     )
-    try:
-        olt_ids = list(qs.values_list("olt_id", flat=True).distinct())
-        pon_counts = _dashboard_pon_cache_counts_by_olt(olt_ids)
-        if pon_counts:
-            total_onus = int(counts.get("total_onus") or 0)
-            counts["online_onus"] = min(total_onus, sum(int(row.get("online") or 0) for row in pon_counts.values()))
-    except Exception:
-        pass
     return counts
 
 
@@ -12766,13 +12817,6 @@ def record_dashboard_status_samples(force=False, refresh_onu_statuses=False):
             )
         }
         olts = list(OLT.objects.only('id', 'autofind_onu_count', 'autofind_new_count', 'autofind_resync_count'))
-        pon_counts = _dashboard_pon_cache_counts_by_olt([olt.id for olt in olts])
-        if pon_counts:
-            global_total = int(global_counts.get('total_onus') or 0)
-            global_counts['online_onus'] = min(
-                global_total,
-                sum(int(row.get('online') or 0) for row in pon_counts.values()),
-            )
         samples = [
             DashboardStatusSample(
                 olt=None,
@@ -12794,8 +12838,7 @@ def record_dashboard_status_samples(force=False, refresh_onu_statuses=False):
         for olt in olts:
             counts = grouped_counts.get(int(olt.id), {})
             total = int(counts.get('total_onus') or 0)
-            pon_count = pon_counts.get(int(olt.id)) or {}
-            online = min(total, int(pon_count.get('online') or counts.get('online_onus') or 0))
+            online = min(total, int(counts.get('online_onus') or 0))
             samples.append(
                 DashboardStatusSample(
                     olt_id=olt.id,
@@ -12830,17 +12873,9 @@ def ensure_dashboard_status_samples_for_scope(olt_id=None):
 
     latest_qs = DashboardStatusSample.objects.filter(olt_id=olt_id) if olt_id else DashboardStatusSample.objects.filter(olt__isnull=True)
     try:
-        latest = latest_qs.order_by('-sampled_at').first()
-    except OperationalError:
-        return None
-    boundary = _current_dashboard_sample_boundary()
-    if latest and latest.sampled_at >= boundary:
-        return latest
-    try:
-        record_dashboard_status_samples(force=True)
         return latest_qs.order_by('-sampled_at').first()
     except OperationalError:
-        return latest
+        return None
 
 
 def fetch_olt_cards(olt):

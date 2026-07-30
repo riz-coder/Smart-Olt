@@ -1,4 +1,5 @@
 import logging
+import datetime
 import os
 import sys
 import threading
@@ -27,6 +28,7 @@ SNMP_MONITOR_SECONDS = 10
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
 ONU_SIGNAL_SAMPLE_SECONDS = 300
+ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1) or 1))
 # The monitor already runs every 10 seconds, so apply a failed SNMP probe on the
 # same cycle instead of waiting for a second/third failure.
 SNMP_DOWN_THRESHOLD_SECONDS = 0
@@ -51,6 +53,7 @@ RECONCILE_THROTTLE_SECONDS = 30
 # Per-OLT timestamp of last SNMP-based new-ONU detection check.
 _LAST_NEW_ONU_CHECK_AT = {}
 NEW_ONU_CHECK_SECONDS = 60
+AUTO_IMMEDIATE_INVENTORY_SYNC = False
 # Tracks OLT IDs for which an immediate inventory sync thread is already running
 # so we never stack concurrent Telnet syncs for the same OLT.
 _IMMEDIATE_SYNC_RUNNING = set()
@@ -355,13 +358,13 @@ def _snmp_monitor_loop():
                                         except Exception:
                                             close_old_connections()
 
-                                # New ONU detection: every 60 seconds, compare SNMP-visible
-                                # ONUs with DB. If any are missing, trigger an immediate
-                                # inventory sync (background Telnet thread) so newly
-                                # provisioned ONUs appear in the app within ~60 seconds
-                                # regardless of where they were configured (CLI, NETCONF, etc.).
+                                # New ONU detection can be used to trigger an immediate
+                                # Telnet inventory sync, but that is intentionally disabled
+                                # by default. Config inventory sync is now manual from the
+                                # OLT Advanced -> Sync Config button to avoid surprise Telnet
+                                # load while users are browsing.
                                 last_new_check = _LAST_NEW_ONU_CHECK_AT.get(olt_id, 0.0)
-                                if (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
+                                if AUTO_IMMEDIATE_INVENTORY_SYNC and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
                                     _LAST_NEW_ONU_CHECK_AT[olt_id] = now_ts
                                     try:
                                         from .utils import detect_new_onus_from_snmp
@@ -420,7 +423,14 @@ def _snmp_monitor_loop():
 
 def _onu_status_sync_loop():
     from .models import OLT
-    from .utils import olt_background_enabled_q, sync_runtime_statuses_for_olt
+    from .utils import (
+        finish_onu_status_sync_progress,
+        olt_background_enabled_q,
+        record_dashboard_status_samples,
+        start_onu_status_sync_progress,
+        sync_runtime_statuses_for_olt,
+        update_onu_status_sync_progress,
+    )
 
     def _sync_single_olt_status(olt_id):
         from .models import OLT
@@ -430,30 +440,61 @@ def _onu_status_sync_loop():
             olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only("id", "name", "snmp_last_status").first()
             if not olt:
                 return
+            update_onu_status_sync_progress(
+                olt.id,
+                olt=olt.name,
+                running=True,
+                done=False,
+                failed=False,
+                message="Starting ONU status sync...",
+            )
+
+            def _progress(payload):
+                update_onu_status_sync_progress(olt.id, olt=olt.name, **(payload or {}))
+
             return sync_runtime_statuses_for_olt(
                 olt,
                 only_non_online=False,
                 limit=None,
                 write_samples=False,
+                on_progress=_progress,
             )
         finally:
             close_old_connections()
 
     while True:
+        cycle_started = False
         try:
             close_old_connections()
-            olt_ids = list(OLT.objects.filter(olt_background_enabled_q()).order_by("id").values_list("id", flat=True))
+            olt_rows = list(
+                OLT.objects
+                .filter(olt_background_enabled_q())
+                .order_by("id")
+                .values("id", "name")
+            )
+            olt_ids = [row["id"] for row in olt_rows]
             if olt_ids:
-                with ThreadPoolExecutor(max_workers=min(3, max(1, len(olt_ids))), thread_name_prefix="onu-status") as executor:
+                start_onu_status_sync_progress(olt_rows)
+                cycle_started = True
+                with ThreadPoolExecutor(max_workers=min(ONU_STATUS_SYNC_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="onu-status") as executor:
                     futures = [executor.submit(_sync_single_olt_status, olt_id) for olt_id in olt_ids]
                     for future in as_completed(futures):
                         try:
                             result = future.result() or {}
                         except Exception:
                             close_old_connections()
-            # Do not force a dashboard count sample for a transient OLT outage or
-            # recovery. Counts remain on the configured 10-minute boundary.
+                try:
+                    record_dashboard_status_samples(force=True)
+                except Exception:
+                    close_old_connections()
+                finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
+                cycle_started = False
         except Exception:
+            if cycle_started:
+                try:
+                    finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
+                except Exception:
+                    pass
             pass
         finally:
             close_old_connections()
