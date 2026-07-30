@@ -12851,10 +12851,7 @@ def fetch_olt_cards(olt):
     except OSError as exc:
         return [], f"Telnet error while fetching OLT cards: {exc}"
     finally:
-        try:
-            tn.close()
-        except OSError:
-            pass
+        _close_telnet_session(tn)
 
 
 def _parse_uptime_from_display_version(output):
