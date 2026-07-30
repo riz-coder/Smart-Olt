@@ -2782,7 +2782,7 @@ def _dashboard_graph_config(range_key="24h"):
             "key": "4w",
             "label": "Monthly",
             "since": now - timezone.timedelta(days=28),
-            "bucket_days": 1,
+            "bucket_days": 7,
             "label_format": "%d %b",
         }
     if range_key == "12m":
