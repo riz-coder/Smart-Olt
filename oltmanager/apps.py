@@ -21,6 +21,8 @@ _ONU_STATUS_SYNC_THREAD = None
 _ONU_STATUS_SYNC_GUARD = threading.Lock()
 _ONU_SIGNAL_SAMPLE_THREAD = None
 _ONU_SIGNAL_SAMPLE_GUARD = threading.Lock()
+_DASHBOARD_SAMPLE_THREAD = None
+_DASHBOARD_SAMPLE_GUARD = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
 SNMP_MONITOR_SECONDS = 10
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
@@ -55,6 +57,10 @@ NEW_ONU_CHECK_SECONDS = 60
 # so we never stack concurrent Telnet syncs for the same OLT.
 _IMMEDIATE_SYNC_RUNNING = set()
 _IMMEDIATE_SYNC_LOCK = threading.Lock()
+_IMMEDIATE_SYNC_LAST_AT = {}
+IMMEDIATE_SYNC_COOLDOWN_SECONDS = int(getattr(settings, "OLT_IMMEDIATE_INVENTORY_SYNC_COOLDOWN_SECONDS", 900) or 900)
+IMMEDIATE_SYNC_MAX_GLOBAL = max(1, int(getattr(settings, "OLT_IMMEDIATE_INVENTORY_SYNC_MAX_GLOBAL", 1) or 1))
+_IMMEDIATE_SYNC_SEMAPHORE = threading.BoundedSemaphore(IMMEDIATE_SYNC_MAX_GLOBAL)
 _SAMPLE_RETENTION_CLEANUP_LAST_TS = 0.0
 _SAMPLE_RETENTION_CLEANUP_LOCK = threading.Lock()
 
@@ -109,14 +115,25 @@ def _run_immediate_inventory_sync(olt_id):
         close_old_connections()
         with _IMMEDIATE_SYNC_LOCK:
             _IMMEDIATE_SYNC_RUNNING.discard(olt_id)
+        try:
+            _IMMEDIATE_SYNC_SEMAPHORE.release()
+        except ValueError:
+            pass
 
 
 def _schedule_immediate_inventory_sync(olt_id):
     """Start an immediate inventory sync thread for olt_id (no-op if one is already running)."""
+    now_ts = time.time()
     with _IMMEDIATE_SYNC_LOCK:
         if olt_id in _IMMEDIATE_SYNC_RUNNING:
             return False
+        last_ts = float(_IMMEDIATE_SYNC_LAST_AT.get(olt_id) or 0.0)
+        if (now_ts - last_ts) < IMMEDIATE_SYNC_COOLDOWN_SECONDS:
+            return False
+        if not _IMMEDIATE_SYNC_SEMAPHORE.acquire(blocking=False):
+            return False
         _IMMEDIATE_SYNC_RUNNING.add(olt_id)
+        _IMMEDIATE_SYNC_LAST_AT[olt_id] = now_ts
     threading.Thread(
         target=_run_immediate_inventory_sync,
         args=(olt_id,),
@@ -141,6 +158,11 @@ def _onu_inventory_sync_loop():
         record_uplink_port_traffic_samples,
         record_dashboard_status_samples,
     )
+
+    # Avoid a thundering herd immediately after ASGI/service restart. The
+    # lightweight dashboard sampler runs separately, so full inventory can wait
+    # for the normal 10-minute boundary.
+    _sleep_until_next_sync_boundary()
 
     def _sync_single_olt_cycle(olt_id):
         from .models import OLT
@@ -418,6 +440,8 @@ def _onu_status_sync_loop():
     from .models import OLT
     from .utils import sync_runtime_statuses_for_olt
 
+    time.sleep(90)
+
     def _sync_single_olt_status(olt_id):
         from .models import OLT
 
@@ -459,6 +483,8 @@ def _onu_status_sync_loop():
 def _onu_signal_sample_loop():
     from .models import OLT
     from .utils import sync_online_onu_power_for_olt, sync_onu_signals_from_snmp
+
+    time.sleep(150)
 
     def _sample_single_olt(olt_id):
         from .models import OLT
@@ -515,12 +541,26 @@ def _onu_signal_sample_loop():
         time.sleep(ONU_SIGNAL_SAMPLE_SECONDS)
 
 
+def _dashboard_sample_loop():
+    from .utils import record_dashboard_status_samples
+
+    while True:
+        try:
+            close_old_connections()
+            record_dashboard_status_samples(force=False, refresh_onu_statuses=False)
+        except Exception:
+            close_old_connections()
+        finally:
+            close_old_connections()
+        _sleep_until_next_sync_boundary()
+
+
 class OltmanagerConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'oltmanager'
 
     def ready(self):
-        global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD
+        global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD, _DASHBOARD_SAMPLE_THREAD
 
         embedded_sync_disabled = os.environ.get("OLT_DISABLE_EMBEDDED_SYNC", "").strip().lower() in {"1", "true", "yes"}
         if embedded_sync_disabled:
@@ -570,3 +610,12 @@ class OltmanagerConfig(AppConfig):
                     daemon=True,
                 )
                 _ONU_SIGNAL_SAMPLE_THREAD.start()
+
+        with _DASHBOARD_SAMPLE_GUARD:
+            if not (_DASHBOARD_SAMPLE_THREAD and _DASHBOARD_SAMPLE_THREAD.is_alive()):
+                _DASHBOARD_SAMPLE_THREAD = threading.Thread(
+                    target=_dashboard_sample_loop,
+                    name="dashboard-sample-sync",
+                    daemon=True,
+                )
+                _DASHBOARD_SAMPLE_THREAD.start()
