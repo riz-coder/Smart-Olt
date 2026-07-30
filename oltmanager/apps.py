@@ -527,7 +527,9 @@ class OltmanagerConfig(AppConfig):
             return
 
         embedded_sync_enabled = os.environ.get("OLT_ENABLE_EMBEDDED_SYNC", "").strip().lower() in {"1", "true", "yes"}
-        is_server_process = "runserver" in sys.argv or embedded_sync_enabled
+        argv_text = " ".join(str(arg or "") for arg in sys.argv).lower()
+        server_tokens = ("runserver", "daphne", "uvicorn", "gunicorn")
+        is_server_process = embedded_sync_enabled or any(token in argv_text for token in server_tokens)
         if not is_server_process:
             return
         if os.environ.get("RUN_MAIN") not in {None, "true"}:
