@@ -103,10 +103,11 @@ def resolve_alert(key, *, send_recovery=False, recovery_type="olt_recovered", ti
 
 def check_olt_temperature_alerts():
     from .models import AlertConfig, OLT
+    from .utils import olt_background_enabled_q
 
     cfg = AlertConfig.get()
     threshold = int(cfg.temp_threshold_c or 60)
-    for olt in OLT.objects.only("id", "name", "ip_address", "dashboard_temperature"):
+    for olt in OLT.objects.filter(olt_background_enabled_q()).only("id", "name", "ip_address", "dashboard_temperature"):
         temp_c = _parse_temp_celsius(getattr(olt, "dashboard_temperature", ""))
         key = f"olt_high_temp:{olt.id}"
         if temp_c is not None and temp_c >= threshold:
@@ -153,6 +154,7 @@ def check_fiber_cut_alerts():
     every port; that is covered by the separate OLT-down alert.
     """
     from .models import AlertConfig, AlertEvent, ConfiguredONU, OLT
+    from .utils import olt_background_enabled_q
 
     cfg = AlertConfig.get()
     if not _alert_type_enabled(cfg, "fiber_cut"):
@@ -161,7 +163,7 @@ def check_fiber_cut_alerts():
     ratio_pct = min(100, max(1, int(cfg.fiber_cut_ratio or 60)))
     recent_cutoff = timezone.now() - timezone.timedelta(minutes=FIBER_CUT_RECENT_WINDOW_MIN)
 
-    for olt in OLT.objects.only("id", "name", "snmp_last_status"):
+    for olt in OLT.objects.filter(olt_background_enabled_q()).only("id", "name", "snmp_last_status"):
         status = str(getattr(olt, "snmp_last_status", "") or "").lower()
         olt_unreachable = ("down" in status) or ("unreachable" in status)
 
@@ -229,8 +231,9 @@ def check_signal_degradation_alerts():
     # ~-27 dBm GPON cliff) so we don't alert on healthy ONUs that merely wobble.
     danger_dbm = -24.0
     window_start = timezone.now() - timezone.timedelta(days=7)
+    from .utils import olt_background_enabled_q
 
-    for olt in OLT.objects.only("id", "name"):
+    for olt in OLT.objects.filter(olt_background_enabled_q()).only("id", "name"):
         online = {}
         for c in ConfiguredONU.objects.filter(olt=olt, derived_status="online").only(
             "slot", "port", "ont_id", "description"

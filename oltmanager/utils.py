@@ -4159,7 +4159,7 @@ def _record_olt_save_history(olt_id, action, details):
     try:
         from .models import OLT, OLTLoginHistory
 
-        olt = OLT.objects.filter(pk=int(olt_id)).first()
+        olt = OLT.objects.filter(pk=int(olt_id)).filter(olt_background_enabled_q()).first()
         if not olt:
             return
         OLTLoginHistory.objects.create(
@@ -12369,7 +12369,7 @@ def record_pon_traffic_samples(force=False):
     total_out_octets = 0
     total_in_packets = 0
     total_out_packets = 0
-    for olt in OLT.objects.only("id", "name", "ip_address", "snmp_port", "snmp_community").all():
+    for olt in OLT.objects.filter(olt_background_enabled_q(now)).only("id", "name", "ip_address", "snmp_port", "snmp_community"):
         snapshot = fetch_snmp_pon_aggregate_counters(olt)
         if not snapshot.get("ok"):
             continue
@@ -12407,6 +12407,9 @@ def record_pon_traffic_samples(force=False):
 def record_pon_traffic_sample_for_olt(olt, force=False):
     from .models import PONTrafficSample
 
+    if getattr(olt, "pricing_access_locked", False):
+        return None
+
     now = timezone.now()
     boundary = _current_pon_traffic_sample_boundary(now)
     latest = PONTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
@@ -12437,7 +12440,7 @@ def record_pon_port_traffic_samples(force=False):
             return latest
 
     samples = []
-    for olt in OLT.objects.only("id", "ip_address", "snmp_port", "snmp_community").all():
+    for olt in OLT.objects.filter(olt_background_enabled_q(now)).only("id", "ip_address", "snmp_port", "snmp_community"):
         snapshot = fetch_snmp_pon_port_counters(olt)
         if not snapshot.get("ok"):
             continue
@@ -12461,6 +12464,9 @@ def record_pon_port_traffic_samples(force=False):
 
 def record_pon_port_traffic_sample_for_olt(olt, force=False, min_interval_seconds=15):
     from .models import PONPortTrafficSample
+
+    if getattr(olt, "pricing_access_locked", False):
+        return None
 
     latest = PONPortTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
     if latest and not force:
@@ -12504,7 +12510,7 @@ def record_uplink_port_traffic_samples(force=False):
             return latest
 
     samples = []
-    for olt in OLT.objects.only("id", "ip_address", "snmp_port", "snmp_community").all():
+    for olt in OLT.objects.filter(olt_background_enabled_q(now)).only("id", "ip_address", "snmp_port", "snmp_community"):
         snapshot = fetch_snmp_interfaces(olt, limit=64)
         rows = list((snapshot or {}).get("rows") or [])
         for row in rows:
@@ -12527,6 +12533,9 @@ def record_uplink_port_traffic_samples(force=False):
 
 def record_uplink_port_traffic_sample_for_olt(olt, force=False, min_interval_seconds=15):
     from .models import UplinkPortTrafficSample
+
+    if getattr(olt, "pricing_access_locked", False):
+        return None
 
     latest = UplinkPortTrafficSample.objects.filter(olt=olt).order_by("-sampled_at").first()
     if latest and not force:
@@ -12638,6 +12647,16 @@ def dashboard_online_status_q():
     )
 
 
+def olt_background_enabled_q(now=None):
+    """Return the OLT filter used by background polling/sampling jobs.
+
+    Locked or expired OLTs stay visible from stored DB data, but they must not
+    consume SNMP/Telnet/background resources until the subscription is renewed.
+    """
+    now = now or timezone.now()
+    return Q(pricing_locked=False) & (Q(pricing_expires_at__isnull=True) | Q(pricing_expires_at__gt=now))
+
+
 def _extract_cached_onu_count(value, key):
     if isinstance(value, dict):
         try:
@@ -12702,7 +12721,7 @@ def _refresh_dashboard_onu_statuses_from_snmp():
 
     refreshed = 0
     updated = 0
-    for olt in OLT.objects.only("id", "name", "snmp_last_status").order_by("id"):
+    for olt in OLT.objects.filter(olt_background_enabled_q()).only("id", "name", "snmp_last_status").order_by("id"):
         try:
             result = sync_runtime_statuses_for_olt(olt, only_non_online=False, limit=None, write_samples=False)
             refreshed += int(result.get("checked") or 0)
@@ -13037,4 +13056,3 @@ def push_snmp_config_over_telnet(olt, read_community, write_community=""):
                 _close_telnet_session(tn)
             except OSError:
                 pass
-
