@@ -292,11 +292,12 @@ def check_signal_degradation_alerts():
                 resolve_alert(ev.dedup_key)
 
 
-_LAST_TEMP_CHECK = 0.0
-_LAST_FIBER_CHECK = 0.0
-_LAST_DEGRADE_CHECK = 0.0
+_ALERT_ENGINE_STARTED_AT = time.time()
+_LAST_TEMP_CHECK = _ALERT_ENGINE_STARTED_AT
+_LAST_FIBER_CHECK = _ALERT_ENGINE_STARTED_AT
+_LAST_DEGRADE_CHECK = _ALERT_ENGINE_STARTED_AT
 TEMP_CHECK_INTERVAL = 300       # 5 min
-FIBER_CHECK_INTERVAL = 60       # 1 min — mass outage should surface fast
+FIBER_CHECK_INTERVAL = 300      # 5 min; useful alerts without loading pages
 DEGRADE_CHECK_INTERVAL = 1800   # 30 min — trend analysis, no need to be frequent
 
 

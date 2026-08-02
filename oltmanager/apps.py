@@ -24,11 +24,13 @@ _ONU_SIGNAL_SAMPLE_THREAD = None
 _ONU_SIGNAL_SAMPLE_GUARD = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
 SNMP_MONITOR_SECONDS = 10
+SNMP_MONITOR_MAX_WORKERS = max(1, int(getattr(settings, "SNMP_MONITOR_MAX_WORKERS", 2) or 2))
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
-ONU_SIGNAL_SAMPLE_SECONDS = 300
+ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600) or 3600))
 ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1) or 1))
+ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1) or 1))
 # The monitor already runs every 10 seconds, so apply a failed SNMP probe on the
 # same cycle instead of waiting for a second/third failure.
 SNMP_DOWN_THRESHOLD_SECONDS = 0
@@ -40,7 +42,7 @@ _CAPABILITY_SYNC_CURSOR = {}
 _SIGNAL_SYNC_CURSOR = {}
 CAPABILITY_SYNC_BATCH_SIZE = 40
 SIGNAL_SYNC_BATCH_SIZE = 160
-ONU_SYNC_MAX_WORKERS = 3
+ONU_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_SYNC_MAX_WORKERS", 1) or 1))
 _SNMP_DOWN_SINCE = {}
 _SNMP_PENDING_STATUS = {}
 _SNMP_OFFLINE_APPLIED = set()
@@ -129,11 +131,16 @@ def _schedule_immediate_inventory_sync(olt_id):
     return True
 
 
-def _sleep_until_next_sync_boundary():
+def _sleep_until_interval_boundary(interval_seconds):
     now_ts = time.time()
-    next_ts = ((int(now_ts) // ONU_INVENTORY_SYNC_SECONDS) + 1) * ONU_INVENTORY_SYNC_SECONDS
+    interval_seconds = max(1, int(interval_seconds or 1))
+    next_ts = ((int(now_ts) // interval_seconds) + 1) * interval_seconds
     sleep_for = max(1, next_ts - now_ts)
     time.sleep(sleep_for)
+
+
+def _sleep_until_next_sync_boundary():
+    _sleep_until_interval_boundary(ONU_INVENTORY_SYNC_SECONDS)
 
 
 def _onu_inventory_sync_loop():
@@ -152,8 +159,6 @@ def _onu_inventory_sync_loop():
             reconcile_onu_status_via_snmp,
             olt_background_enabled_q,
             sync_olt_autofind_count,
-            sync_onu_capabilities_for_olt,
-            sync_missing_online_onu_power_for_olt,
         )
 
         close_old_connections()
@@ -175,27 +180,14 @@ def _onu_inventory_sync_loop():
                 close_old_connections()
 
             try:
-                capability_cursor_pk = _CAPABILITY_SYNC_CURSOR.get(olt.id) or 0
-                capability_result = sync_onu_capabilities_for_olt(
-                    olt,
-                    limit=CAPABILITY_SYNC_BATCH_SIZE,
-                    start_pk=capability_cursor_pk,
-                )
-                _CAPABILITY_SYNC_CURSOR[olt.id] = capability_result.get("last_pk") or 0
-            except Exception:
-                close_old_connections()
-
-            try:
-                sync_missing_online_onu_power_for_olt(olt, limit=120)
-            except Exception:
-                close_old_connections()
-
-            try:
                 reconcile_offline_onus_with_signal(olt=olt, limit=120)
             except Exception:
                 close_old_connections()
         finally:
             close_old_connections()
+
+    # Do not stampede Telnet/SNMP work immediately after Daphne/runserver starts.
+    _sleep_until_interval_boundary(ONU_INVENTORY_SYNC_SECONDS)
 
     while True:
         try:
@@ -249,7 +241,6 @@ def _snmp_monitor_loop():
         olt_background_enabled_q,
         probe_icmp_reachability,
         probe_snmp_reachability,
-        reconcile_onu_status_via_snmp,
     )
 
     def _save_snmp_probe_status(olt_id, status_text):
@@ -277,6 +268,14 @@ def _snmp_monitor_loop():
             if not olt:
                 return olt_id, False, "OLT not found", False, "ICMP ping failed"
             snmp_probe = probe_snmp_reachability(olt)
+            if snmp_probe.get("ok"):
+                return (
+                    olt_id,
+                    True,
+                    str(snmp_probe.get("status") or "").strip(),
+                    True,
+                    "ICMP skipped after SNMP success",
+                )
             icmp_probe = probe_icmp_reachability(olt)
             return (
                 olt_id,
@@ -300,7 +299,7 @@ def _snmp_monitor_loop():
                 .values_list("id", flat=True)
             )
             if olt_ids:
-                with ThreadPoolExecutor(max_workers=min(4, max(1, len(olt_ids))), thread_name_prefix="snmp-monitor") as executor:
+                with ThreadPoolExecutor(max_workers=min(SNMP_MONITOR_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="snmp-monitor") as executor:
                     futures = [executor.submit(_probe_single_olt, olt_id) for olt_id in olt_ids]
                     for future in as_completed(futures):
                         try:
@@ -323,40 +322,22 @@ def _snmp_monitor_loop():
                                 olt.snmp_last_status = fresh_status
                                 _SNMP_OFFLINE_APPLIED.discard(olt_id)
 
-                                # ROBUST, restart-safe self-heal: once SNMP is
-                                # sustained-up, reconcile every ONU still stuck in the
-                                # snmp_down outage state directly from a real SNMP
-                                # status walk. This does NOT depend on any in-memory
-                                # flag, so an OLT that recovered while the app was
-                                # restarted (or that was never flagged in-process) can
-                                # never leave its ONUs stuck offline. Cheap quick-exit
-                                # when nothing is stuck; throttled so the SNMP walk
-                                # runs at most once per RECONCILE_THROTTLE_SECONDS.
-                                if up_streak >= SNMP_UP_RECOVERY_STREAK:
-                                    last_heal = _LAST_RECONCILE_AT.get(olt_id, 0.0)
-                                    if (now_ts - last_heal) >= RECONCILE_THROTTLE_SECONDS:
-                                        _LAST_RECONCILE_AT[olt_id] = now_ts
-                                        try:
-                                            outcome = reconcile_onu_status_via_snmp(olt)
-                                            # ONU dashboard totals remain on the
-                                            # 10-minute sample boundary.
-                                        except Exception:
-                                            close_old_connections()
-                                        # Auto-resolve any active "OLT Down" alert now
-                                        # that the device is reachable again (idempotent:
-                                        # a no-op when no alert is active).
-                                        try:
-                                            from .alerts import resolve_alert
-                                            resolve_alert(
-                                                f"olt_down:{olt_id}",
-                                                send_recovery=True,
-                                                recovery_type="olt_recovered",
-                                                title=f"OLT Recovered: {olt.name}",
-                                                message=f"{olt.name} ({olt.ip_address}) is back online.",
-                                                olt=olt,
-                                            )
-                                        except Exception:
-                                            close_old_connections()
+                                # Keep the 10-second monitor lightweight. Full ONU
+                                # status walks run in the 10-minute ONU status sync.
+                                # Auto-resolve any active "OLT Down" alert now that
+                                # the device is reachable again.
+                                try:
+                                    from .alerts import resolve_alert
+                                    resolve_alert(
+                                        f"olt_down:{olt_id}",
+                                        send_recovery=True,
+                                        recovery_type="olt_recovered",
+                                        title=f"OLT Recovered: {olt.name}",
+                                        message=f"{olt.name} ({olt.ip_address}) is back online.",
+                                        olt=olt,
+                                    )
+                                except Exception:
+                                    close_old_connections()
 
                                 # New ONU detection can be used to trigger an immediate
                                 # Telnet inventory sync, but that is intentionally disabled
@@ -462,6 +443,9 @@ def _onu_status_sync_loop():
         finally:
             close_old_connections()
 
+    # Keep initial page loads responsive after service restart.
+    _sleep_until_interval_boundary(ONU_STATUS_SYNC_SECONDS)
+
     while True:
         cycle_started = False
         try:
@@ -476,15 +460,13 @@ def _onu_status_sync_loop():
             if olt_ids:
                 start_onu_status_sync_progress(olt_rows)
                 cycle_started = True
-                with ThreadPoolExecutor(max_workers=min(ONU_STATUS_SYNC_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="onu-status") as executor:
-                    futures = [executor.submit(_sync_single_olt_status, olt_id) for olt_id in olt_ids]
-                    for future in as_completed(futures):
-                        try:
-                            result = future.result() or {}
-                        except Exception:
-                            close_old_connections()
+                for olt_id in olt_ids:
+                    try:
+                        _sync_single_olt_status(olt_id)
+                    except Exception:
+                        close_old_connections()
                 try:
-                    record_dashboard_status_samples(force=True)
+                    record_dashboard_status_samples(force=True, bypass_force_throttle=True)
                 except Exception:
                     close_old_connections()
                 finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
@@ -503,7 +485,7 @@ def _onu_status_sync_loop():
 
 def _onu_signal_sample_loop():
     from .models import OLT
-    from .utils import olt_background_enabled_q, sync_online_onu_power_for_olt, sync_onu_signals_from_snmp
+    from .utils import olt_background_enabled_q, sync_onu_signals_from_snmp
 
     def _sample_single_olt(olt_id):
         from .models import OLT
@@ -514,39 +496,32 @@ def _onu_signal_sample_loop():
             if not olt:
                 return
 
-            # â”€â”€ 1. SNMP bulk fetch â€” up to 3 attempts before Telnet â”€â”€â”€â”€â”€â”€â”€â”€
+            # Background signal samples must stay SNMP-only. Telnet fallback is
+            # reserved for explicit user actions so browsing stays responsive.
             _SNMP_SIGNAL_RETRIES = 3
             _SNMP_SIGNAL_RETRY_DELAY = 4  # seconds between retries
-            snmp_filled = 0
             for _attempt in range(_SNMP_SIGNAL_RETRIES):
                 try:
                     snmp_result = sync_onu_signals_from_snmp(olt, overwrite=True)
-                    snmp_filled = int(snmp_result.get("filled") or 0)
-                    if snmp_filled > 0:
+                    if int(snmp_result.get("filled") or 0) > 0:
                         break
                 except Exception:
                     close_old_connections()
                 if _attempt < _SNMP_SIGNAL_RETRIES - 1:
                     time.sleep(_SNMP_SIGNAL_RETRY_DELAY)
 
-            # â”€â”€ 2. Telnet fallback â€” only if all SNMP attempts returned nothing â”€â”€
-            if snmp_filled == 0:
-                try:
-                    cursor_pk = _SIGNAL_SYNC_CURSOR.get(olt.id) or 0
-                    result = sync_online_onu_power_for_olt(olt, limit=SIGNAL_SYNC_BATCH_SIZE, start_pk=cursor_pk)
-                    _SIGNAL_SYNC_CURSOR[olt.id] = int(result.get("last_pk") or 0)
-                except Exception:
-                    close_old_connections()
-
         finally:
             close_old_connections()
+
+    # Signal sampling is useful, but it should never compete with first page load.
+    _sleep_until_interval_boundary(ONU_SIGNAL_SAMPLE_SECONDS)
 
     while True:
         try:
             close_old_connections()
             olt_ids = list(OLT.objects.filter(olt_background_enabled_q()).order_by("id").values_list("id", flat=True))
             if olt_ids:
-                with ThreadPoolExecutor(max_workers=min(3, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
+                with ThreadPoolExecutor(max_workers=min(ONU_SIGNAL_SAMPLE_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
                     futures = [executor.submit(_sample_single_olt, olt_id) for olt_id in olt_ids]
                     for future in as_completed(futures):
                         try:

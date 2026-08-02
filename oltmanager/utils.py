@@ -1213,7 +1213,8 @@ def _resolve_snmp_gpon_ifindex(olt, slot, port, *, frame=0, ifname_limit=4096):
     return ""
 
 
-def _snmp_onu_key_maps(olt, *, ifname_limit=4096):
+def _snmp_onu_key_maps(olt, *, ifname_limit=None):
+    ifname_limit, _ = _configured_onu_snmp_walk_limits(olt, ifname_limit=ifname_limit, status_limit=None)
     ifname_rows = None
     last_error = ""
     for mp_model in (1, 0):
@@ -2128,15 +2129,38 @@ def _map_snmp_onu_status(run_value, config_value=None):
     return ""
 
 
-def fetch_olt_snmp_status_map(olt, *, ifname_limit=4096, status_limit=16384):
+def _configured_onu_snmp_walk_limits(olt, *, ifname_limit=None, status_limit=None):
+    """Pick SNMP walk limits large enough for high-density OLTs.
+
+    Huawei status rows are keyed by interface index, so a 4k ifName walk can
+    truncate OLTs with 4k+ ONUs and leave stale online/offline state behind.
+    """
+    try:
+        from .models import ConfiguredONU
+
+        onu_count = ConfiguredONU.objects.filter(olt=olt).count()
+    except Exception:
+        onu_count = 0
+    ifname_limit = int(ifname_limit or max(8192, (onu_count * 3) + 1024))
+    status_limit = int(status_limit or max(16384, onu_count + 2048))
+    return min(ifname_limit, 65535), min(status_limit, 65535)
+
+
+def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
     result = {
         "status": "SNMP ONU status map unavailable",
         "items": {},
+        "truncated": False,
     }
     try:
         base_ifname_oid = "1.3.6.1.2.1.31.1.1.1.1"
         base_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15"
         base_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16"
+        ifname_limit, status_limit = _configured_onu_snmp_walk_limits(
+            olt,
+            ifname_limit=ifname_limit,
+            status_limit=status_limit,
+        )
         last_error = ""
         for mp_model in (1, 0):
             try:
@@ -2185,8 +2209,11 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=4096, status_limit=16384):
             status_value = _map_snmp_onu_status(raw_value, config_by_key.get((if_index, ont_id)))
             if status_value:
                 items[(slot, port, ont_id)] = status_value
+        truncated = len(ifname_rows or {}) >= ifname_limit or len(run_rows or {}) >= status_limit
         result["items"] = items
-        result["status"] = f"SNMP ONU status map fetched: {len(items)}"
+        result["truncated"] = truncated
+        suffix = " (walk limit reached)" if truncated else ""
+        result["status"] = f"SNMP ONU status map fetched: {len(items)}{suffix}"
         return result
     except Exception as exc:
         result["status"] = f"SNMP ONU status map fetch failed: {exc}"
@@ -11188,6 +11215,27 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
     if write_samples:
         from .models import ONUStatusSample
 
+    if getattr(olt, "pricing_access_locked", False):
+        message = "Skipped: OLT subscription is locked or expired."
+        if on_progress:
+            on_progress({
+                "checked": 0,
+                "total": 0,
+                "updated": 0,
+                "status_changed": 0,
+                "running": False,
+                "done": True,
+                "message": message,
+            })
+        return {
+            "olt": olt.name,
+            "checked": 0,
+            "updated": 0,
+            "status": message,
+            "last_pk": start_pk or 0,
+            "wrapped": False,
+        }
+
     qs = ConfiguredONU.objects.filter(olt=olt)
     if only_non_online:
         qs = qs.exclude(derived_status="online")
@@ -11216,11 +11264,36 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
         if on_progress:
             on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
-        snmp_status_map = (fetch_olt_snmp_status_map(olt).get("items") or {})
+        snmp_result = fetch_olt_snmp_status_map(olt)
+        snmp_status_map = snmp_result.get("items") or {}
+        if not snmp_status_map:
+            message = snmp_result.get("status") or "No SNMP ONU status data returned."
+            if on_progress:
+                on_progress({
+                    "checked": 0,
+                    "total": total_records,
+                    "updated": 0,
+                    "status_changed": 0,
+                    "running": False,
+                    "done": True,
+                    "failed": True,
+                    "message": message,
+                })
+            return {
+                "olt": olt.name,
+                "checked": 0,
+                "updated": 0,
+                "status": message,
+                "last_pk": records[-1].id if records else (start_pk or 0),
+                "wrapped": wrapped,
+            }
+        snmp_complete = bool(snmp_status_map) and not bool(snmp_result.get("truncated"))
         for record in records:
             checked += 1
             changed = False
             snmp_status = str(snmp_status_map.get((int(record.slot), int(record.port), int(record.ont_id))) or "").strip().lower()
+            if not snmp_status and snmp_complete:
+                snmp_status = "offline"
             debounced_snmp_status = _debounced_snmp_runtime_status(record, snmp_status)
             runtime_run_state = "online" if debounced_snmp_status == "online" else "offline" if debounced_snmp_status == "offline" else ""
             if runtime_run_state and runtime_run_state != (record.run_state or "").strip().lower():
@@ -11290,6 +11363,9 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             )
         if write_samples and status_samples:
             ONUStatusSample.objects.bulk_create(status_samples, batch_size=200)
+        final_message = f"Completed: {checked} checked, {updated} updated."
+        if snmp_result.get("truncated"):
+            final_message += " SNMP walk reached its limit; unmatched ONUs were left unchanged."
         if on_progress:
             on_progress({
                 "checked": checked,
@@ -11298,13 +11374,13 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
                 "status_changed": status_changed,
                 "running": False,
                 "done": True,
-                "message": f"Completed: {checked} checked, {updated} updated.",
+                "message": final_message,
             })
         return {
             "olt": olt.name,
             "checked": checked,
             "updated": updated,
-            "status": f"Checked {checked}, updated {updated}, status changed {status_changed}",
+            "status": final_message,
             "last_pk": records[-1].id if records else (start_pk or 0),
             "wrapped": wrapped,
         }
@@ -12782,7 +12858,7 @@ def _refresh_dashboard_onu_statuses_from_snmp():
     return {"checked": refreshed, "updated": updated}
 
 
-def record_dashboard_status_samples(force=False, refresh_onu_statuses=False):
+def record_dashboard_status_samples(force=False, refresh_onu_statuses=False, bypass_force_throttle=False):
     from .models import ConfiguredONU, DashboardStatusSample, OLT
     from django.db import transaction
     from django.db.models import Count, Q
@@ -12792,7 +12868,7 @@ def record_dashboard_status_samples(force=False, refresh_onu_statuses=False):
 
     global _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS
     now_ts = time.time()
-    if force and (now_ts - _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS) < 5:
+    if force and not bypass_force_throttle and (now_ts - _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS) < 5:
         return False
     if not _DASHBOARD_STATUS_SAMPLE_LOCK.acquire(blocking=False):
         return False

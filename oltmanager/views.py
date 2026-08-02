@@ -21,7 +21,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, close_old_connections
-from django.db.models import Case, IntegerField, Max, Q, Value, When
+from django.db.models import Case, Count, IntegerField, Max, Q, Value, When
 from django.http import HttpResponse, JsonResponse
 from django.core.exceptions import PermissionDenied
 from django.template.loader import render_to_string
@@ -2641,34 +2641,37 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
         min_onus = max(2, int(getattr(cfg, "fiber_cut_min_onus", 4) or 4))
         ratio_pct = min(100, max(1, int(getattr(cfg, "fiber_cut_ratio", 60) or 60)))
         recent_cutoff = timezone.now() - timezone.timedelta(minutes=30)
-        groups = {}
         fiber_qs = (
             ConfiguredONU.objects
-            .select_related("olt")
-            .only("olt_id", "olt__name", "slot", "port", "derived_status", "status_source", "status_first_seen_at")
+            .exclude(derived_status="admin_disabled")
         )
         if selected_olt:
             fiber_qs = fiber_qs.filter(olt=selected_olt)
-        for onu in fiber_qs:
-            ds = str(onu.derived_status or "").strip().lower()
-            if ds == "admin_disabled":
-                continue
-            key = (onu.olt_id, onu.olt.name if onu.olt_id else "-", onu.slot, onu.port)
-            group = groups.setdefault(key, {"total": 0, "recent_down": 0, "down": 0})
-            group["total"] += 1
-            if ds in {"offline", "loss_of_signal", "power_failure"}:
-                group["down"] += 1
-                if (
-                    str(onu.status_source or "") != "snmp_down"
-                    and onu.status_first_seen_at is not None
-                    and onu.status_first_seen_at >= recent_cutoff
-                ):
-                    group["recent_down"] += 1
+        groups = (
+            fiber_qs
+            .values("olt_id", "olt__name", "slot", "port")
+            .annotate(
+                total=Count("id"),
+                down=Count("id", filter=Q(derived_status__in=["offline", "loss_of_signal", "power_failure"])),
+                recent_down=Count(
+                    "id",
+                    filter=(
+                        Q(derived_status__in=["offline", "loss_of_signal", "power_failure"])
+                        & ~Q(status_source="snmp_down")
+                        & Q(status_first_seen_at__gte=recent_cutoff)
+                    ),
+                ),
+            )
+        )
         rows = []
         existing_fiber_keys = {(item.get("olt_name"), item.get("loc")) for item in fiber}
-        for (olt_id, olt_name, slot, port), group in groups.items():
-            total = int(group["total"] or 0)
-            recent_down = int(group["recent_down"] or 0)
+        for group in groups:
+            olt_id = group.get("olt_id")
+            olt_name = group.get("olt__name") or "-"
+            slot = group.get("slot")
+            port = group.get("port")
+            total = int(group.get("total") or 0)
+            recent_down = int(group.get("recent_down") or 0)
             if total < min_onus:
                 continue
             pct = (recent_down * 100 // total) if total else 0
@@ -4820,6 +4823,7 @@ def configured_onus(request):
         rows.append(enriched)
 
     available_olts, available_boards, latest_inventory_sync = _get_cached_configured_onu_filter_options()
+    latest_status_sync = DashboardStatusSample.objects.order_by("-sampled_at").values_list("sampled_at", flat=True).first()
     available_ports = [str(i) for i in range(16)]
 
     # Per-OLT board/port map so the Board and Port dropdowns can be rebuilt
@@ -4879,9 +4883,10 @@ def configured_onus(request):
     start_index = page_obj.start_index() if paginator.count else 0
     end_index = page_obj.end_index() if paginator.count else 0
     latest_inventory_sync_display = ""
-    if latest_inventory_sync:
-        latest_inventory_sync = timezone.localtime(latest_inventory_sync, ZoneInfo("Asia/Karachi"))
-        latest_inventory_sync_display = latest_inventory_sync.strftime("%Y-%m-%d %I:%M:%S %p")
+    sync_display_at = latest_status_sync or latest_inventory_sync
+    if sync_display_at:
+        sync_display_at = timezone.localtime(sync_display_at, ZoneInfo("Asia/Karachi"))
+        latest_inventory_sync_display = sync_display_at.strftime("%Y-%m-%d %I:%M:%S %p")
 
     context = {
         "configured_onu_rows": rows,
@@ -4907,7 +4912,7 @@ def configured_onus(request):
         "configured_onu_filter_boards": available_boards,
         "configured_onu_filter_ports": available_ports,
         "configured_onu_board_port_map": olt_board_port_map,
-        "configured_onu_last_sync_at": latest_inventory_sync,
+        "configured_onu_last_sync_at": sync_display_at,
         "configured_onu_last_sync_display": latest_inventory_sync_display,
         "configured_onu_signal_refresh_url": reverse("configured_onu_signals_refresh"),
         "configured_onu_status_sync_progress_url": reverse("configured_onu_status_sync_progress"),
@@ -5609,6 +5614,27 @@ def configured_onu_signals_refresh(request):
     for olt_id, onu_keys in grouped.items():
         olt = OLT.objects.filter(pk=olt_id).first()
         if not olt:
+            continue
+        if not detail_refresh:
+            records = {
+                (int(record.slot), int(record.port), int(record.ont_id)): record
+                for record in ConfiguredONU.objects.filter(
+                    olt=olt,
+                    slot__in=[slot for slot, _, _ in onu_keys],
+                    port__in=[port for _, port, _ in onu_keys],
+                    ont_id__in=[ont_id for _, _, ont_id in onu_keys],
+                )
+            }
+            for slot, port, ont_id in onu_keys:
+                record = records.get((slot, port, ont_id))
+                if not record:
+                    continue
+                key = f"{olt_id}:{slot}:{port}:{ont_id}"
+                status_value = _normalize_configured_status(record.derived_status, run_state=record.run_state)
+                response_items[key] = _signal_payload_from_values(record.onu_rx, record.olt_rx)
+                response_items[key]["status_value"] = status_value
+                response_items[key]["status_label"] = _configured_status_label(record.derived_status, run_state=record.run_state)
+                response_items[key]["status_class"] = _configured_status_class(record.derived_status, run_state=record.run_state)
             continue
         detail_single_key = next(iter(onu_keys)) if detail_refresh and len(onu_keys) == 1 else None
         if detail_single_key:

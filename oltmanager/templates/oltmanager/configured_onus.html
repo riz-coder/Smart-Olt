@@ -861,7 +861,9 @@
         }
     };
 
-    window.setInterval(refreshSignals, 60000);
+    // The list page uses cached DB values only. Live SNMP signal refresh is kept
+    // on the single ONU detail page to avoid one browser tab polling 100 ONUs.
+    // window.setInterval(refreshSignals, 60000);
 })();
 </script>
 <script>
