@@ -459,10 +459,10 @@ def _set_cached_uplink(olt_id, data):
         return prepared
 
 
-def _configured_onu_record_to_row(record):
+def _configured_onu_record_to_row(record, tech_label=None):
     description = (record.description or "").strip()
     sn = (record.sn or "").strip()
-    _tech = _onu_tech_label(record.olt, record.slot)
+    _tech = tech_label or _onu_tech_label(record.olt, record.slot)
     onu_label = (
         f"{_tech}-onu_{int(record.frame or 0)}/{int(record.slot or 0)}/{int(record.port or 0)}:{int(record.ont_id or 0)}"
     )
@@ -4735,8 +4735,6 @@ def configured_onus(request):
         *detail_fields,
         "olt__id",
         "olt__name",
-        "olt__pon_ports_cache",
-        "olt__olt_cards_cache",
     ).order_by("olt_id", "slot", "port", "ont_id")
     if search_query:
         records_qs = records_qs.filter(_build_configured_onu_search_q(search_query))
@@ -4819,10 +4817,14 @@ def configured_onus(request):
     page_obj = paginator.get_page(page_number)
 
     page_records = list(page_obj.object_list) if not isinstance(page_obj.object_list, list) else page_obj.object_list
+    filter_olts_for_map = list(_ready_olts().only("id", "pon_ports_cache", "olt_cards_cache").all())
+    filter_olt_by_id = {int(olt.pk): olt for olt in filter_olts_for_map}
 
     rows = []
     for record in page_records:
-        row = _configured_onu_record_to_row(record)
+        tech_source_olt = filter_olt_by_id.get(int(record.olt_id or 0)) or record.olt
+        tech_label = _onu_tech_label(tech_source_olt, record.slot)
+        row = _configured_onu_record_to_row(record, tech_label=tech_label)
         enriched = dict(row)
         enriched["olt_name"] = record.olt.name
         enriched["olt_id"] = record.olt_id
@@ -4840,7 +4842,7 @@ def configured_onus(request):
             enriched["status_value"] = _normalize_configured_status(row.get("derived_status"), run_state=row.get("run_state"))
             enriched["status_label"] = _configured_status_label(row.get("derived_status"), run_state=row.get("run_state"))
             enriched["status_class"] = _configured_status_class(row.get("derived_status"), run_state=row.get("run_state"))
-        _tech = _onu_tech_label(record.olt, row.get("slot") or 0)
+        _tech = tech_label
         enriched["onu_label"] = f"{record.olt.name} {_tech}-onu_{row.get('fsp')}:{row.get('ont_id')}"
         enriched["signal_class"] = (row.get("signal_bucket") or "").strip() or _classify_onu_signal(row.get("olt_rx"))
         enriched["has_catv"] = _onu_has_catv_port(record)
@@ -4856,7 +4858,7 @@ def configured_onus(request):
     # Port  = actual PON port numbers from pon_ports_cache; if that is empty,
     #         fall back to range(card["ports"]) from olt_cards_cache.
     olt_board_port_map = {}
-    for _flt_olt in _ready_olts().only("id", "pon_ports_cache", "olt_cards_cache").all():
+    for _flt_olt in filter_olts_for_map:
         # Build ports_by_slot from pon_ports_cache (authoritative when available).
         ports_by_slot = {}
         for group in (getattr(_flt_olt, "pon_ports_cache", []) or []):
