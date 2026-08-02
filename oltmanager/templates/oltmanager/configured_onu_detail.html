@@ -1898,6 +1898,7 @@
     let currentTrafficRange = '1h';
     let signalGraphHistory = [];
     let signalRefreshPending = false;
+    let trafficRefreshPending = false;
     const payload = {
         detail: true,
         onus: [{
@@ -2573,7 +2574,13 @@
     };
 
     const refreshTraffic = async () => {
-        await loadTrafficGraph(currentTrafficRange, { sample: currentTrafficRange === '1h' });
+        if (trafficRefreshPending || document.hidden) return;
+        trafficRefreshPending = true;
+        try {
+            await loadTrafficGraph(currentTrafficRange, { sample: currentTrafficRange === '1h' });
+        } finally {
+            trafficRefreshPending = false;
+        }
     };
 
     trafficRangeButtons.forEach((button) => {
@@ -2700,9 +2707,17 @@
 
     if (!oltUnreachable) {
         window.setTimeout(refreshSignal, 500);
-        window.setInterval(refreshSignal, 60000);
+        window.setInterval(() => {
+            if (!document.hidden) refreshSignal();
+        }, 60000);
         window.setTimeout(refreshTraffic, 900);
-        window.setInterval(refreshTraffic, 10000);
+        window.setInterval(refreshTraffic, 30000);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                refreshSignal();
+                refreshTraffic();
+            }
+        });
     }
 
     if (getStatusButton && macAddressUrl) {

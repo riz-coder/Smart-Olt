@@ -11181,6 +11181,14 @@ def finish_onu_status_sync_progress(next_run_at=None):
         })
 
 
+def schedule_onu_status_sync_progress(next_run_at=None):
+    with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _ONU_STATUS_SYNC_PROGRESS.update({
+            "running": False,
+            "next_run_at": next_run_at,
+        })
+
+
 def get_onu_status_sync_progress():
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
         olts = []

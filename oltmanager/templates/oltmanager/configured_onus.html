@@ -624,6 +624,8 @@
       let latestProgress = null;
       let sawRunningCycle = false;
       let reloading = false;
+      let progressPollPending = false;
+      let progressPollTimer = null;
 
       const formatCountdown = (targetIso) => {
           if (!targetIso) return '--:--';
@@ -725,7 +727,29 @@
           fillNode.style.width = `${Math.max(4, Math.min(100, activePercent))}%`;
       };
 
+      const nextPollDelay = () => {
+          if (document.hidden) return 60000;
+          const isRunning = Boolean(latestProgress?.running);
+          if (isRunning) return 2500;
+          const target = Date.parse(latestProgress?.next_run_at || '');
+          if (Number.isFinite(target)) {
+              const remainingMs = target - Date.now();
+              if (remainingMs <= 15000) return 3000;
+          }
+          return 30000;
+      };
+
+      const scheduleProgressPoll = () => {
+          if (progressPollTimer) window.clearTimeout(progressPollTimer);
+          progressPollTimer = window.setTimeout(async () => {
+              await pollProgress();
+              scheduleProgressPoll();
+          }, nextPollDelay());
+      };
+
       const pollProgress = async () => {
+          if (progressPollPending) return;
+          progressPollPending = true;
           try {
               const response = await fetch(progressUrl, {
                   method: 'GET',
@@ -738,6 +762,8 @@
               setProgress(payload.progress || {});
           } catch (error) {
               // Keep the last visible state during transient network errors.
+          } finally {
+              progressPollPending = false;
           }
       };
 
@@ -746,8 +772,12 @@
               countdownNode.textContent = formatCountdown(latestProgress.next_run_at || '');
           }
       }, 1000);
-      pollProgress();
-      window.setInterval(pollProgress, 2000);
+      pollProgress().finally(scheduleProgressPoll);
+      document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) {
+              pollProgress().finally(scheduleProgressPoll);
+          }
+      });
   })();
   </script>
   <script>

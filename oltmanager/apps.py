@@ -132,11 +132,16 @@ def _schedule_immediate_inventory_sync(olt_id):
 
 
 def _sleep_until_interval_boundary(interval_seconds):
+    next_dt = _next_interval_boundary_datetime(interval_seconds)
+    sleep_for = max(1, next_dt.timestamp() - time.time())
+    time.sleep(sleep_for)
+
+
+def _next_interval_boundary_datetime(interval_seconds):
     now_ts = time.time()
     interval_seconds = max(1, int(interval_seconds or 1))
     next_ts = ((int(now_ts) // interval_seconds) + 1) * interval_seconds
-    sleep_for = max(1, next_ts - now_ts)
-    time.sleep(sleep_for)
+    return datetime.datetime.fromtimestamp(next_ts, tz=datetime.timezone.utc)
 
 
 def _sleep_until_next_sync_boundary():
@@ -408,6 +413,7 @@ def _onu_status_sync_loop():
         finish_onu_status_sync_progress,
         olt_background_enabled_q,
         record_dashboard_status_samples,
+        schedule_onu_status_sync_progress,
         start_onu_status_sync_progress,
         sync_runtime_statuses_for_olt,
         update_onu_status_sync_progress,
@@ -444,6 +450,7 @@ def _onu_status_sync_loop():
             close_old_connections()
 
     # Keep initial page loads responsive after service restart.
+    schedule_onu_status_sync_progress(_next_interval_boundary_datetime(ONU_STATUS_SYNC_SECONDS))
     _sleep_until_interval_boundary(ONU_STATUS_SYNC_SECONDS)
 
     while True:
@@ -480,6 +487,11 @@ def _onu_status_sync_loop():
             pass
         finally:
             close_old_connections()
+        next_run_at = timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS)
+        try:
+            schedule_onu_status_sync_progress(next_run_at)
+        except Exception:
+            pass
         time.sleep(ONU_STATUS_SYNC_SECONDS)
 
 

@@ -1729,7 +1729,12 @@
           });
       });
 
+      let dashboardRefreshPending = false;
+      let dashboardRefreshTimer = null;
+
       const refresh = async () => {
+            if (dashboardRefreshPending) return;
+            dashboardRefreshPending = true;
             try {
               const params = new URLSearchParams();
               if (selectedOlt) {
@@ -1775,12 +1780,29 @@
                 renderPonSignalAlerts(payload.pon_signal_alerts || []);
           } catch (error) {
               // Keep existing rendered values on transient network issues.
+          } finally {
+              dashboardRefreshPending = false;
           }
       };
 
+        const scheduleRefresh = (delay = 10000) => {
+            if (dashboardRefreshTimer) window.clearTimeout(dashboardRefreshTimer);
+            dashboardRefreshTimer = window.setTimeout(async () => {
+                if (!document.hidden) {
+                    await refresh();
+                }
+                scheduleRefresh(document.hidden ? 60000 : 10000);
+            }, delay);
+        };
+
         refresh();
-        window.setTimeout(refresh, 1500);
-        window.setInterval(refresh, 10000);
+        scheduleRefresh(1500);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                refresh();
+                scheduleRefresh(10000);
+            }
+        });
     })();
 
 (() => {
@@ -2033,6 +2055,7 @@
         let activeRange = '1h';
         let liveInterval = null;
         let requestToken = 0;
+        let trafficBusy = false;
         const payloadCache = new Map();
 
         const updateTitle = () => {
@@ -2130,11 +2153,15 @@
                 liveInterval = null;
             }
             if (activeRange === 'live') {
-                liveInterval = window.setInterval(() => refresh('live'), 15000);
+                liveInterval = window.setInterval(() => {
+                    if (!document.hidden) refresh('live');
+                }, 30000);
             }
         };
 
         const refresh = async (rangeKey = activeRange) => {
+            if (trafficBusy || document.hidden) return;
+            trafficBusy = true;
             activeRange = rangeKey;
             rangeButtons.forEach((button) => button.classList.toggle('active', button.dataset.trafficRangeBtn === activeRange));
             syncLivePolling();
@@ -2171,6 +2198,8 @@
                 syncLivePolling();
             } catch (error) {
                 // Keep rendered graph on transient failure.
+            } finally {
+                trafficBusy = false;
             }
         };
 
@@ -2202,10 +2231,16 @@
         }
         syncLivePolling();
         window.setInterval(() => {
-            if (activeRange !== 'live') {
+            if (!document.hidden && activeRange !== 'live') {
                 refresh(activeRange);
             }
         }, 120000);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                refresh(activeRange);
+                syncLivePolling();
+            }
+        });
     };
 
     mountDashboardPortTraffic('[data-dashboard-pon-traffic-box]', 'dashboardPONTrafficGraphData', 'pon_port');
