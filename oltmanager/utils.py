@@ -11084,7 +11084,10 @@ def _debounced_snmp_runtime_status(record, snmp_status):
     if status not in {"online", "offline"}:
         return ""
     current_status = str(getattr(record, "derived_status", "") or "").strip().lower()
-    if current_status == "admin_disabled":
+    control_flag = str(getattr(record, "control_flag", "") or "").strip().lower()
+    if current_status == "admin_disabled" and any(
+        token in control_flag for token in ("disabled", "disable", "shutdown", "deactivated", "deactive")
+    ):
         return "admin_disabled"
     return status
 
