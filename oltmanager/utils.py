@@ -322,50 +322,88 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
         return snapshot
 
 
+def _snmp_ber_length(size):
+    size = int(size)
+    if size < 128:
+        return bytes([size])
+    raw = size.to_bytes((size.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(raw)]) + raw
+
+
+def _snmp_ber_tlv(tag, payload):
+    payload = bytes(payload)
+    return bytes([tag]) + _snmp_ber_length(len(payload)) + payload
+
+
+def _snmp_ber_integer(value):
+    value = int(value)
+    if value == 0:
+        raw = b"\x00"
+    else:
+        raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
+        if raw[0] & 0x80:
+            raw = b"\x00" + raw
+    return _snmp_ber_tlv(0x02, raw)
+
+
+def _snmp_ber_octet_string(value):
+    return _snmp_ber_tlv(0x04, str(value or "").encode("utf-8", errors="ignore"))
+
+
+def _snmp_ber_oid(oid):
+    parts = [int(part) for part in str(oid).strip(".").split(".") if part]
+    if len(parts) < 2:
+        raise ValueError("Invalid OID")
+    encoded = bytearray([parts[0] * 40 + parts[1]])
+    for part in parts[2:]:
+        stack = [part & 0x7F]
+        part >>= 7
+        while part:
+            stack.append(0x80 | (part & 0x7F))
+            part >>= 7
+        encoded.extend(reversed(stack))
+    return _snmp_ber_tlv(0x06, encoded)
+
+
+def _snmp_lightweight_get_probe(host, port, community, *, version=1, timeout=1.0):
+    request_id = secrets.randbelow(0x7FFFFFFF) or 1
+    varbind = _snmp_ber_tlv(0x30, _snmp_ber_oid("1.3.6.1.2.1.1.5.0") + _snmp_ber_tlv(0x05, b""))
+    varbind_list = _snmp_ber_tlv(0x30, varbind)
+    pdu = _snmp_ber_tlv(
+        0xA0,
+        _snmp_ber_integer(request_id)
+        + _snmp_ber_integer(0)
+        + _snmp_ber_integer(0)
+        + varbind_list,
+    )
+    packet = _snmp_ber_tlv(
+        0x30,
+        _snmp_ber_integer(version)
+        + _snmp_ber_octet_string(community)
+        + pdu,
+    )
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(float(timeout or 1.0))
+        sock.sendto(packet, (str(host), int(port or 161)))
+        data, _ = sock.recvfrom(2048)
+    return bool(data)
+
+
 def probe_snmp_reachability(olt):
     result = {
         "ok": False,
         "status": "SNMP no response",
     }
-    try:
-        from pysnmp.hlapi.asyncio import (  # type: ignore
-            CommunityData,
-            ContextData,
-            ObjectIdentity,
-            ObjectType,
-            SnmpEngine,
-            UdpTransportTarget,
-            get_cmd,
-        )
-    except Exception:
-        result["status"] = "pysnmp not installed"
-        return result
-
-    async def _snmp_get(mp_model):
-        target = await UdpTransportTarget.create(
-            (olt.ip_address, olt.snmp_port),
-            timeout=1.0,
-            retries=0,
-        )
-        return await get_cmd(
-            SnmpEngine(),
-            CommunityData(olt.snmp_community, mpModel=mp_model),
-            target,
-            ContextData(),
-            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.5.0")),
-        )
-
     last_error = ""
-    for mp_model in (1, 0):
+    for version in (1, 0):  # SNMP v2c first, then v1.
         try:
-            error_indication, error_status, _, var_binds = asyncio.run(_snmp_get(mp_model))
-            if error_indication:
-                last_error = str(error_indication)
-                continue
-            if error_status:
-                last_error = error_status.prettyPrint()
-                continue
-            if var_binds:
+            if _snmp_lightweight_get_probe(
+                olt.ip_address,
+                olt.snmp_port,
+                olt.snmp_community,
+                version=version,
+                timeout=1.0,
+            ):
                 result["ok"] = True
                 result["status"] = "Live SNMP data fetched"
                 return result
