@@ -298,7 +298,7 @@ AUTOFIND_ROWS_CACHE_SECONDS = 180
 DEVICE_SNAPSHOT_SCAN_SECONDS = 300
 DASHBOARD_UPTIME_REFRESH_SECONDS = 120
 CONFIGURED_ONU_FILTERS_CACHE_SECONDS = 300
-DASHBOARD_ALERT_WIDGET_CACHE_SECONDS = 30
+DASHBOARD_ALERT_WIDGET_CACHE_SECONDS = 120
 ONU_DETAIL_CACHE_SECONDS = 30
 ONU_SIGNAL_HISTORY_CACHE_SECONDS = 60
 ONU_TRAFFIC_SAMPLE_SECONDS = 60
@@ -2640,12 +2640,24 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
                 "loc": loc,
                 "value": str(onu.olt_rx or "--"),
                 "drop": "critical" if str(onu.signal_bucket or "").lower() == "bad" else "warning",
-                "url": reverse("configured_onu_detail", args=[onu.olt_id, onu.slot, onu.port, onu.ont_id]) if onu.olt_id else "",
+                "olt_id": onu.olt_id,
+                "slot": onu.slot,
+                "port": onu.port,
+                "ont_id": onu.ont_id,
                 "_sort": dbm if dbm is not None else 99.0,
             })
         rows.sort(key=lambda item: item["_sort"])
         for row in rows[: max(0, int(limit or 60) - len(degrade))]:
             row.pop("_sort", None)
+            olt_id = row.pop("olt_id", None)
+            slot = row.pop("slot", None)
+            port = row.pop("port", None)
+            ont_id = row.pop("ont_id", None)
+            row["url"] = (
+                reverse("configured_onu_detail", args=[olt_id, slot, port, ont_id])
+                if olt_id is not None and slot is not None and port is not None and ont_id is not None
+                else ""
+            )
             degrade.append(row)
 
     if len(fiber) < limit:
