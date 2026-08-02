@@ -3,7 +3,7 @@ import datetime
 import calendar
 import ipaddress
 import json
-from functools import wraps
+from functools import lru_cache, wraps
 from pathlib import Path
 import re
 import socket
@@ -258,6 +258,8 @@ _ONU_TRAFFIC_REFRESH_LOCK = threading.Lock()
 _ONU_TRAFFIC_REFRESHING = set()
 _CONFIGURED_ONU_FILTERS_CACHE_LOCK = threading.Lock()
 _CONFIGURED_ONU_FILTERS_CACHE = {"updated_at": None, "boards": None, "olts": None, "latest_sync": None}
+_DASHBOARD_ALERT_WIDGET_CACHE_LOCK = threading.Lock()
+_DASHBOARD_ALERT_WIDGET_CACHE = {}
 _ONU_DETAIL_CACHE_LOCK = threading.Lock()
 _ONU_DETAIL_CACHE = {}
 _ONU_SIGNAL_HISTORY_CACHE_LOCK = threading.Lock()
@@ -296,6 +298,7 @@ AUTOFIND_ROWS_CACHE_SECONDS = 180
 DEVICE_SNAPSHOT_SCAN_SECONDS = 300
 DASHBOARD_UPTIME_REFRESH_SECONDS = 120
 CONFIGURED_ONU_FILTERS_CACHE_SECONDS = 300
+DASHBOARD_ALERT_WIDGET_CACHE_SECONDS = 30
 ONU_DETAIL_CACHE_SECONDS = 30
 ONU_SIGNAL_HISTORY_CACHE_SECONDS = 60
 ONU_TRAFFIC_SAMPLE_SECONDS = 60
@@ -2558,6 +2561,15 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
     """
     from .models import AlertConfig, AlertEvent, ConfiguredONU
 
+    cache_key = (int(getattr(selected_olt, "pk", 0) or 0), int(limit or 60))
+    now = timezone.now()
+    with _DASHBOARD_ALERT_WIDGET_CACHE_LOCK:
+        cached = _DASHBOARD_ALERT_WIDGET_CACHE.get(cache_key)
+        if cached:
+            cached_at = cached.get("cached_at")
+            if cached_at and (now - cached_at).total_seconds() < DASHBOARD_ALERT_WIDGET_CACHE_SECONDS:
+                return cached.get("data") or {"degrade": [], "fiber": []}
+
     qs = AlertEvent.objects.filter(
         is_active=True, alert_type__in=["signal_degrade", "fiber_cut"]
     ).select_related("olt")
@@ -2690,7 +2702,13 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             row.pop("_sort", None)
             fiber.append(row)
 
-    return {"degrade": degrade[:limit], "fiber": fiber[:limit]}
+    data = {"degrade": degrade[:limit], "fiber": fiber[:limit]}
+    with _DASHBOARD_ALERT_WIDGET_CACHE_LOCK:
+        _DASHBOARD_ALERT_WIDGET_CACHE[cache_key] = {
+            "cached_at": now,
+            "data": data,
+        }
+    return data
 
 
 def _dashboard_summary_from_latest_sample(olt_id=None):
@@ -4038,12 +4056,7 @@ def _onu_has_catv_port(record):
         return re.sub(r"[^A-Z0-9]+", "", str(value or "").replace("_SOLT", "").upper())
 
     onu_type_value = getattr(record, "onu_type_cache", "") if record is not None else ""
-    catalog = {}
-    for item in _load_onu_type_option_rows():
-        for key_source in (item.get("value"), item.get("label")):
-            key = _norm(key_source)
-            if key:
-                catalog[key] = item
+    catalog = _load_onu_type_catv_lookup()
     key = _norm(onu_type_value)
     item = catalog.get(key)
     if not item and key:
@@ -4702,6 +4715,8 @@ def configured_onus(request):
         "match_state",
         "protect_side",
         "description",
+        "address",
+        "contact",
         "onu_rx",
         "olt_rx",
         "tx_power",
@@ -4710,10 +4725,19 @@ def configured_onus(request):
         "onu_type_cache",
         "derived_status",
         "status_source",
+        "status_first_seen_at",
+        "status_updated_at",
         "raw_line",
     )
 
-    records_qs = base_qs.select_related("olt").only("id", *detail_fields).order_by("olt_id", "slot", "port", "ont_id")
+    records_qs = base_qs.select_related("olt").only(
+        "id",
+        *detail_fields,
+        "olt__id",
+        "olt__name",
+        "olt__pon_ports_cache",
+        "olt__olt_cards_cache",
+    ).order_by("olt_id", "slot", "port", "ont_id")
     if search_query:
         records_qs = records_qs.filter(_build_configured_onu_search_q(search_query))
 
@@ -7388,6 +7412,7 @@ def settings_users(request):
     )
 
 
+@lru_cache(maxsize=1)
 def _load_onu_type_catalog_rows():
     catalog_path = Path(__file__).resolve().parent / "onu_types_catalog.tsv"
     rows = []
@@ -7412,9 +7437,10 @@ def _load_onu_type_catalog_rows():
                     "capability": (row.get("Capability") or "").strip(),
                 }
             )
-    return rows
+    return tuple(rows)
 
 
+@lru_cache(maxsize=1)
 def _load_onu_type_option_rows():
     options = []
     for row in _load_onu_type_catalog_rows():
@@ -7432,7 +7458,21 @@ def _load_onu_type_option_rows():
                 "capability": str(row.get("capability") or "").strip(),
             }
         )
-    return options
+    return tuple(options)
+
+
+@lru_cache(maxsize=1)
+def _load_onu_type_catv_lookup():
+    def _norm(value):
+        return re.sub(r"[^A-Z0-9]+", "", str(value or "").replace("_SOLT", "").upper())
+
+    catalog = {}
+    for item in _load_onu_type_option_rows():
+        for key_source in (item.get("value"), item.get("label")):
+            key = _norm(key_source)
+            if key:
+                catalog[key] = item
+    return catalog
 
 
 @login_required
