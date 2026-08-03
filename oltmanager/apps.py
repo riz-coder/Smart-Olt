@@ -479,7 +479,15 @@ def _onu_status_sync_loop():
                 cycle_started = True
                 for olt_id in olt_ids:
                     try:
-                        _sync_single_olt_status(olt_id)
+                        result = _sync_single_olt_status(olt_id)
+                        if result:
+                            logger.info(
+                                "OLT %s ONU status sync: checked=%s updated=%s status=%s",
+                                result.get("olt") or olt_id,
+                                result.get("checked"),
+                                result.get("updated"),
+                                result.get("status"),
+                            )
                     except Exception:
                         close_old_connections()
                 try:
@@ -562,7 +570,6 @@ class OltmanagerConfig(AppConfig):
     name = 'oltmanager'
 
     def ready(self):
-        global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD
 
         connection_created.connect(
             _configure_sqlite_connection,
@@ -580,38 +587,60 @@ class OltmanagerConfig(AppConfig):
         if os.environ.get("RUN_MAIN") not in {None, "true"}:
             return
 
-        with _ONU_INVENTORY_SYNC_GUARD:
-            if not (_ONU_INVENTORY_SYNC_THREAD and _ONU_INVENTORY_SYNC_THREAD.is_alive()):
-                _ONU_INVENTORY_SYNC_THREAD = threading.Thread(
-                    target=_onu_inventory_sync_loop,
-                    name="onu-inventory-sync",
-                    daemon=True,
-                )
-                _ONU_INVENTORY_SYNC_THREAD.start()
+        ensure_background_sync_threads()
 
-        with _SNMP_MONITOR_GUARD:
-            if not (_SNMP_MONITOR_THREAD and _SNMP_MONITOR_THREAD.is_alive()):
-                _SNMP_MONITOR_THREAD = threading.Thread(
-                    target=_snmp_monitor_loop,
-                    name="snmp-monitor-sync",
-                    daemon=True,
-                )
-                _SNMP_MONITOR_THREAD.start()
 
-        with _ONU_STATUS_SYNC_GUARD:
-            if not (_ONU_STATUS_SYNC_THREAD and _ONU_STATUS_SYNC_THREAD.is_alive()):
-                _ONU_STATUS_SYNC_THREAD = threading.Thread(
-                    target=_onu_status_sync_loop,
-                    name="onu-status-sync",
-                    daemon=True,
-                )
-                _ONU_STATUS_SYNC_THREAD.start()
+def ensure_background_sync_threads():
+    """Start any missing background sync thread.
 
-        with _ONU_SIGNAL_SAMPLE_GUARD:
-            if not (_ONU_SIGNAL_SAMPLE_THREAD and _ONU_SIGNAL_SAMPLE_THREAD.is_alive()):
-                _ONU_SIGNAL_SAMPLE_THREAD = threading.Thread(
-                    target=_onu_signal_sample_loop,
-                    name="onu-signal-sample-sync",
-                    daemon=True,
-                )
-                _ONU_SIGNAL_SAMPLE_THREAD.start()
+    The production worker stays alive for days. After a code deploy or a rare
+    thread crash, this lets the management command re-check and recover the
+    actual polling threads instead of silently sleeping forever.
+    """
+    global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD
+
+    started = []
+
+    with _ONU_INVENTORY_SYNC_GUARD:
+        if not (_ONU_INVENTORY_SYNC_THREAD and _ONU_INVENTORY_SYNC_THREAD.is_alive()):
+            _ONU_INVENTORY_SYNC_THREAD = threading.Thread(
+                target=_onu_inventory_sync_loop,
+                name="onu-inventory-sync",
+                daemon=True,
+            )
+            _ONU_INVENTORY_SYNC_THREAD.start()
+            started.append("onu-inventory-sync")
+
+    with _SNMP_MONITOR_GUARD:
+        if not (_SNMP_MONITOR_THREAD and _SNMP_MONITOR_THREAD.is_alive()):
+            _SNMP_MONITOR_THREAD = threading.Thread(
+                target=_snmp_monitor_loop,
+                name="snmp-monitor-sync",
+                daemon=True,
+            )
+            _SNMP_MONITOR_THREAD.start()
+            started.append("snmp-monitor-sync")
+
+    with _ONU_STATUS_SYNC_GUARD:
+        if not (_ONU_STATUS_SYNC_THREAD and _ONU_STATUS_SYNC_THREAD.is_alive()):
+            _ONU_STATUS_SYNC_THREAD = threading.Thread(
+                target=_onu_status_sync_loop,
+                name="onu-status-sync",
+                daemon=True,
+            )
+            _ONU_STATUS_SYNC_THREAD.start()
+            started.append("onu-status-sync")
+
+    with _ONU_SIGNAL_SAMPLE_GUARD:
+        if not (_ONU_SIGNAL_SAMPLE_THREAD and _ONU_SIGNAL_SAMPLE_THREAD.is_alive()):
+            _ONU_SIGNAL_SAMPLE_THREAD = threading.Thread(
+                target=_onu_signal_sample_loop,
+                name="onu-signal-sample-sync",
+                daemon=True,
+            )
+            _ONU_SIGNAL_SAMPLE_THREAD.start()
+            started.append("onu-signal-sample-sync")
+
+    if started:
+        logger.info("Background sync thread(s) started: %s", ", ".join(started))
+    return started
