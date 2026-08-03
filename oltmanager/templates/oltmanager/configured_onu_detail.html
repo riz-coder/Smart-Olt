@@ -2585,7 +2585,7 @@
 
     trafficRangeButtons.forEach((button) => {
         button.addEventListener('click', () => {
-            loadTrafficGraph(button.getAttribute('data-traffic-range') || '1h');
+            loadTrafficGraph(button.getAttribute('data-traffic-range') || '1h', { sample: true });
         });
     });
 

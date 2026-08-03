@@ -3910,6 +3910,24 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
                 "tx_power": row.get("tx_power") or "--",
             }
         )
+    if not history:
+        current = (
+            ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id)
+            .values("onu_rx", "olt_rx", "tx_power", "status_updated_at", "synced_at")
+            .first()
+        )
+        if current:
+            has_signal = any(str(current.get(key) or "").strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
+            if has_signal:
+                sampled_at = timezone.now()
+                history.append(
+                    {
+                        "sampled_at": timezone.localtime(sampled_at).isoformat(),
+                        "onu_rx": current.get("onu_rx") or "--",
+                        "olt_rx": current.get("olt_rx") or "--",
+                        "tx_power": current.get("tx_power") or "--",
+                    }
+                )
     with _ONU_SIGNAL_HISTORY_CACHE_LOCK:
         _ONU_SIGNAL_HISTORY_CACHE[cache_key] = {
             "updated_at": now,
@@ -4121,6 +4139,22 @@ def _build_onu_signal_graph_data(olt, slot, port, ont_id, range_key="1h"):
         .order_by("sampled_at")
         .values("sampled_at", "onu_rx", "olt_rx", "tx_power")
     )
+    if not rows:
+        current = (
+            ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id)
+            .values("onu_rx", "olt_rx", "tx_power", "status_updated_at", "synced_at")
+            .first()
+        )
+        if current:
+            has_signal = any(str(current.get(key) or "").strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
+            if has_signal:
+                sampled_at = timezone.now()
+                rows = [{
+                    "sampled_at": sampled_at,
+                    "onu_rx": current.get("onu_rx") or "",
+                    "olt_rx": current.get("olt_rx") or "",
+                    "tx_power": current.get("tx_power") or "",
+                }]
     points = []
     latest_onu = None
     latest_olt = None
