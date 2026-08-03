@@ -38,3 +38,5 @@ media/
 .DS_Store
 Thumbs.db
 .vscode/*.log
+
+onu_status_sync_progress.json
