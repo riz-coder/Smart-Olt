@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import json
+import os
 import platform
 import re
 import secrets
@@ -11131,6 +11132,7 @@ def _debounced_snmp_runtime_status(record, snmp_status):
 
 
 _ONU_STATUS_SYNC_PROGRESS_LOCK = threading.Lock()
+_ONU_STATUS_SYNC_PROGRESS_FILE_LOCK = threading.Lock()
 _ONU_STATUS_SYNC_PROGRESS = {
     "running": False,
     "cycle_started_at": None,
@@ -11141,6 +11143,13 @@ _ONU_STATUS_SYNC_PROGRESS = {
 }
 
 
+def _onu_status_progress_file_path():
+    configured = str(getattr(settings, "ONU_STATUS_SYNC_PROGRESS_FILE", "") or "").strip()
+    if configured:
+        return configured
+    return os.path.join(str(getattr(settings, "BASE_DIR", "") or "."), "onu_status_sync_progress.json")
+
+
 def _onu_status_progress_datetime(value):
     if not value:
         return ""
@@ -11148,6 +11157,76 @@ def _onu_status_progress_datetime(value):
         return timezone.localtime(value).isoformat()
     except Exception:
         return str(value)
+
+
+def _onu_status_progress_snapshot_unlocked():
+    olts = []
+    for item in (_ONU_STATUS_SYNC_PROGRESS.get("olts") or {}).values():
+        olts.append(dict(item))
+    olts.sort(key=lambda item: str(item.get("olt") or "").lower())
+    checked = sum(int(item.get("checked") or 0) for item in olts)
+    total = sum(int(item.get("total") or 0) for item in olts)
+    done_olts = sum(1 for item in olts if item.get("done"))
+    failed_olts = sum(1 for item in olts if item.get("failed"))
+    running_olts = sum(1 for item in olts if item.get("running"))
+    total_olts = int(_ONU_STATUS_SYNC_PROGRESS.get("total_olts") or len(olts))
+    return {
+        "running": bool(_ONU_STATUS_SYNC_PROGRESS.get("running")),
+        "cycle_started_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_started_at")),
+        "cycle_completed_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")),
+        "next_run_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("next_run_at")),
+        "total_olts": total_olts,
+        "done_olts": done_olts,
+        "failed_olts": failed_olts,
+        "running_olts": running_olts,
+        "checked": checked,
+        "total": total,
+        "percent": round((checked / total) * 100, 1) if total else 0,
+        "olts": olts,
+        "updated_at": _onu_status_progress_datetime(timezone.now()),
+    }
+
+
+def _write_onu_status_progress_file_unlocked():
+    """Persist progress for the web process.
+
+    Background sync runs in a separate systemd worker process in production,
+    while the progress endpoint is served by Daphne. A tiny atomically-replaced
+    JSON file is enough to share this UI-only state without adding DB churn.
+    """
+    path = _onu_status_progress_file_path()
+    if not path:
+        return
+    payload = _onu_status_progress_snapshot_unlocked()
+    tmp_path = f"{path}.tmp"
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with _ONU_STATUS_SYNC_PROGRESS_FILE_LOCK:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, separators=(",", ":"))
+            os.replace(tmp_path, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
+
+def _read_onu_status_progress_file():
+    path = _onu_status_progress_file_path()
+    if not path:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            return None
+        return payload
+    except Exception:
+        return None
 
 
 def start_onu_status_sync_progress(olt_rows):
@@ -11180,6 +11259,7 @@ def start_onu_status_sync_progress(olt_rows):
             "total_olts": len(olts),
             "olts": olts,
         })
+        _write_onu_status_progress_file_unlocked()
 
 
 def update_onu_status_sync_progress(olt_id, **kwargs):
@@ -11210,6 +11290,7 @@ def update_onu_status_sync_progress(olt_id, **kwargs):
         for field in ("olt", "running", "done", "failed", "checked", "total", "updated", "status_changed", "message"):
             if field in kwargs:
                 entry[field] = kwargs[field]
+        _write_onu_status_progress_file_unlocked()
 
 
 def finish_onu_status_sync_progress(next_run_at=None):
@@ -11220,6 +11301,7 @@ def finish_onu_status_sync_progress(next_run_at=None):
             "cycle_completed_at": now,
             "next_run_at": next_run_at,
         })
+        _write_onu_status_progress_file_unlocked()
 
 
 def schedule_onu_status_sync_progress(next_run_at=None):
@@ -11228,34 +11310,20 @@ def schedule_onu_status_sync_progress(next_run_at=None):
             "running": False,
             "next_run_at": next_run_at,
         })
+        _write_onu_status_progress_file_unlocked()
 
 
 def get_onu_status_sync_progress():
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
-        olts = []
-        for item in (_ONU_STATUS_SYNC_PROGRESS.get("olts") or {}).values():
-            olts.append(dict(item))
-        olts.sort(key=lambda item: str(item.get("olt") or "").lower())
-        checked = sum(int(item.get("checked") or 0) for item in olts)
-        total = sum(int(item.get("total") or 0) for item in olts)
-        done_olts = sum(1 for item in olts if item.get("done"))
-        failed_olts = sum(1 for item in olts if item.get("failed"))
-        running_olts = sum(1 for item in olts if item.get("running"))
-        total_olts = int(_ONU_STATUS_SYNC_PROGRESS.get("total_olts") or len(olts))
-        return {
-            "running": bool(_ONU_STATUS_SYNC_PROGRESS.get("running")),
-            "cycle_started_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_started_at")),
-            "cycle_completed_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")),
-            "next_run_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("next_run_at")),
-            "total_olts": total_olts,
-            "done_olts": done_olts,
-            "failed_olts": failed_olts,
-            "running_olts": running_olts,
-            "checked": checked,
-            "total": total,
-            "percent": round((checked / total) * 100, 1) if total else 0,
-            "olts": olts,
-        }
+        snapshot = _onu_status_progress_snapshot_unlocked()
+    file_snapshot = _read_onu_status_progress_file()
+    if file_snapshot and (
+        not snapshot.get("next_run_at")
+        or (not snapshot.get("running") and not snapshot.get("olts") and file_snapshot.get("next_run_at"))
+        or file_snapshot.get("running")
+    ):
+        return file_snapshot
+    return snapshot
 
 
 def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_pk=None, write_samples=True, on_progress=None):
