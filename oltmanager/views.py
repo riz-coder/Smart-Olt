@@ -2751,13 +2751,9 @@ def _dashboard_summary_from_latest_sample(olt_id=None):
 
 
 def _dashboard_summary_counts(onu_qs, olt_id=None):
-    # Keep dashboard cards on the same 10-minute cadence as the status graph.
-    # OLT reachability is intentionally handled separately by the 10-second SNMP
-    # monitor and the health rows; it must not make ONU totals change every poll.
-    sampled = _dashboard_summary_from_latest_sample(olt_id=olt_id)
-    if sampled is not None:
-        return sampled
-    # A safe fallback is needed only before the first dashboard sample exists.
+    # Cards should reflect the current database state. The background worker is
+    # responsible for updating ConfiguredONU every 10 minutes; graph history still
+    # comes from DashboardStatusSample.
     return _dashboard_status_counts_from_queryset(onu_qs)
 
 
@@ -2783,7 +2779,9 @@ def _apply_dashboard_down_olt_override(counts, down_olt_ids, selected_olt_id=Non
     subtract_warn = 0
     subtract_bad = 0
     for olt_id in down_ids:
-        scoped = _dashboard_summary_from_latest_sample(olt_id=olt_id) or {}
+        scoped = _dashboard_status_counts_from_queryset(
+            ConfiguredONU.objects.filter(olt_id=olt_id)
+        )
         subtract_online += int(scoped.get("online_onus") or 0)
         subtract_warn += int(scoped.get("signal_warn") or 0)
         subtract_bad += int(scoped.get("signal_bad") or 0)

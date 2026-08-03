@@ -251,6 +251,7 @@ def _snmp_monitor_loop():
         olt_background_enabled_q,
         probe_icmp_reachability,
         probe_snmp_reachability,
+        reconcile_onu_status_via_snmp,
     )
 
     def _save_snmp_probe_status(olt_id, status_text):
@@ -331,6 +332,25 @@ def _snmp_monitor_loop():
                                 _save_snmp_probe_status(olt_id, fresh_status)
                                 olt.snmp_last_status = fresh_status
                                 _SNMP_OFFLINE_APPLIED.discard(olt_id)
+
+                                # If a previous SNMP-down probe bulk-marked ONUs
+                                # offline, immediately heal those rows once the
+                                # OLT answers again. The helper exits before any
+                                # SNMP walk when no snmp_down rows exist.
+                                last_reconcile = _LAST_RECONCILE_AT.get(olt_id, 0.0)
+                                if (now_ts - last_reconcile) >= RECONCILE_THROTTLE_SECONDS:
+                                    _LAST_RECONCILE_AT[olt_id] = now_ts
+                                    try:
+                                        outcome = reconcile_onu_status_via_snmp(olt, only_snmp_down=True)
+                                        if int(outcome.get("updated") or 0):
+                                            logger.info(
+                                                "OLT %s recovered stuck ONU status rows: %s",
+                                                olt.name,
+                                                outcome.get("status", ""),
+                                            )
+                                    except Exception:
+                                        logger.exception("OLT %s recovery ONU status reconcile failed.", olt.name)
+                                        close_old_connections()
 
                                 # Keep the 10-second monitor lightweight. Full ONU
                                 # status walks run in the 10-minute ONU status sync.

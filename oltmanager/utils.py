@@ -545,6 +545,7 @@ def reconcile_onu_status_via_snmp(olt, *, only_snmp_down=True, limit=None):
     if not items:
         result["status"] = status_map.get("status") or "No SNMP status data."
         return result
+    snmp_complete = bool(items) and not bool(status_map.get("truncated"))
 
     records = list(base_qs.order_by("id")[:limit] if limit else base_qs)
     now = timezone.now()
@@ -553,7 +554,9 @@ def reconcile_onu_status_via_snmp(olt, *, only_snmp_down=True, limit=None):
         key = (int(rec.slot), int(rec.port), int(rec.ont_id))
         real = items.get(key)
         if not real:
-            continue  # no SNMP reading for this ONU — leave the slower sync to it
+            if not snmp_complete:
+                continue
+            real = "offline"
         changed = False
         if real == "online":
             if rec.derived_status != "online" or rec.run_state != "online":
@@ -13284,3 +13287,4 @@ def push_snmp_config_over_telnet(olt, read_community, write_community=""):
                 _close_telnet_session(tn)
             except OSError:
                 pass
+
