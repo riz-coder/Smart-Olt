@@ -164,7 +164,6 @@ def _onu_inventory_sync_loop():
         record_pon_traffic_samples,
         record_pon_port_traffic_samples,
         record_uplink_port_traffic_samples,
-        record_dashboard_status_samples,
     )
 
     def _sync_single_olt_cycle(olt_id):
@@ -235,15 +234,11 @@ def _onu_inventory_sync_loop():
             except Exception:
                 pass
             try:
-                record_dashboard_status_samples()
-            except Exception:
-                pass
-            try:
                 _run_sample_retention_cleanup_if_due()
             except Exception:
-                pass
+                logger.exception("Sample retention cleanup cycle failed.")
         except Exception:
-            pass
+            logger.exception("ONU inventory/traffic sync cycle failed.")
         finally:
             close_old_connections()
         _sleep_until_next_sync_boundary()
@@ -465,14 +460,24 @@ def _onu_status_sync_loop():
 
     while True:
         cycle_started = False
+        olt_rows = []
         try:
             close_old_connections()
-            olt_rows = list(
-                OLT.objects
-                .filter(olt_background_enabled_q())
-                .order_by("id")
-                .values("id", "name")
-            )
+            for attempt in range(1, 4):
+                try:
+                    olt_rows = list(
+                        OLT.objects
+                        .filter(olt_background_enabled_q())
+                        .exclude(onboarding_status__in=["queued", "running", "aborting"])
+                        .order_by("id")
+                        .values("id", "name")
+                    )
+                    break
+                except Exception:
+                    close_old_connections()
+                    if attempt >= 3:
+                        raise
+                    time.sleep(2)
             olt_ids = [row["id"] for row in olt_rows]
             if olt_ids:
                 start_onu_status_sync_progress(olt_rows)
@@ -488,21 +493,35 @@ def _onu_status_sync_loop():
                                 result.get("updated"),
                                 result.get("status"),
                             )
-                    except Exception:
+                    except Exception as exc:
+                        logger.exception("OLT %s ONU status sync failed.", olt_id)
+                        try:
+                            update_onu_status_sync_progress(
+                                olt_id,
+                                running=False,
+                                done=True,
+                                failed=True,
+                                message=f"ONU status sync failed: {exc}",
+                            )
+                        except Exception:
+                            pass
                         close_old_connections()
                 try:
                     record_dashboard_status_samples(force=True, bypass_force_throttle=True)
                 except Exception:
+                    logger.exception("Dashboard status sample write failed after ONU status sync.")
                     close_old_connections()
                 finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
                 cycle_started = False
+            else:
+                schedule_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
         except Exception:
+            logger.exception("ONU status sync cycle failed.")
             if cycle_started:
                 try:
                     finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
                 except Exception:
                     pass
-            pass
         finally:
             close_old_connections()
         next_run_at = timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS)
