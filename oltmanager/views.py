@@ -1694,6 +1694,15 @@ def _schedule_olt_onboarding(olt_id, snmp_mode):
     ).start()
 
 
+def _active_olt_onboarding():
+    return (
+        OLT.objects
+        .filter(onboarding_status__in=["queued", "running", "aborting"])
+        .order_by("onboarding_started_at", "id")
+        .first()
+    )
+
+
 def _cards_signature(cards):
     return {(str(card.get('slot', '')), str(card.get('model_type', ''))) for card in cards}
 
@@ -7654,6 +7663,25 @@ def olt_add(request):
     if request.method == 'POST':
         form = OLTForm(request.POST)
         if form.is_valid():
+            active_onboarding = _active_olt_onboarding()
+            if active_onboarding:
+                active_name = str(getattr(active_onboarding, "name", "") or "another OLT")
+                form.add_error(
+                    None,
+                    f"OLT onboarding is already running for {active_name}. Please wait until that process completes before adding another OLT.",
+                )
+                return render(
+                    request,
+                    'oltmanager/olt_form.html',
+                    {
+                        'form': form,
+                        'form_title': 'Add New OLT',
+                        'form_subtle': 'Enter device information for Telnet-based access.',
+                        'back_fallback_url': reverse('olt_settings_olt'),
+                        'cancel_url': reverse('olt_settings_olt'),
+                        'show_import_onus': True,
+                    },
+                )
             olt = form.save(commit=False)
             snmp_mode = form.cleaned_data.get('snmp_mode') or 'manual'
             # "Import ONUs as well?" — when unchecked, onboarding fetches only the

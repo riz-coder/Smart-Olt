@@ -41,6 +41,24 @@
         border-color: #cfe0f7;
     }
     html[data-theme="light"] .import-onus-row strong { color: #16233c; }
+    .form-alert {
+        margin-bottom: 18px;
+        padding: 13px 15px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.5;
+    }
+    .form-alert-error {
+        border: 1px solid rgba(255, 94, 113, 0.5);
+        background: rgba(255, 94, 113, 0.12);
+        color: #ffb8c1;
+    }
+    html[data-theme="light"] .form-alert-error {
+        background: #fff0f3;
+        border-color: #ffc2cc;
+        color: #b71835;
+    }
 </style>
 {% endblock %}
 
@@ -59,6 +77,13 @@
     <section class="panel">
         <form method="post">
             {% csrf_token %}
+            {% if form.non_field_errors %}
+            <div class="form-alert form-alert-error">
+                {% for error in form.non_field_errors %}
+                    <div>{{ error }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
             <div class="form-grid">
                 {{ form.as_p }}
             </div>
@@ -139,5 +164,3 @@
 })();
 </script>
 {% endblock %}
-
-
