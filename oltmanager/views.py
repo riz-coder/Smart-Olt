@@ -4435,15 +4435,6 @@ def olt_list(request):
         dashboard_pon_traffic_port_choices = _flatten_pon_port_choices(dashboard_pon_groups, only_up=True, include_all=False)
         default_pon_choice = dashboard_pon_traffic_port_choices[0] if dashboard_pon_traffic_port_choices else None
         if default_pon_choice:
-            dashboard_pon_traffic_graph = _get_cached_port_traffic_payload(
-                ("pon", selected_olt.pk, "live", f"{default_pon_choice['slot']}:{default_pon_choice['port']}"),
-                lambda: _build_olt_pon_port_traffic_graph(
-                    selected_olt.pk,
-                    "live",
-                    default_pon_choice["slot"],
-                    default_pon_choice["port"],
-                ),
-            )
             dashboard_pon_traffic_graph_url = reverse("olt_pon_traffic_graph_data", kwargs={"pk": selected_olt.pk})
 
         dashboard_uplink_rows = list(getattr(selected_olt, "uplink_cache", []) or [])
@@ -4454,10 +4445,6 @@ def olt_list(request):
         })
         default_uplink_choice = dashboard_uplink_traffic_port_choices[0]["value"] if dashboard_uplink_traffic_port_choices else ""
         if dashboard_uplink_traffic_port_choices:
-            dashboard_uplink_traffic_graph = _get_cached_port_traffic_payload(
-                ("uplink", selected_olt.pk, "live", default_uplink_choice),
-                lambda: _build_olt_uplink_traffic_graph(selected_olt.pk, "live", default_uplink_choice),
-            )
             dashboard_uplink_traffic_graph_url = reverse("olt_uplink_traffic_graph_data", kwargs={"pk": selected_olt.pk})
 
     latest_dashboard_sample_at = (
