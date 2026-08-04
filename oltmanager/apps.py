@@ -161,8 +161,10 @@ def _sleep_until_next_sync_boundary():
 def _onu_inventory_sync_loop():
     from .models import OLT
     from .utils import (
+        olt_background_enabled_q,
         record_pon_traffic_samples,
         record_pon_port_traffic_samples,
+        record_recent_onu_traffic_samples,
         record_uplink_port_traffic_samples,
     )
 
@@ -233,6 +235,10 @@ def _onu_inventory_sync_loop():
                 record_uplink_port_traffic_samples()
             except Exception:
                 pass
+            try:
+                record_recent_onu_traffic_samples()
+            except Exception:
+                logger.exception("Recent ONU traffic sample cycle failed.")
             try:
                 _run_sample_retention_cleanup_if_due()
             except Exception:
@@ -573,8 +579,12 @@ def _onu_signal_sample_loop():
                 try:
                     snmp_result = sync_onu_signals_from_snmp(olt, overwrite=True)
                     if int(snmp_result.get("filled") or 0) > 0:
+                        logger.info("OLT %s signal sample done: %s", olt.name, snmp_result.get("status", ""))
                         break
+                    if _attempt == _SNMP_SIGNAL_RETRIES - 1:
+                        logger.warning("OLT %s signal sample returned no updates: %s", olt.name, snmp_result.get("status", ""))
                 except Exception:
+                    logger.exception("OLT %s signal sample failed.", olt.name)
                     close_old_connections()
                 if _attempt < _SNMP_SIGNAL_RETRIES - 1:
                     time.sleep(_SNMP_SIGNAL_RETRY_DELAY)
@@ -596,9 +606,10 @@ def _onu_signal_sample_loop():
                         try:
                             future.result()
                         except Exception:
+                            logger.exception("ONU signal sample worker failed.")
                             close_old_connections()
         except Exception:
-            pass
+            logger.exception("ONU signal sample cycle failed.")
         finally:
             close_old_connections()
         time.sleep(ONU_SIGNAL_SAMPLE_SECONDS)

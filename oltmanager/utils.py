@@ -12847,6 +12847,107 @@ def record_uplink_port_traffic_sample_for_olt(olt, force=False, min_interval_sec
     return samples[0]
 
 
+def record_onu_traffic_sample(olt, slot, port, ont_id):
+    from .models import ONUTrafficSample
+
+    if getattr(olt, "pricing_access_locked", False):
+        return {"ok": False, "status": "OLT subscription is locked."}
+
+    counters = fetch_single_onu_snmp_traffic_counters(olt, slot, port, ont_id)
+    if not counters.get("ok"):
+        return {"ok": False, "status": counters.get("status") or "SNMP ONU traffic unavailable"}
+
+    now = timezone.now()
+    previous = (
+        ONUTrafficSample.objects.filter(olt=olt, slot=int(slot), port=int(port), ont_id=int(ont_id))
+        .order_by("-sampled_at")
+        .first()
+    )
+    up_bytes = _db_safe_int(counters.get("up_bytes"))
+    down_bytes = _db_safe_int(counters.get("down_bytes"))
+    up_packets = _db_safe_int(counters.get("up_packets"))
+    down_packets = _db_safe_int(counters.get("down_packets"))
+    up_bps = 0.0
+    down_bps = 0.0
+    if previous:
+        seconds = max(1.0, (now - previous.sampled_at).total_seconds())
+        if up_bytes >= int(previous.up_bytes or 0):
+            up_bps = ((up_bytes - int(previous.up_bytes or 0)) * 8) / seconds
+        if down_bytes >= int(previous.down_bytes or 0):
+            down_bps = ((down_bytes - int(previous.down_bytes or 0)) * 8) / seconds
+
+    sample = ONUTrafficSample.objects.create(
+        olt=olt,
+        slot=int(slot),
+        port=int(port),
+        ont_id=int(ont_id),
+        up_bytes=up_bytes,
+        down_bytes=down_bytes,
+        up_packets=up_packets,
+        down_packets=down_packets,
+        up_bps=up_bps,
+        down_bps=down_bps,
+    )
+    return {
+        "ok": True,
+        "sample": sample,
+        "up_bps": round(up_bps, 2),
+        "down_bps": round(down_bps, 2),
+        "status": counters.get("status") or "SNMP ONU traffic fetched",
+    }
+
+
+def record_recent_onu_traffic_samples(max_keys=None, active_within_hours=None, min_interval_seconds=None):
+    """Refresh ONU traffic samples only for ONUs that users recently opened.
+
+    Polling every ONU's traffic counters would be too heavy. This keeps graphs
+    useful for active ONUs while protecting the server and OLTs from load spikes.
+    """
+    from django.db.models import Max
+    from .models import OLT, ONUTrafficSample
+
+    max_keys = int(max_keys or getattr(settings, "OLT_ONU_TRAFFIC_BACKGROUND_MAX_KEYS", 200) or 200)
+    active_within_hours = int(active_within_hours or getattr(settings, "OLT_ONU_TRAFFIC_BACKGROUND_ACTIVE_HOURS", 24) or 24)
+    min_interval_seconds = int(min_interval_seconds or getattr(settings, "OLT_ONU_TRAFFIC_BACKGROUND_SECONDS", 600) or 600)
+    if max_keys <= 0:
+        return {"checked": 0, "sampled": 0, "status": "ONU traffic background sampling disabled."}
+
+    now = timezone.now()
+    active_since = now - datetime.timedelta(hours=max(1, active_within_hours))
+    due_before = now - datetime.timedelta(seconds=max(60, min_interval_seconds))
+    latest_rows = (
+        ONUTrafficSample.objects
+        .filter(sampled_at__gte=active_since)
+        .values("olt_id", "slot", "port", "ont_id")
+        .annotate(latest=Max("sampled_at"))
+        .filter(latest__lt=due_before)
+        .order_by("latest")[:max_keys]
+    )
+    rows = list(latest_rows)
+    if not rows:
+        return {"checked": 0, "sampled": 0, "status": "No recent ONU traffic samples are due."}
+
+    olt_map = {
+        int(olt.id): olt
+        for olt in OLT.objects.filter(olt_background_enabled_q(now), id__in={int(row["olt_id"]) for row in rows})
+        .only("id", "ip_address", "snmp_port", "snmp_community", "pricing_locked", "pricing_expires_at")
+    }
+    checked = 0
+    sampled = 0
+    for row in rows:
+        olt = olt_map.get(int(row["olt_id"]))
+        if not olt:
+            continue
+        checked += 1
+        try:
+            result = record_onu_traffic_sample(olt, int(row["slot"]), int(row["port"]), int(row["ont_id"]))
+            if result.get("ok"):
+                sampled += 1
+        except Exception:
+            continue
+    return {"checked": checked, "sampled": sampled, "status": f"Recent ONU traffic sampled {sampled}/{checked}."}
+
+
 def _delete_old_rows_in_chunks(model, cutoff, *, batch_size=5000, max_batches=4):
     deleted_total = 0
     batch_size = max(100, int(batch_size or 5000))
