@@ -11857,16 +11857,6 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
     """
     from .models import ConfiguredONU, ONUOpticalSample
 
-    snmp_result = fetch_olt_snmp_onu_signal_map(olt)
-    items = snmp_result.get("items") or {}
-    if not items:
-        return {
-            "status": snmp_result.get("status") or "SNMP signal map returned no data.",
-            "filled": 0,
-            "total": 0,
-            "snmp_items": 0,
-        }
-
     all_records = {
         (int(r.slot), int(r.port), int(r.ont_id)): r
         for r in ConfiguredONU.objects.filter(olt=olt).order_by("id")
@@ -11878,6 +11868,48 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
     now = timezone.now()
     recent_sample_keys = recent_onu_optical_sample_keys(olt, now=now)
     filled = 0
+
+    def _record_has_cached_signal(record):
+        return any(
+            str(getattr(record, field, "") or "").strip() not in {"", "--"}
+            for field in ("onu_rx", "olt_rx", "tx_power")
+        )
+
+    def _append_cached_sample(key, record):
+        if key in recent_sample_keys:
+            return False
+        if str(getattr(record, "derived_status", "") or "").strip().lower() != "online":
+            return False
+        if not _record_has_cached_signal(record):
+            return False
+        samples.append(ONUOpticalSample(
+            olt=olt,
+            slot=record.slot,
+            port=record.port,
+            ont_id=record.ont_id,
+            onu_rx=record.onu_rx or "",
+            olt_rx=record.olt_rx or "",
+            tx_power=record.tx_power or "",
+        ))
+        recent_sample_keys.add(key)
+        return True
+
+    snmp_result = fetch_olt_snmp_onu_signal_map(olt)
+    items = snmp_result.get("items") or {}
+    if not items:
+        cached_samples = 0
+        for key, record in all_records.items():
+            if _append_cached_sample(key, record):
+                cached_samples += 1
+        if samples:
+            ONUOpticalSample.objects.bulk_create(samples, batch_size=500, ignore_conflicts=False)
+        return {
+            "status": f"{snmp_result.get('status') or 'SNMP signal map returned no data.'}; cached samples written: {cached_samples}.",
+            "filled": 0,
+            "total": total,
+            "snmp_items": 0,
+            "cached_samples": cached_samples,
+        }
 
     for key, signal in items.items():
         record = all_records.get(key)
@@ -11925,6 +11957,13 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
             ))
             recent_sample_keys.add(key)
 
+    cached_samples = 0
+    for key, record in all_records.items():
+        if key in items:
+            continue
+        if _append_cached_sample(key, record):
+            cached_samples += 1
+
     if to_update:
         ConfiguredONU.objects.bulk_update(
             to_update,
@@ -11935,10 +11974,11 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
         ONUOpticalSample.objects.bulk_create(samples, batch_size=500, ignore_conflicts=False)
 
     return {
-        "status": f"SNMP signals: {filled}/{total} ONUs updated ({len(items)} SNMP entries).",
+        "status": f"SNMP signals: {filled}/{total} ONUs updated ({len(items)} SNMP entries; {cached_samples} cached samples).",
         "filled": filled,
         "total": total,
         "snmp_items": len(items),
+        "cached_samples": cached_samples,
     }
 
 

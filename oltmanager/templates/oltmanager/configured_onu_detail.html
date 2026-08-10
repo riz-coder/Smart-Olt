@@ -428,6 +428,37 @@
     .running-config-placeholder {
         color: #9cb0cf;
     }
+    .running-config-loading {
+        min-height: 170px;
+        display: grid;
+        place-items: center;
+        gap: 10px;
+        text-align: center;
+        color: #dce8ff;
+    }
+    .running-config-wheel {
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        border: 4px solid rgba(126, 163, 220, 0.24);
+        border-top-color: #4f8cff;
+        border-right-color: #5ee6a8;
+        animation: rc-spin .8s linear infinite;
+        margin: 0 auto;
+    }
+    .running-config-loading-title {
+        font-size: 14px;
+        font-weight: 900;
+        color: #f4f8ff;
+    }
+    .running-config-loading-text {
+        font-size: 12px;
+        font-weight: 700;
+        color: #9db0cf;
+    }
+    @keyframes rc-spin {
+        to { transform: rotate(360deg); }
+    }
     /* Running-config syntax colouring */
     .rc-kw   { color: #6db3ff; font-weight: 700; }   /* commands / keywords */
     .rc-vlan { color: #45db87; font-weight: 800; }   /* vlan / user-vlan */
@@ -1283,6 +1314,8 @@
         color: #1c2a44;
     }
     html[data-theme="light"] .running-config-placeholder { color: #5a6b86; }
+    html[data-theme="light"] .running-config-loading-title { color: #10213d; }
+    html[data-theme="light"] .running-config-loading-text { color: #526681; }
     html[data-theme="light"] .mac-output-title { color: #0e8aa0; }
     html[data-theme="light"] .mac-output-line { color: #16233c; }
     html[data-theme="light"] .onu-config-table th {
@@ -2086,6 +2119,27 @@
         }
     };
 
+    const setRunningConfigLoading = (title, text) => {
+        if (runningConfigPanel) {
+            runningConfigPanel.hidden = false;
+        }
+        if (runningConfigStatus) {
+            runningConfigStatus.textContent = '';
+            runningConfigStatus.classList.remove('error');
+        }
+        if (!runningConfigOutput) return;
+        runningConfigOutput.classList.remove('running-config-placeholder');
+        runningConfigOutput.innerHTML = `
+            <div class="running-config-loading" role="status" aria-live="polite">
+                <div>
+                    <div class="running-config-wheel" aria-hidden="true"></div>
+                    <div class="running-config-loading-title">${escapeHtml(title || 'Fetching from OLT')}</div>
+                    <div class="running-config-loading-text">${escapeHtml(text || 'Waiting for OLT response...')}</div>
+                </div>
+            </div>
+        `;
+    };
+
     const showUnreachablePop = () => {
         if (!unreachablePop) return;
         unreachablePop.removeAttribute('hidden');
@@ -2725,7 +2779,7 @@
             getStatusButton.disabled = true;
             const originalText = getStatusButton.textContent;
             getStatusButton.textContent = 'Loading...';
-            setRunningConfigState('Fetching live MAC addresses...', runningConfigOutput?.textContent || '', false);
+            setRunningConfigLoading('Fetching MAC addresses', 'Checking live MAC table on the OLT...');
             try {
                 const response = await fetch(macAddressUrl, {
                     method: 'POST',
@@ -2753,7 +2807,7 @@
             runningConfigButton.disabled = true;
             const originalText = runningConfigButton.textContent;
             runningConfigButton.textContent = 'Loading...';
-            setRunningConfigState('Fetching live running config...', runningConfigOutput?.textContent || '', false);
+            setRunningConfigLoading('Fetching running config', 'Reading current ONU configuration from the OLT...');
             try {
                 const response = await fetch(runningConfigUrl, {
                     method: 'POST',
