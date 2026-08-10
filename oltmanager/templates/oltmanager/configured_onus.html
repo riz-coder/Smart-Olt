@@ -772,7 +772,9 @@
               countdownNode.textContent = formatCountdown(latestProgress.next_run_at || '');
           }
       }, 1000);
-      pollProgress().finally(scheduleProgressPoll);
+      window.setTimeout(() => {
+          pollProgress().finally(scheduleProgressPoll);
+      }, 3000);
       document.addEventListener('visibilitychange', () => {
           if (!document.hidden) {
               pollProgress().finally(scheduleProgressPoll);
@@ -891,9 +893,9 @@
         }
     };
 
-    // The list page uses cached DB values only. Live SNMP signal refresh is kept
-    // on the single ONU detail page to avoid one browser tab polling 100 ONUs.
-    // window.setInterval(refreshSignals, 60000);
+    // One light pass: cached DB signals are returned immediately; EPON rows with
+    // missing signal are refreshed in a small capped batch server-side.
+    window.setTimeout(refreshSignals, 700);
 })();
 </script>
 <script>

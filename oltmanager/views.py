@@ -5691,13 +5691,28 @@ def configured_onu_signals_refresh(request):
                     ont_id__in=[ont_id for _, _, ont_id in onu_keys],
                 )
             }
+            epon_live_budget = 4
             for slot, port, ont_id in onu_keys:
                 record = records.get((slot, port, ont_id))
                 if not record:
                     continue
                 key = f"{olt_id}:{slot}:{port}:{ont_id}"
                 status_value = _normalize_configured_status(record.derived_status, run_state=record.run_state)
-                response_items[key] = _signal_payload_from_values(record.onu_rx, record.olt_rx)
+                cached_signal = _signal_payload_from_values(record.onu_rx, record.olt_rx)
+                is_epon = _onu_tech_label(olt, slot).upper() == "EPON"
+                if (
+                    epon_live_budget > 0
+                    and is_epon
+                    and status_value == "online"
+                    and not cached_signal.get("signal_visible")
+                    and not _is_olt_snmp_unreachable(getattr(olt, "snmp_last_status", ""))
+                ):
+                    live_signal = _refresh_single_onu_power_from_snmp(olt, record, slot, port, ont_id)
+                    fresh_signal = _signal_payload_from_values(live_signal.get("onu_rx"), live_signal.get("olt_rx"))
+                    if fresh_signal.get("signal_visible"):
+                        cached_signal = fresh_signal
+                    epon_live_budget -= 1
+                response_items[key] = cached_signal
                 response_items[key]["status_value"] = status_value
                 response_items[key]["status_label"] = _configured_status_label(record.derived_status, run_state=record.run_state)
                 response_items[key]["status_class"] = _configured_status_class(record.derived_status, run_state=record.run_state)

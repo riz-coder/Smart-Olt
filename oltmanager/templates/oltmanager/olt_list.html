@@ -1785,22 +1785,25 @@
           }
       };
 
-        const scheduleRefresh = (delay = 10000) => {
+        const scheduleRefresh = (delay = 600000) => {
             if (dashboardRefreshTimer) window.clearTimeout(dashboardRefreshTimer);
             dashboardRefreshTimer = window.setTimeout(async () => {
                 if (!document.hidden) {
                     await refresh();
                 }
-                scheduleRefresh(document.hidden ? 60000 : 10000);
+                scheduleRefresh(600000);
             }, delay);
         };
 
-        refresh();
-        scheduleRefresh(1500);
+        const startLazyRefresh = () => scheduleRefresh(600000);
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(startLazyRefresh, { timeout: 5000 });
+        } else {
+            window.setTimeout(startLazyRefresh, 5000);
+        }
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
-                refresh();
-                scheduleRefresh(10000);
+                scheduleRefresh(600000);
             }
         });
     })();

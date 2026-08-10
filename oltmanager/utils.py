@@ -1122,6 +1122,49 @@ def _snmp_get_value(olt, oid, *, mp_model=1):
     return _run_asyncio_sync(_get())
 
 
+def _snmp_get_many_values(olt, oid_list, *, mp_model=1):
+    from pysnmp.hlapi.asyncio import (  # type: ignore
+        CommunityData,
+        ContextData,
+        ObjectIdentity,
+        ObjectType,
+        SnmpEngine,
+        UdpTransportTarget,
+        get_cmd,
+    )
+
+    oid_list = [str(oid) for oid in (oid_list or []) if str(oid or "").strip()]
+    if not oid_list:
+        return {}
+
+    async def _get_many():
+        target = await UdpTransportTarget.create(
+            (olt.ip_address, olt.snmp_port),
+            timeout=1.2,
+            retries=1,
+        )
+        engine = SnmpEngine()
+        try:
+            error_indication, error_status, _, var_binds = await get_cmd(
+                engine,
+                CommunityData(olt.snmp_community, mpModel=mp_model),
+                target,
+                ContextData(),
+                *[ObjectType(ObjectIdentity(oid)) for oid in oid_list],
+            )
+            if error_indication or error_status:
+                return {}
+            return {
+                str(oid): value
+                for oid, value in (var_binds or [])
+                if _snmp_varbind_has_value(((oid, value),))
+            }
+        finally:
+            engine.close_dispatcher()
+
+    return _run_asyncio_sync(_get_many())
+
+
 def _snmp_set_value(olt, oid, value, *, value_type="Integer", mp_model=1):
     from pysnmp.hlapi.asyncio import (  # type: ignore
         CommunityData,
@@ -1326,6 +1369,53 @@ def _snmp_onu_rows_to_key_map(rows, base_oid, gpon_indexes, formatter):
     return items
 
 
+def _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, pon_indexes, *, allow_direct_index=False):
+    items = {}
+
+    config_by_suffix = {}
+    for oid_text, raw_value in (config_rows or {}).items():
+        suffix = str(oid_text or "")[len(base_config_oid) + 1:]
+        if suffix:
+            config_by_suffix[suffix] = str(raw_value or "").strip()
+
+    def _put(key, raw_run, config_suffix):
+        status_value = _map_snmp_onu_status(raw_run, config_by_suffix.get(config_suffix))
+        if status_value:
+            items[key] = status_value
+
+    if allow_direct_index:
+        for oid_text, raw_value in (run_rows or {}).items():
+            suffix = str(oid_text or "")[len(base_run_oid) + 1:]
+            parts = suffix.split(".")
+            if len(parts) < 4:
+                continue
+            try:
+                slot = int(parts[-3])
+                port = int(parts[-2])
+                ont_id = int(parts[-1])
+            except (TypeError, ValueError):
+                continue
+            _put((slot, port, ont_id), raw_value, suffix)
+
+    for oid_text, raw_value in (run_rows or {}).items():
+        suffix = str(oid_text or "")[len(base_run_oid) + 1:]
+        parts = suffix.split(".")
+        if len(parts) < 2:
+            continue
+        if_index = str(parts[-2]).strip()
+        try:
+            ont_id = int(parts[-1])
+        except (TypeError, ValueError):
+            continue
+        fsp = pon_indexes.get(if_index)
+        if not fsp:
+            continue
+        _, slot, port = fsp
+        _put((slot, port, ont_id), raw_value, suffix)
+
+    return items
+
+
 def _snmp_epon_rows_to_key_map(rows, base_oid, gpon_indexes, formatter):
     """Parse EPON DDM OID rows.
 
@@ -1377,6 +1467,115 @@ def _snmp_epon_rows_to_key_map(rows, base_oid, gpon_indexes, formatter):
     return items
 
 
+def _snmp_epon_port_rows_to_key_map(rows, base_oid, slot, port, formatter):
+    """Parse EPON DDM rows from a port-scoped subtree walk."""
+    items = {}
+    for oid_text, raw_value in (rows or {}).items():
+        suffix = str(oid_text or "")[len(base_oid) + 1:]
+        parts = [part for part in suffix.split(".") if part != ""]
+        if not parts:
+            continue
+        try:
+            onu_id = int(parts[-1])
+        except (TypeError, ValueError):
+            continue
+        value = formatter(raw_value)
+        if value and value != "--":
+            items[(int(slot), int(port), onu_id)] = value
+    return items
+
+
+def _snmp_epon_port_signal_map(olt, pon_indexes, *, signal_limit=32768):
+    """Fetch EPON optical signals with chunked exact SNMP GETs.
+
+    Full EPON .104 table walks can timeout on Huawei EPON boards. Exact OID
+    chunks keep the request bounded and still update EPON ONUs in bulk.
+    """
+    from .models import ConfiguredONU
+
+    epon_records = []
+    max_onus = max(1, int(signal_limit or 32768))
+    for row in ConfiguredONU.objects.filter(olt=olt, derived_status="online").values("slot", "port", "ont_id").order_by("slot", "port", "ont_id"):
+        try:
+            slot = int(row.get("slot") or 0)
+            port = int(row.get("port") or 0)
+            ont_id = int(row.get("ont_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if str(_slot_pon_tech(olt, slot) or "").upper() != "EPON":
+            continue
+        epon_records.append((slot, port, ont_id))
+        if len(epon_records) >= max_onus:
+            break
+
+    if not epon_records:
+        return {}, 0
+
+    ifindex_by_port = {
+        (int(slot), int(port)): str(if_index)
+        for if_index, (_frame, slot, port) in (pon_indexes or {}).items()
+    }
+
+    oid_specs = {
+        "olt_rx": ("1.3.6.1.4.1.2011.6.128.1.1.2.104.1.1", _format_snmp_olt_rx_power),
+        "tx_power": ("1.3.6.1.4.1.2011.6.128.1.1.2.104.1.4", _format_snmp_onu_rx_power),
+        "onu_rx": ("1.3.6.1.4.1.2011.6.128.1.1.2.104.1.5", _format_snmp_onu_rx_power),
+    }
+    oid_lookup = {}
+    fallback_lookup = {}
+    for slot, port, ont_id in epon_records:
+        if_index = ifindex_by_port.get((slot, port)) or _resolve_snmp_gpon_ifindex(olt, slot, port)
+        for field, (base_oid, formatter) in oid_specs.items():
+            if if_index:
+                oid_lookup[f"{base_oid}.{if_index}.{ont_id}"] = (field, (slot, port, ont_id), formatter)
+            fallback_lookup[f"{base_oid}.0.{slot}.{port}.{ont_id}"] = (field, (slot, port, ont_id), formatter)
+
+    items = {}
+    found_keys = set()
+
+    def _apply_values(values, lookup):
+        rows_seen = 0
+        for oid, raw_value in (values or {}).items():
+            meta = lookup.get(str(oid))
+            if not meta:
+                continue
+            field, key, formatter = meta
+            value = formatter(raw_value)
+            if not value or value == "--":
+                continue
+            row = items.setdefault(key, {"onu_rx": "--", "olt_rx": "--", "tx_power": "--"})
+            row[field] = value
+            found_keys.add((field, key))
+            rows_seen += 1
+        return rows_seen
+
+    def _fetch_lookup(lookup):
+        rows_seen = 0
+        chunk_size = int(getattr(settings, "OLT_EPON_SIGNAL_GET_CHUNK_SIZE", 24) or 24)
+        oid_items = list(lookup.keys())
+        for start in range(0, len(oid_items), chunk_size):
+            chunk = oid_items[start:start + chunk_size]
+            values = {}
+            for mp_model in (1, 0):
+                values = _snmp_get_many_values(olt, chunk, mp_model=mp_model)
+                if values:
+                    break
+            rows_seen += _apply_values(values, lookup)
+        return rows_seen
+
+    rows_seen = _fetch_lookup(oid_lookup)
+
+    missing_fallback = {
+        oid: meta
+        for oid, meta in fallback_lookup.items()
+        if (meta[0], meta[1]) not in found_keys
+    }
+    if missing_fallback:
+        rows_seen += _fetch_lookup(missing_fallback)
+
+    return items, rows_seen
+
+
 def _format_snmp_onu_rx_power(raw_value):
     try:
         value = int(str(raw_value).strip())
@@ -1400,7 +1599,8 @@ def _format_snmp_olt_rx_power(raw_value):
 def fetch_olt_snmp_onu_signal_map(olt, *, ifname_limit=4096, signal_limit=32768):
     """Fetch optical Rx/Tx signal for all ONUs via SNMP bulk walk.
 
-    Tries GPON DDM OIDs (.51.x) first, then EPON DDM OIDs (.104.x).
+    Tries GPON/XG DDM OIDs (.51.x) in bulk. EPON uses .104.x with
+    per-port subtree walks, not one giant table walk.
 
     GPON OIDs  (index: ifIndex.onu_id):
       hwGponOnuOpticalDdmInfoONURxPower  1.3.6.1.4.1.2011.6.128.1.1.2.51.1.4   (plain ÷100)
@@ -1432,46 +1632,17 @@ def fetch_olt_snmp_onu_signal_map(olt, *, ifname_limit=4096, signal_limit=32768)
                 "tx_power": "--",
             }
 
-        # ── EPON: hwEponDeviceOntOpticsDdmInfoTable (.104.x) ─────────────────
-        # Correct OIDs per Huawei XPON-MIB documentation:
-        #   .104.1.1  hwEponOntOpticalDdmOltRxOntPower  — OLT Rx power  (offset: (raw-10000)/100)
-        #   .104.1.4  hwEponOntOpticalDdmTxPower        — ONU Tx power  (0.01 dBm, plain ÷100)
-        #   .104.1.5  hwEponOntOpticalDdmRxPower        — ONU Rx power  (0.01 dBm, plain ÷100)
-        # NOTE: OLT-Rx (.104.1.1) is offset-encoded exactly like GPON (.51.1.6) — the
-        # device returns e.g. 7568 meaning -24.32 dBm. Using a plain ÷100 here produced
-        # absurd +75 dBm values that never matched a real reading, so the bulk
-        # background signal sync never stored a usable OLT-Rx for EPON ONUs and the
-        # PON-port "Average Signal" stayed blank. Use the OLT-Rx offset formatter.
-        # Index: ifIndex.onu_id (2-part) on these devices; scheme handled in mapper.
-        epon_olt_rx_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.104.1.1"
-        epon_onu_tx_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.104.1.4"
-        epon_onu_rx_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.104.1.5"
-        epon_olt_rx_rows, _ = _snmp_rows_for_first_working_model(olt, epon_olt_rx_oid, limit=signal_limit)
-        epon_onu_tx_rows, _ = _snmp_rows_for_first_working_model(olt, epon_onu_tx_oid, limit=signal_limit)
-        epon_onu_rx_rows, _ = _snmp_rows_for_first_working_model(olt, epon_onu_rx_oid, limit=signal_limit)
-        epon_olt_rx_map = _snmp_epon_rows_to_key_map(epon_olt_rx_rows, epon_olt_rx_oid, pon_indexes, _format_snmp_olt_rx_power)
-        epon_onu_tx_map = _snmp_epon_rows_to_key_map(epon_onu_tx_rows, epon_onu_tx_oid, pon_indexes, _format_snmp_onu_rx_power)
-        epon_onu_rx_map = _snmp_epon_rows_to_key_map(epon_onu_rx_rows, epon_onu_rx_oid, pon_indexes, _format_snmp_onu_rx_power)
-        for key in set(epon_olt_rx_map.keys()) | set(epon_onu_rx_map.keys()) | set(epon_onu_tx_map.keys()):
-            if key not in items:
-                items[key] = {
-                    "onu_rx": epon_onu_rx_map.get(key) or "--",
-                    "olt_rx": epon_olt_rx_map.get(key) or "--",
-                    "tx_power": epon_onu_tx_map.get(key) or "--",
-                }
-            else:
-                if items[key].get("tx_power") == "--":
-                    items[key]["tx_power"] = epon_onu_tx_map.get(key) or "--"
+        epon_items, epon_count = _snmp_epon_port_signal_map(olt, pon_indexes, signal_limit=signal_limit)
+        items.update(epon_items)
 
         if not items:
-            result["status"] = "SNMP ONU signal map: no data from GPON or EPON OIDs"
+            result["status"] = "SNMP ONU signal map: no GPON/XG or EPON signal data"
             return result
 
         result["ok"] = True
         result["items"] = items
         gpon_count = len(gpon_onu_rx_map) + len(gpon_olt_rx_map)
-        epon_count = len(epon_onu_rx_map) + len(epon_onu_tx_map) + len(epon_olt_rx_map)
-        result["status"] = f"SNMP ONU signals fetched: {len(items)} (GPON rows: {gpon_count}, EPON rows: {epon_count})"
+        result["status"] = f"SNMP ONU signals fetched: {len(items)} (GPON/XG rows: {gpon_count}; EPON rows: {epon_count})"
         return result
     except Exception as exc:
         result["status"] = f"SNMP ONU signal map fetch failed: {exc}"
@@ -1481,7 +1652,7 @@ def fetch_olt_snmp_onu_signal_map(olt, *, ifname_limit=4096, signal_limit=32768)
 def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
     """Fetch optical signal for a single ONU via SNMP GET.
 
-    Tries GPON DDM OIDs first; falls back to EPON DDM OIDs if GPON returns no data.
+    Uses EPON OIDs first for EPON slots; otherwise GPON/XG OIDs first.
     GPON: ONU Rx .51.1.4 / OLT Rx .51.1.6 (offset (v-10000)/100)
     EPON: OLT Rx .104.1.1 / ONU Tx .104.1.4 / ONU Rx .104.1.5  (all plain v/100)
           Index scheme: frame.slot.port.onu_id (primary) or ifIndex.onu_id (fallback)
@@ -1492,24 +1663,26 @@ def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
         result["status"] = "SNMP ONU signal ifIndex lookup failed"
         return result
     last_error = ""
+    tech = str(_slot_pon_tech(olt, slot) or "").upper()
+    is_epon = tech == "EPON"
 
-    # Try GPON OIDs first
-    oid_gpon_onu_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.51.1.4.{if_index}.{int(ont_id)}"
-    oid_gpon_olt_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.51.1.6.{if_index}.{int(ont_id)}"
-    for mp_model in (1, 0):
-        try:
-            err_onu, stat_onu, _, vb_onu = _snmp_get_value(olt, oid_gpon_onu_rx, mp_model=mp_model)
-            err_olt, stat_olt, _, vb_olt = _snmp_get_value(olt, oid_gpon_olt_rx, mp_model=mp_model)
-            if err_onu or stat_onu or err_olt or stat_olt:
-                last_error = str(err_onu or stat_onu or err_olt or stat_olt)
-                continue
-            onu_rx = _format_snmp_onu_rx_power(vb_onu[0][1]) if _snmp_varbind_has_value(vb_onu) else "--"
-            olt_rx = _format_snmp_olt_rx_power(vb_olt[0][1]) if _snmp_varbind_has_value(vb_olt) else "--"
-            if onu_rx != "--" or olt_rx != "--":
-                result.update({"status": "SNMP ONU signal fetched (GPON)", "onu_rx": onu_rx, "olt_rx": olt_rx})
-                return result
-        except Exception as exc:
-            last_error = str(exc)
+    if not is_epon:
+        oid_gpon_onu_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.51.1.4.{if_index}.{int(ont_id)}"
+        oid_gpon_olt_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.51.1.6.{if_index}.{int(ont_id)}"
+        for mp_model in (1, 0):
+            try:
+                err_onu, stat_onu, _, vb_onu = _snmp_get_value(olt, oid_gpon_onu_rx, mp_model=mp_model)
+                err_olt, stat_olt, _, vb_olt = _snmp_get_value(olt, oid_gpon_olt_rx, mp_model=mp_model)
+                if err_onu or stat_onu or err_olt or stat_olt:
+                    last_error = str(err_onu or stat_onu or err_olt or stat_olt)
+                    continue
+                onu_rx = _format_snmp_onu_rx_power(vb_onu[0][1]) if _snmp_varbind_has_value(vb_onu) else "--"
+                olt_rx = _format_snmp_olt_rx_power(vb_olt[0][1]) if _snmp_varbind_has_value(vb_olt) else "--"
+                if onu_rx != "--" or olt_rx != "--":
+                    result.update({"status": "SNMP ONU signal fetched (GPON)", "onu_rx": onu_rx, "olt_rx": olt_rx})
+                    return result
+            except Exception as exc:
+                last_error = str(exc)
 
     # GPON OIDs returned nothing — try EPON DDM OIDs (hwEponDeviceOntOpticsDdmInfoTable .104.x)
     # Try both index schemes: frame.slot.port.onu_id AND ifIndex.onu_id
@@ -1571,6 +1744,29 @@ def fetch_single_onu_snmp_status(olt, slot, port, ont_id):
                 return {"status": "SNMP ONU status fetched", "value": status_value}
         except Exception as exc:
             last_error = str(exc)
+
+    tech = str(_slot_pon_tech(olt, slot) or "").upper()
+    if tech == "EPON":
+        for index_suffix in (
+            f"0.{int(slot)}.{int(port)}.{int(ont_id)}",
+            f"{if_index}.{int(ont_id)}",
+        ):
+            epon_run_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.56.1.15.{index_suffix}"
+            epon_config_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.56.1.16.{index_suffix}"
+            for mp_model in (1, 0):
+                try:
+                    err_run, stat_run, _, vb_run = _snmp_get_value(olt, epon_run_oid, mp_model=mp_model)
+                    err_config, stat_config, _, vb_config = _snmp_get_value(olt, epon_config_oid, mp_model=mp_model)
+                    if err_run or stat_run:
+                        last_error = str(err_run or stat_run)
+                        continue
+                    run_value = vb_run[0][1] if _snmp_varbind_has_value(vb_run) else ""
+                    config_value = "" if (err_config or stat_config) else (vb_config[0][1] if _snmp_varbind_has_value(vb_config) else "")
+                    status_value = _map_snmp_onu_status(run_value, config_value)
+                    if status_value:
+                        return {"status": "SNMP ONU status fetched (EPON)", "value": status_value}
+                except Exception as exc:
+                    last_error = str(exc)
     result["status"] = f"SNMP ONU status fetch failed: {last_error or 'no response'}"
     return result
 
@@ -2207,8 +2403,14 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
         for mp_model in (1, 0):
             try:
                 ifname_rows = _snmp_walk_rows(olt, base_ifname_oid, limit=ifname_limit, mp_model=mp_model)
-                run_rows = _snmp_walk_rows(olt, base_run_oid, limit=status_limit, mp_model=mp_model)
-                config_rows = _snmp_walk_rows(olt, base_config_oid, limit=status_limit, mp_model=mp_model)
+                try:
+                    run_rows = _snmp_walk_rows(olt, base_run_oid, limit=status_limit, mp_model=mp_model)
+                except Exception:
+                    run_rows = {}
+                try:
+                    config_rows = _snmp_walk_rows(olt, base_config_oid, limit=status_limit, mp_model=mp_model)
+                except Exception:
+                    config_rows = {}
                 break
             except Exception as exc:
                 last_error = str(exc)
@@ -2228,34 +2430,16 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
             with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
                 _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
 
-        config_by_key = {}
-        for oid_text, raw_value in (config_rows or {}).items():
-            suffix = oid_text[len(base_config_oid) + 1 :]
-            parts = suffix.split(".")
-            if len(parts) < 2:
-                continue
-            config_by_key[(str(parts[-2]).strip(), int(parts[-1]))] = str(raw_value or "").strip()
-
-        items = {}
-        for oid_text, raw_value in (run_rows or {}).items():
-            suffix = oid_text[len(base_run_oid) + 1 :]
-            parts = suffix.split(".")
-            if len(parts) < 2:
-                continue
-            if_index = str(parts[-2]).strip()
-            ont_id = int(parts[-1])
-            fsp = gpon_indexes.get(if_index)
-            if not fsp:
-                continue
-            _, slot, port = fsp
-            status_value = _map_snmp_onu_status(raw_value, config_by_key.get((if_index, ont_id)))
-            if status_value:
-                items[(slot, port, ont_id)] = status_value
-        truncated = len(ifname_rows or {}) >= ifname_limit or len(run_rows or {}) >= status_limit
+        gpon_items = _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, gpon_indexes)
+        items = dict(gpon_items)
+        truncated = (
+            len(ifname_rows or {}) >= ifname_limit
+            or len(run_rows or {}) >= status_limit
+        )
         result["items"] = items
         result["truncated"] = truncated
         suffix = " (walk limit reached)" if truncated else ""
-        result["status"] = f"SNMP ONU status map fetched: {len(items)}{suffix}"
+        result["status"] = f"SNMP ONU status map fetched: {len(items)} (GPON/XG){suffix}"
         return result
     except Exception as exc:
         result["status"] = f"SNMP ONU status map fetch failed: {exc}"
@@ -5623,6 +5807,57 @@ def fetch_configured_onus_snapshot(olt):
         _close_telnet_session(tn)
 
 
+def fetch_configured_onu_status_rows(olt, slots):
+    """Fetch configured ONU status rows for selected slots without optical reads."""
+    result = {"status": "ONU status inventory unavailable", "rows": []}
+    slots = sorted({int(slot) for slot in (slots or [])})
+    if not slots:
+        result["status"] = "No slots requested."
+        return result
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["status"] = status
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        rows = []
+        slot_status = []
+        for slot in slots:
+            board_tech = _slot_pon_tech(olt, slot)
+            if board_tech in ("GPON", "XGS-PON", "XG-PON"):
+                commands_to_try = (f"display ont info 0/{slot} all", f"display board 0/{slot}")
+            else:
+                commands_to_try = (f"display board 0/{slot}", f"display ont info 0/{slot} all")
+
+            best_rows = []
+            for command in commands_to_try:
+                output = _run_telnet_bulk_command(tn, command, max_wait_seconds=60)
+                parsed_rows = _parse_ont_inventory_rows(output)
+                if len(parsed_rows) > len(best_rows):
+                    best_rows = parsed_rows
+                if best_rows:
+                    break
+            rows.extend(best_rows)
+            slot_status.append(f"0/{slot}: {len(best_rows)}")
+
+        result["rows"] = rows
+        result["status"] = f"Configured ONU status rows fetched: {len(rows)} | Slots: {', '.join(slot_status)}"
+        return result
+    except (socket.timeout, TimeoutError):
+        result["status"] = "Telnet timeout while fetching configured ONU status rows."
+        return result
+    except EOFError:
+        result["status"] = "Telnet connection closed while fetching configured ONU status rows."
+        return result
+    except OSError as exc:
+        result["status"] = f"Telnet error while fetching configured ONU status rows: {exc}"
+        return result
+    finally:
+        _close_telnet_session(tn)
+
+
 def detect_new_onus_from_snmp(olt):
     """Compare SNMP-visible ONU keys with DB. Returns new (slot, port, ont_id) tuples not yet in DB.
 
@@ -5938,13 +6173,14 @@ def _get_ont_counts_from_db(olt):
 
     counts = {}
     total_rows = 0
-    for item in ConfiguredONU.objects.filter(olt=olt).values("slot", "port", "run_state"):
+    for item in ConfiguredONU.objects.filter(olt=olt).values("slot", "port", "run_state", "derived_status"):
         slot = int(item.get("slot") or 0)
         port = int(item.get("port") or 0)
+        derived_status = str(item.get("derived_status") or "").strip().lower()
         run_state = str(item.get("run_state") or "").strip().lower()
         bucket = counts.setdefault((slot, port), {"online": 0, "offline": 0})
         total_rows += 1
-        if run_state == "online":
+        if derived_status == "online" or (not derived_status and run_state == "online"):
             bucket["online"] += 1
         else:
             bucket["offline"] += 1
@@ -11373,6 +11609,13 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
             on_progress({"checked": 0, "total": 0, "updated": 0, "status_changed": 0, "done": True, "message": "No ONU records to check."})
         return {"olt": olt.name, "checked": 0, "updated": 0, "status": "No ONU records to check.", "last_pk": start_pk or 0, "wrapped": wrapped}
 
+    record_slots = {int(record.slot) for record in records}
+    epon_slots = {
+        int(record.slot)
+        for record in records
+        if str(_slot_pon_tech(olt, int(record.slot)) or "").upper() == "EPON"
+    }
+    all_records_are_epon = bool(record_slots) and record_slots == epon_slots
     total_records = len(records)
     updated = 0
     checked = 0
@@ -11384,8 +11627,30 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
         if on_progress:
             on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
-        snmp_result = fetch_olt_snmp_status_map(olt)
+        snmp_result = {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status walk for EPON batch."} if all_records_are_epon else fetch_olt_snmp_status_map(olt)
         snmp_status_map = snmp_result.get("items") or {}
+        epon_inventory_map = {}
+        if epon_slots:
+            inventory_result = fetch_configured_onu_status_rows(olt, epon_slots)
+            for row in inventory_result.get("rows") or []:
+                try:
+                    key = (int(row.get("slot") or 0), int(row.get("port") or 0), int(row.get("ont_id") or 0))
+                except (TypeError, ValueError):
+                    continue
+                if key[0] not in epon_slots:
+                    continue
+                status_value = derive_inventory_onu_status(row)
+                signal_bucket = str(row.get("signal_bucket") or "").strip()
+                if status_value == "offline" and signal_bucket in {"good", "warn", "bad"}:
+                    status_value = "online"
+                epon_inventory_map[key] = {
+                    "status": status_value,
+                    "run_state": str(row.get("run_state") or "").strip().lower(),
+                    "control_flag": str(row.get("control_flag") or "").strip().lower(),
+                    "signal_bucket": signal_bucket,
+                }
+                if status_value:
+                    snmp_status_map[key] = status_value
         if not snmp_status_map:
             message = snmp_result.get("status") or "No SNMP ONU status data returned."
             if on_progress:
@@ -11411,18 +11676,27 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
         for record in records:
             checked += 1
             changed = False
-            snmp_status = str(snmp_status_map.get((int(record.slot), int(record.port), int(record.ont_id))) or "").strip().lower()
+            record_key = (int(record.slot), int(record.port), int(record.ont_id))
+            inventory_status = epon_inventory_map.get(record_key)
+            snmp_status = str(snmp_status_map.get(record_key) or "").strip().lower()
             if not snmp_status and snmp_complete:
                 snmp_status = "offline"
             debounced_snmp_status = _debounced_snmp_runtime_status(record, snmp_status)
             runtime_run_state = "online" if debounced_snmp_status == "online" else "offline" if debounced_snmp_status == "offline" else ""
+            if inventory_status and inventory_status.get("run_state"):
+                runtime_run_state = inventory_status["run_state"]
             if runtime_run_state and runtime_run_state != (record.run_state or "").strip().lower():
                 record.run_state = runtime_run_state
                 changed = True
+            if inventory_status:
+                control_flag = str(inventory_status.get("control_flag") or "").strip()
+                if control_flag and control_flag != (record.control_flag or "").strip().lower():
+                    record.control_flag = control_flag[:32]
+                    changed = True
 
             trap_status = trap_status_map.get((int(record.slot), int(record.port), int(record.ont_id)))
             runtime_status = trap_status or debounced_snmp_status or str(record.derived_status or "").strip().lower()
-            runtime_source = "trap" if trap_status else "snmp_runtime" if debounced_snmp_status else (record.status_source or "")
+            runtime_source = "trap" if trap_status else "inventory_runtime" if inventory_status else "snmp_runtime" if debounced_snmp_status else (record.status_source or "")
             current_status = str(record.derived_status or "").strip().lower()
             current_source = str(record.status_source or "").strip()
             if runtime_status and runtime_status != current_status:
@@ -11474,6 +11748,10 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
                 [
                     "run_state",
                     "control_flag",
+                    "onu_rx",
+                    "olt_rx",
+                    "tx_power",
+                    "signal_bucket",
                     "derived_status",
                     "status_source",
                     "status_first_seen_at",
