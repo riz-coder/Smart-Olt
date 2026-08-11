@@ -951,6 +951,24 @@
         r: 4.8;
         fill: #ffd27b;
     }
+    .signal-chart-path-carried {
+        stroke-dasharray: 7 6;
+        opacity: 0.68;
+    }
+    .signal-chart-dot-carried {
+        fill: rgba(255, 179, 71, 0.22);
+        stroke: #ffb347;
+        stroke-width: 2;
+    }
+    .signal-chart-dot-single-retry {
+        fill: #63b3ff;
+        stroke: #d9ecff;
+    }
+    .signal-chart-dot-stale {
+        fill: #7c8798;
+        stroke: #d2dae8;
+        opacity: 0.72;
+    }
     .traffic-chart-path-up {
         fill: none;
         stroke: #3ddc97;
@@ -1974,6 +1992,18 @@
 
     const formatDbm = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} dBm` : '--');
 
+    const signalSourceLabel = (source) => ({
+        fresh: 'Fresh SNMP sample',
+        single_retry: 'Single retry sample',
+        carried: 'Carried from last value',
+        stale: 'Stale carried value',
+    }[String(source || '').trim()] || 'Fresh SNMP sample');
+
+    const signalSourceClass = (source) => {
+        const clean = String(source || 'fresh').trim().replace(/_/g, '-');
+        return ['fresh', 'carried', 'single-retry', 'stale'].includes(clean) ? clean : 'fresh';
+    };
+
     const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (match) => ({
         '&': '&amp;',
         '<': '&lt;',
@@ -2350,6 +2380,7 @@
             label: item.label || formatTime(pointTime),
             onu_rx: typeof item.onu_rx === 'number' ? item.onu_rx : parseDbm(item.onu_rx),
             olt_rx: typeof item.olt_rx === 'number' ? item.olt_rx : parseDbm(item.olt_rx),
+            sample_source: item.sample_source || item.source || 'fresh',
         };
     };
 
@@ -2409,7 +2440,9 @@
                 const y = yForValue(point.olt_rx).toFixed(1);
                 const valueLabel = formatDbm(point.olt_rx);
                 const timeLabel = point.label || formatTime(point.time);
-                return `<circle class="signal-chart-dot-olt" cx="${x}" cy="${y}" r="3.2" data-point-time="${timeLabel}" data-point-value="${valueLabel}"><title>${timeLabel} | ${valueLabel}</title></circle>`;
+                const sourceClass = signalSourceClass(point.sample_source);
+                const sourceLabel = signalSourceLabel(point.sample_source);
+                return `<circle class="signal-chart-dot-olt signal-chart-dot-${sourceClass}" cx="${x}" cy="${y}" r="3.2" data-point-time="${timeLabel}" data-point-value="${valueLabel}" data-point-source="${sourceLabel}"><title>${timeLabel} | ${valueLabel} | ${sourceLabel}</title></circle>`;
             })
             .filter(Boolean)
             .join('');
@@ -2435,9 +2468,10 @@
             labels += `<text class="signal-chart-axis" x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle">${visibleHistory[index].label}</text>`;
         });
 
+        const hasFreshPoint = visibleHistory.some((point) => String(point.sample_source || 'fresh') === 'fresh' || String(point.sample_source || '') === 'single_retry');
         chartNode.innerHTML = `
             ${grid}
-            ${oltPoints ? `<polyline class="signal-chart-path-olt" points="${oltPoints}"></polyline>` : ''}
+            ${oltPoints ? `<polyline class="signal-chart-path-olt ${hasFreshPoint ? '' : 'signal-chart-path-carried'}" points="${oltPoints}"></polyline>` : ''}
             ${oltDots}
             ${labels}
         `;
@@ -2456,7 +2490,7 @@
             return;
         }
         const wrapRect = chartNode.parentElement.getBoundingClientRect();
-        chartTooltipNode.innerHTML = `<strong>OLT Rx</strong>${dot.dataset.pointTime || ''}<br>${dot.dataset.pointValue || '--'}`;
+        chartTooltipNode.innerHTML = `<strong>OLT Rx</strong>${dot.dataset.pointTime || ''}<br>${dot.dataset.pointValue || '--'}<br>${dot.dataset.pointSource || ''}`;
         chartTooltipNode.style.left = `${event.clientX - wrapRect.left}px`;
         chartTooltipNode.style.top = `${event.clientY - wrapRect.top}px`;
         chartTooltipNode.hidden = false;
@@ -2739,6 +2773,7 @@
                     label: formatTime(now),
                     onu_rx: freshOnuValue,
                     olt_rx: freshOltValue,
+                    sample_source: 'single_retry',
                 });
                 const cutoff = now.getTime() - (60 * 60 * 1000);
                 signalGraphHistory = signalGraphHistory.filter((point) => point.time && point.time.getTime() >= cutoff);

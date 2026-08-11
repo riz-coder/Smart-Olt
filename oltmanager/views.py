@@ -3687,6 +3687,7 @@ def _refresh_single_onu_power_from_snmp(olt, record, slot, port, ont_id):
                 onu_rx=record.onu_rx,
                 olt_rx=record.olt_rx,
                 tx_power=record.tx_power if record.tx_power != "--" else "",
+                sample_source=ONUOpticalSample.SOURCE_SINGLE_RETRY,
             )
         except Exception:
             pass
@@ -3905,7 +3906,7 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
             sampled_at__gte=since,
         )
         .order_by("sampled_at")
-        .values("sampled_at", "onu_rx", "olt_rx", "tx_power")
+        .values("sampled_at", "onu_rx", "olt_rx", "tx_power", "sample_source")
     )
     history = []
     for row in rows:
@@ -3915,6 +3916,7 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
                 "onu_rx": row.get("onu_rx") or "--",
                 "olt_rx": row.get("olt_rx") or "--",
                 "tx_power": row.get("tx_power") or "--",
+                "sample_source": row.get("sample_source") or "fresh",
             }
         )
     if not history:
@@ -3933,6 +3935,7 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
                         "onu_rx": current.get("onu_rx") or "--",
                         "olt_rx": current.get("olt_rx") or "--",
                         "tx_power": current.get("tx_power") or "--",
+                        "sample_source": "carried",
                     }
                 )
     with _ONU_SIGNAL_HISTORY_CACHE_LOCK:
@@ -4144,7 +4147,7 @@ def _build_onu_signal_graph_data(olt, slot, port, ont_id, range_key="1h"):
             sampled_at__gte=since,
         )
         .order_by("sampled_at")
-        .values("sampled_at", "onu_rx", "olt_rx", "tx_power")
+        .values("sampled_at", "onu_rx", "olt_rx", "tx_power", "sample_source")
     )
     if not rows:
         current = (
@@ -4161,6 +4164,7 @@ def _build_onu_signal_graph_data(olt, slot, port, ont_id, range_key="1h"):
                     "onu_rx": current.get("onu_rx") or "",
                     "olt_rx": current.get("olt_rx") or "",
                     "tx_power": current.get("tx_power") or "",
+                    "sample_source": "carried",
                 }]
     points = []
     latest_onu = None
@@ -4188,6 +4192,7 @@ def _build_onu_signal_graph_data(olt, slot, port, ont_id, range_key="1h"):
                 "sampled_at": local_dt.isoformat(),
                 "onu_rx": point_onu,
                 "olt_rx": point_olt,
+                "sample_source": row.get("sample_source") or "fresh",
             }
         )
 
@@ -5927,6 +5932,7 @@ def configured_onu_signals_refresh(request):
                         onu_rx=fresh_signal_row["onu_rx"] if fresh_signal_row["onu_rx"] != "--" else "",
                         olt_rx=fresh_signal_row["olt_rx"] if fresh_signal_row["olt_rx"] != "--" else "",
                         tx_power=(signal.get("tx_power") or "") if ((signal.get("tx_power") or "") != "--") else "",
+                        sample_source=ONUOpticalSample.SOURCE_FRESH,
                     )
                 )
                 recent_signal_sample_keys.add(sample_key)
@@ -7038,10 +7044,9 @@ def configured_onu_running_config(request, olt_pk, slot, port, ont_id):
 def configured_onu_fetch_config(request, olt_pk, slot, port, ont_id):
     """Read this ONU's live service-port/VLAN/profile config from the OLT and update the DB.
 
-    Runs `display current-configuration | include gpon 0/<slot>/<port> ont <ont_id> gemport`
-    via `sync_single_onu_attached_vlans`, which parses the attached VLANs, service-port
-    IDs and speed profiles and writes them to the ConfiguredONU cache fields. Returns
-    whether anything actually changed so the UI can say "updated" vs "already in sync".
+    Runs the exact ONU service-port lookup via `sync_single_onu_attached_vlans`,
+    then parses VLANs, service-port IDs and speed profiles into cache fields.
+    Returns whether anything changed so the UI can say "updated" vs "already in sync".
     """
     olt = get_object_or_404(OLT, pk=olt_pk)
     locked_response = _deny_olt_access_if_locked(request, olt)

@@ -596,23 +596,29 @@ def _onu_signal_sample_loop():
     _sleep_until_interval_boundary(ONU_SIGNAL_SAMPLE_SECONDS)
 
     while True:
+        cycle_started_at = time.monotonic()
         try:
             close_old_connections()
             olt_ids = list(OLT.objects.filter(olt_background_enabled_q()).order_by("id").values_list("id", flat=True))
             if olt_ids:
-                with ThreadPoolExecutor(max_workers=min(ONU_SIGNAL_SAMPLE_MAX_WORKERS, max(1, len(olt_ids))), thread_name_prefix="onu-signal") as executor:
-                    futures = [executor.submit(_sample_single_olt, olt_id) for olt_id in olt_ids]
-                    for future in as_completed(futures):
-                        try:
-                            future.result()
-                        except Exception:
-                            logger.exception("ONU signal sample worker failed.")
-                            close_old_connections()
+                # Spread OLT signal sampling across the hour. This avoids a CPU/SNMP
+                # burst while still giving every active OLT one signal pass per cycle.
+                stagger_delay = max(0.0, float(ONU_SIGNAL_SAMPLE_SECONDS) / max(1, len(olt_ids)))
+                for index, olt_id in enumerate(olt_ids):
+                    try:
+                        _sample_single_olt(olt_id)
+                    except Exception:
+                        logger.exception("ONU signal sample worker failed.")
+                        close_old_connections()
+                    if index < len(olt_ids) - 1 and stagger_delay > 0:
+                        next_slot_at = cycle_started_at + ((index + 1) * stagger_delay)
+                        time.sleep(max(0.0, next_slot_at - time.monotonic()))
         except Exception:
             logger.exception("ONU signal sample cycle failed.")
         finally:
             close_old_connections()
-        time.sleep(ONU_SIGNAL_SAMPLE_SECONDS)
+        elapsed = time.monotonic() - cycle_started_at
+        time.sleep(max(30.0, float(ONU_SIGNAL_SAMPLE_SECONDS) - elapsed))
 
 
 class OltmanagerConfig(AppConfig):

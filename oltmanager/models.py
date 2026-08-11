@@ -232,6 +232,17 @@ class ONUTrapEvent(models.Model):
 
 
 class ONUOpticalSample(models.Model):
+    SOURCE_FRESH = 'fresh'
+    SOURCE_CARRIED = 'carried'
+    SOURCE_SINGLE_RETRY = 'single_retry'
+    SOURCE_STALE = 'stale'
+    SAMPLE_SOURCE_CHOICES = [
+        (SOURCE_FRESH, 'Fresh'),
+        (SOURCE_CARRIED, 'Carried'),
+        (SOURCE_SINGLE_RETRY, 'Single retry'),
+        (SOURCE_STALE, 'Stale'),
+    ]
+
     olt = models.ForeignKey(OLT, on_delete=models.CASCADE, related_name='onu_optical_samples')
     slot = models.PositiveIntegerField()
     port = models.PositiveIntegerField()
@@ -239,6 +250,7 @@ class ONUOpticalSample(models.Model):
     onu_rx = models.CharField(max_length=32, blank=True, default='')
     olt_rx = models.CharField(max_length=32, blank=True, default='')
     tx_power = models.CharField(max_length=32, blank=True, default='')
+    sample_source = models.CharField(max_length=16, choices=SAMPLE_SOURCE_CHOICES, default=SOURCE_FRESH, db_index=True)
     sampled_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

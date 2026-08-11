@@ -9939,6 +9939,8 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
             filtered.append(" ".join(current.split()))
         deduped = []
         for line in filtered:
+            if not _service_port_line_matches_onu(line, 0, slot, port, ont_id):
+                continue
             if line not in deduped:
                 deduped.append(line)
         return deduped
@@ -9981,6 +9983,7 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
             if _telnet_auth_output_detected(cleaned_primary_output):
                 raise OSError("Telnet session returned to login prompt.")
             primary_lines = _extract_primary_lines(cleaned_primary_output)
+            service_port_lines = _extract_service_port_lines(cleaned_primary_output)
 
             if not primary_lines:
                 safe_commands = (
@@ -9999,12 +10002,17 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
                     for line in _extract_primary_lines(cleaned_safe_output):
                         if line not in primary_lines:
                             primary_lines.append(line)
+                    for line in _extract_service_port_lines(cleaned_safe_output):
+                        if line not in service_port_lines:
+                            service_port_lines.append(line)
             if not primary_lines:
                 return "", ""
             service_port_output = _run_telnet_bulk_command(tn, service_port_command, max_wait_seconds=10 if is_ma5608t else 14, poll_seconds=0.12)
             if _telnet_auth_output_detected(service_port_output):
                 raise OSError("Telnet session returned to login prompt.")
-            service_port_lines = _extract_service_port_lines(_clean_running_config_output(service_port_command, service_port_output))
+            for line in _extract_service_port_lines(_clean_running_config_output(service_port_command, service_port_output)):
+                if line not in service_port_lines:
+                    service_port_lines.append(line)
             final_sections = ["\n".join(primary_lines)]
             if service_port_lines:
                 final_sections.append("\n".join(service_port_lines))
@@ -10634,6 +10642,28 @@ def _compact_service_port_config_output(output_text):
     return merged
 
 
+def _service_port_line_matches_onu(line, frame, slot, port, ont_id):
+    """Return True only when a service-port line references this exact ONU."""
+    try:
+        frame = int(frame or 0)
+        slot = int(slot)
+        port = int(port)
+        ont_id = int(ont_id)
+    except (TypeError, ValueError):
+        return False
+    pattern = re.compile(
+        rf"(?i)\b(?:gpon|epon|xgpon)\s+{frame}\s*/\s*{slot}\s*/\s*{port}\s+ont\s+{ont_id}(?!\d)\b"
+    )
+    return bool(pattern.search(str(line or "")))
+
+
+def _filter_service_port_config_for_onu(output_text, frame, slot, port, ont_id):
+    return "\n".join(
+        line for line in _compact_service_port_config_output(output_text)
+        if _service_port_line_matches_onu(line, frame, slot, port, ont_id)
+    )
+
+
 def _parse_service_port_details_from_current_config(output_text, profile_name_map=None):
     profile_name_map = profile_name_map or {}
     vlan_ids = []
@@ -10842,14 +10872,22 @@ def _parse_service_port_all_vlan_map(output_text):
 
 def _sync_record_attached_vlans_via_telnet(tn, record, now=None, max_wait_seconds=35, allow_empty_overwrite=False):
     now = now or timezone.now()
-    command = f"display current-configuration | include gpon 0/{int(record.slot)}/{int(record.port)} ont {int(record.ont_id)} gemport"
+    pon_kw = "epon" if str(_slot_pon_tech(record.olt, record.slot) or "").upper() == "EPON" else "gpon"
+    command = f"display current-configuration | include {pon_kw} 0/{int(record.slot)}/{int(record.port)} ont {int(record.ont_id)}"
     # _run_telnet_bulk_command returns the moment the OLT's "hostname#" prompt
     # comes back (output complete); otherwise it waits up to max_wait_seconds.
     output = _run_telnet_bulk_command(tn, command, max_wait_seconds=max_wait_seconds)
-    preview_details = _parse_service_port_details_from_current_config(output, {})
+    filtered_output = _filter_service_port_config_for_onu(
+        output,
+        int(record.frame or 0),
+        int(record.slot),
+        int(record.port),
+        int(record.ont_id),
+    )
+    preview_details = _parse_service_port_details_from_current_config(filtered_output, {})
     requested_indices = (preview_details.get("download_profile_indices") or []) + (preview_details.get("upload_profile_indices") or [])
     profile_name_map = _ensure_speed_profile_name_map_for_indices(tn, requested_indices, _load_speed_profile_name_map())
-    details = _parse_service_port_details_from_current_config(output, profile_name_map)
+    details = _parse_service_port_details_from_current_config(filtered_output, profile_name_map)
     has_existing_config = any(
         str(getattr(record, field, "") or "").strip()
         for field in (
@@ -10875,10 +10913,10 @@ def _sync_record_attached_vlans_via_telnet(tn, record, now=None, max_wait_second
                 "upload_profile_names": [x.strip() for x in str(record.upload_profile_name_cache or "").split(",") if x.strip()],
             },
             "command": command,
-            "output": output,
+            "output": filtered_output or output,
             "preserved_existing": True,
         }
-    return _apply_service_port_details_to_record(record, details, now=now, command=command, output=output)
+    return _apply_service_port_details_to_record(record, details, now=now, command=command, output=filtered_output or output)
 
 
 def _apply_service_port_details_to_record(record, details, now=None, command="", output=""):
@@ -11868,6 +11906,19 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
     now = timezone.now()
     recent_sample_keys = recent_onu_optical_sample_keys(olt, now=now)
     filled = 0
+    single_retry_limit = max(0, int(getattr(settings, "OLT_ONU_SIGNAL_SINGLE_RETRY_LIMIT", 120) or 0))
+    stale_after_seconds = max(0, int(getattr(settings, "OLT_ONU_OPTICAL_STALE_AFTER_SECONDS", 21600) or 0))
+    fresh_recent_keys = set()
+    if stale_after_seconds > 0:
+        fresh_since = now - datetime.timedelta(seconds=stale_after_seconds)
+        fresh_recent_keys = {
+            (int(slot), int(port), int(ont_id))
+            for slot, port, ont_id in ONUOpticalSample.objects.filter(
+                olt=olt,
+                sampled_at__gte=fresh_since,
+                sample_source__in=[ONUOpticalSample.SOURCE_FRESH, ONUOpticalSample.SOURCE_SINGLE_RETRY],
+            ).values_list("slot", "port", "ont_id").distinct()
+        }
 
     def _record_has_cached_signal(record):
         return any(
@@ -11875,7 +11926,13 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
             for field in ("onu_rx", "olt_rx", "tx_power")
         )
 
-    def _append_cached_sample(key, record):
+    def _cached_sample_source(record):
+        if stale_after_seconds <= 0:
+            return ONUOpticalSample.SOURCE_CARRIED
+        key = (int(record.slot), int(record.port), int(record.ont_id))
+        return ONUOpticalSample.SOURCE_CARRIED if key in fresh_recent_keys else ONUOpticalSample.SOURCE_STALE
+
+    def _append_sample(key, record, source):
         if key in recent_sample_keys:
             return False
         if str(getattr(record, "derived_status", "") or "").strip().lower() != "online":
@@ -11890,9 +11947,42 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
             onu_rx=record.onu_rx or "",
             olt_rx=record.olt_rx or "",
             tx_power=record.tx_power or "",
+            sample_source=source,
         ))
         recent_sample_keys.add(key)
         return True
+
+    def _append_cached_sample(key, record):
+        return _append_sample(key, record, _cached_sample_source(record))
+
+    def _apply_signal_to_record(record, signal):
+        onu_rx = str(signal.get("onu_rx") or "").strip()
+        olt_rx = str(signal.get("olt_rx") or "").strip()
+        tx_power = str(signal.get("tx_power") or "").strip()
+
+        if not any(v and v != "--" for v in (onu_rx, olt_rx, tx_power)):
+            return False
+
+        def _missing(val):
+            v = (val or "").strip()
+            return not v or v == "--"
+
+        changed = False
+        if onu_rx and onu_rx != "--" and (overwrite or _missing(record.onu_rx)):
+            record.onu_rx = onu_rx[:32]
+            changed = True
+        if olt_rx and olt_rx != "--" and (overwrite or _missing(record.olt_rx)):
+            record.olt_rx = olt_rx[:32]
+            changed = True
+        if tx_power and tx_power != "--" and (overwrite or _missing(record.tx_power)):
+            record.tx_power = tx_power[:32]
+            changed = True
+
+        if changed:
+            sig_src = record.olt_rx if (record.olt_rx and record.olt_rx != "--") else record.onu_rx
+            record.signal_bucket = _signal_bucket_from_dbm_text(sig_src)
+            record.status_updated_at = now
+        return changed
 
     snmp_result = fetch_olt_snmp_onu_signal_map(olt)
     items = snmp_result.get("items") or {}
@@ -11916,51 +12006,33 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
         if not record:
             continue
 
-        onu_rx = str(signal.get("onu_rx") or "").strip()
-        olt_rx = str(signal.get("olt_rx") or "").strip()
-        tx_power = str(signal.get("tx_power") or "").strip()
-
-        if not any(v and v != "--" for v in (onu_rx, olt_rx, tx_power)):
-            continue
-
-        def _missing(val):
-            v = (val or "").strip()
-            return not v or v == "--"
-
-        changed = False
-        if onu_rx and onu_rx != "--" and (overwrite or _missing(record.onu_rx)):
-            record.onu_rx = onu_rx[:32]
-            changed = True
-        if olt_rx and olt_rx != "--" and (overwrite or _missing(record.olt_rx)):
-            record.olt_rx = olt_rx[:32]
-            changed = True
-        if tx_power and tx_power != "--" and (overwrite or _missing(record.tx_power)):
-            record.tx_power = tx_power[:32]
-            changed = True
-
+        changed = _apply_signal_to_record(record, signal)
         if changed:
-            sig_src = record.olt_rx if (record.olt_rx and record.olt_rx != "--") else record.onu_rx
-            record.signal_bucket = _signal_bucket_from_dbm_text(sig_src)
-            record.status_updated_at = now
             to_update.append(record)
             filled += 1
 
-        if key not in recent_sample_keys:
-            samples.append(ONUOpticalSample(
-                olt=olt,
-                slot=record.slot,
-                port=record.port,
-                ont_id=record.ont_id,
-                onu_rx=record.onu_rx or "",
-                olt_rx=record.olt_rx or "",
-                tx_power=record.tx_power or "",
-            ))
-            recent_sample_keys.add(key)
+        _append_sample(key, record, ONUOpticalSample.SOURCE_FRESH)
 
+    single_retry_samples = 0
+    single_retry_updates = 0
+    single_retry_checked = 0
     cached_samples = 0
     for key, record in all_records.items():
         if key in items:
             continue
+        if single_retry_checked < single_retry_limit and str(getattr(record, "derived_status", "") or "").strip().lower() == "online":
+            single_retry_checked += 1
+            try:
+                signal = fetch_single_onu_snmp_signal(olt, record.slot, record.port, record.ont_id)
+            except Exception:
+                signal = {}
+            if signal and any(str(signal.get(field) or "").strip() not in {"", "--"} for field in ("onu_rx", "olt_rx", "tx_power")):
+                if _apply_signal_to_record(record, signal):
+                    to_update.append(record)
+                    single_retry_updates += 1
+                if _append_sample(key, record, ONUOpticalSample.SOURCE_SINGLE_RETRY):
+                    single_retry_samples += 1
+                continue
         if _append_cached_sample(key, record):
             cached_samples += 1
 
@@ -11974,11 +12046,17 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
         ONUOpticalSample.objects.bulk_create(samples, batch_size=500, ignore_conflicts=False)
 
     return {
-        "status": f"SNMP signals: {filled}/{total} ONUs updated ({len(items)} SNMP entries; {cached_samples} cached samples).",
+        "status": (
+            f"SNMP signals: {filled}/{total} ONUs updated "
+            f"({len(items)} SNMP entries; {single_retry_samples} single retries; {cached_samples} cached samples)."
+        ),
         "filled": filled,
         "total": total,
         "snmp_items": len(items),
         "cached_samples": cached_samples,
+        "single_retry_checked": single_retry_checked,
+        "single_retry_updates": single_retry_updates,
+        "single_retry_samples": single_retry_samples,
     }
 
 
@@ -12053,6 +12131,7 @@ def sync_missing_online_onu_power_for_olt(olt, limit=120):
                     onu_rx=record.onu_rx,
                     olt_rx=record.olt_rx,
                     tx_power=record.tx_power,
+                    sample_source=ONUOpticalSample.SOURCE_FRESH,
                 )
             )
             recent_sample_keys.add(key)
@@ -12120,6 +12199,7 @@ def sync_online_onu_power_for_olt(olt, limit=None, start_pk=0):
                     onu_rx=record.onu_rx,
                     olt_rx=record.olt_rx,
                     tx_power=record.tx_power,
+                    sample_source=ONUOpticalSample.SOURCE_FRESH,
                 )
             )
             recent_sample_keys.add(key)
