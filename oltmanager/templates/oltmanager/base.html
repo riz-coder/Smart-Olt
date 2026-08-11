@@ -84,15 +84,49 @@
             color: #f4f7ff;
             text-decoration: none;
             font-family: "Sora", "Manrope", sans-serif;
-            font-size: 30px;
+            font-size: 28px;
             font-weight: 800;
             font-style: italic;
             letter-spacing: -0.04em;
             margin: 0;
-            padding: 8px 10px 14px;
+            padding: 8px 10px 16px;
             border-bottom: 1px solid rgba(255,255,255,0.08);
-            transform: skewX(-7deg);
             text-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-brand-mark {
+            position: relative;
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            border-radius: 50%;
+            background: conic-gradient(from 210deg, #cf72ff, #8c5cff, #2f84ff, #5deaff, #cf72ff);
+            box-shadow: 0 8px 24px rgba(83, 143, 255, 0.42);
+        }
+        .nav-brand-mark::before {
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border-radius: 50%;
+            background: #102045;
+        }
+        .nav-brand-mark::after {
+            content: "";
+            position: absolute;
+            left: -7px;
+            right: -9px;
+            top: 16px;
+            height: 5px;
+            border-radius: 999px;
+            transform: rotate(-18deg);
+            background: linear-gradient(90deg, transparent 0%, #e7c4ff 22%, #82d8ff 62%, transparent 100%);
+            box-shadow: 0 0 14px rgba(108, 187, 255, 0.62);
+        }
+        .nav-brand-text {
+            transform: skewX(-7deg);
+            line-height: 1;
         }
         .nav-links {
             display: flex;
@@ -736,7 +770,10 @@
     {% if user.is_authenticated %}
     <header class="main-nav">
         <div class="nav-inner">
-            <a href="{% url 'olt_list' %}" class="nav-brand" aria-label="Home">OptiVerse</a>
+            <a href="{% url 'olt_list' %}" class="nav-brand" aria-label="Home">
+                <span class="nav-brand-mark" aria-hidden="true"></span>
+                <span class="nav-brand-text">OptiVerse</span>
+            </a>
             <nav class="nav-links">
                 <a href="{% url 'unconfigured_onus' %}" class="nav-link">Autofind</a>
                 <a href="{% url 'configured_onus' %}" class="nav-link">ONUs</a>

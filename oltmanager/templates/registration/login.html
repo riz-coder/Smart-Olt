@@ -3,194 +3,378 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login | Optiverse</title>
+    <title>Login | OptiVerse</title>
     <style>
+        :root {
+            --text: #f7f9ff;
+            --muted: #a9b5d1;
+            --line: rgba(176, 196, 255, 0.28);
+            --panel: rgba(11, 16, 39, 0.74);
+            --blue: #49a9ff;
+            --violet: #a34dff;
+            --cyan: #78f3ff;
+        }
+
         * { box-sizing: border-box; }
 
         body {
             margin: 0;
             min-height: 100vh;
-            font-family: Inter, "Segoe UI", Arial, sans-serif;
-            color: #f4fbff;
-            background:
-                radial-gradient(circle at 50% 52%, rgba(35, 142, 255, 0.2), transparent 34%),
-                linear-gradient(135deg, #020f1e 0%, #05254a 48%, #010a16 100%);
+            font-family: "Sora", "Aptos Display", "Trebuchet MS", sans-serif;
+            color: var(--text);
             overflow: hidden;
+            background:
+                radial-gradient(circle at 8% 38%, rgba(161, 72, 255, 0.32), transparent 18%),
+                radial-gradient(circle at 82% 52%, rgba(111, 33, 180, 0.38), transparent 24%),
+                radial-gradient(circle at 45% 75%, rgba(54, 141, 255, 0.26), transparent 22%),
+                linear-gradient(120deg, #020612 0%, #071225 46%, #080617 100%);
         }
 
-        .circuit {
+        .space {
             position: fixed;
             inset: 0;
+            pointer-events: none;
+            background-image:
+                radial-gradient(circle, rgba(255,255,255,0.95) 0 1px, transparent 1.8px),
+                radial-gradient(circle, rgba(111, 204, 255,0.75) 0 1px, transparent 1.8px),
+                radial-gradient(circle, rgba(186, 104, 255,0.7) 0 1px, transparent 1.8px);
+            background-size: 148px 148px, 214px 214px, 318px 318px;
+            background-position: 22px 19px, 66px 78px, 140px 40px;
+            opacity: 0.55;
+        }
+
+        .planet {
+            position: fixed;
+            left: -12vw;
+            bottom: -36vw;
+            width: 72vw;
+            height: 72vw;
+            border-radius: 50%;
             background:
-                linear-gradient(90deg, transparent 0 6%, rgba(17, 134, 255, 0.28) 6.2% 6.5%, transparent 6.7% 100%),
-                linear-gradient(90deg, transparent 0 28%, rgba(17, 134, 255, 0.22) 28.2% 28.5%, transparent 28.7% 100%),
-                linear-gradient(90deg, transparent 0 75%, rgba(17, 134, 255, 0.25) 75.2% 75.5%, transparent 75.7% 100%),
-                linear-gradient(0deg, transparent 0 18%, rgba(17, 134, 255, 0.2) 18.2% 18.5%, transparent 18.7% 100%),
-                linear-gradient(0deg, transparent 0 62%, rgba(17, 134, 255, 0.22) 62.2% 62.5%, transparent 62.7% 100%);
+                radial-gradient(circle at 58% 10%, rgba(255, 227, 183, 0.9), transparent 4%),
+                radial-gradient(circle at 57% 13%, rgba(115, 160, 255, 0.42), transparent 13%),
+                linear-gradient(145deg, rgba(31, 93, 167, 0.86), rgba(7, 20, 48, 0.96) 42%, #02040d 70%);
+            box-shadow:
+                inset 0 24px 80px rgba(120, 184, 255, 0.16),
+                0 -20px 90px rgba(119, 160, 255, 0.35);
             opacity: 0.9;
         }
 
-        .circuit::before,
-        .circuit::after {
+        .planet::before {
             content: "";
             position: absolute;
-            inset: 3% 0;
-            background-image:
-                linear-gradient(45deg, transparent 0 47%, rgba(25, 143, 255, 0.34) 47.5% 48.2%, transparent 48.7% 100%),
-                linear-gradient(-45deg, transparent 0 52%, rgba(16, 96, 196, 0.38) 52.4% 53%, transparent 53.4% 100%),
-                radial-gradient(circle, rgba(31, 161, 255, 0.55) 0 2px, transparent 3px);
-            background-size: 170px 170px, 210px 210px, 42px 42px;
-            background-position: 0 0, 30px 20px, 14px 12px;
-            mask-image: linear-gradient(90deg, rgba(0,0,0,.9), rgba(0,0,0,.25) 45%, rgba(0,0,0,.9));
-        }
-
-        .circuit::after {
-            transform: scaleX(-1);
-            opacity: 0.55;
+            inset: 8% 0 auto 10%;
+            height: 18%;
+            border-radius: 50%;
+            transform: rotate(-10deg);
+            background: linear-gradient(90deg, transparent, rgba(251, 189, 116, 0.52), rgba(116, 160, 255, 0.62), transparent);
+            filter: blur(4px);
         }
 
         .login-shell {
             position: relative;
-            z-index: 1;
+            z-index: 2;
             min-height: 100vh;
+            width: min(1280px, calc(100% - 56px));
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 520px);
+            gap: clamp(36px, 7vw, 104px);
+            align-items: center;
+            padding: 44px 0;
+        }
+
+        .brand-side {
+            min-height: 620px;
             display: grid;
             place-items: center;
-            padding: 22px;
+            text-align: center;
         }
+
+        .orb {
+            position: relative;
+            width: 178px;
+            height: 178px;
+            margin: 0 auto 30px;
+            border-radius: 50%;
+            background: conic-gradient(from 210deg, #cf72ff, #8c5cff, #2f84ff, #5deaff, #cf72ff);
+            box-shadow: 0 24px 70px rgba(84, 130, 255, 0.34);
+        }
+
+        .orb::before {
+            content: "";
+            position: absolute;
+            inset: 34px;
+            border-radius: 50%;
+            background: #06101f;
+            box-shadow: inset 0 0 34px rgba(255,255,255,0.06);
+        }
+
+        .orb::after {
+            content: "";
+            position: absolute;
+            left: -44px;
+            right: -64px;
+            top: 82px;
+            height: 18px;
+            border-radius: 50%;
+            transform: rotate(-18deg);
+            background: linear-gradient(90deg, transparent 0%, #e7c4ff 21%, #82d8ff 58%, transparent 100%);
+            box-shadow: 0 0 28px rgba(108, 187, 255, 0.72);
+        }
+
+        .spark {
+            position: absolute;
+            right: -44px;
+            top: 24px;
+            width: 34px;
+            height: 34px;
+            background:
+                linear-gradient(90deg, transparent 43%, #b9f5ff 46% 54%, transparent 57%),
+                linear-gradient(0deg, transparent 43%, #b9f5ff 46% 54%, transparent 57%);
+            filter: drop-shadow(0 0 16px #68cfff);
+        }
+
+        .logo-text {
+            margin: 0;
+            font-size: clamp(44px, 6vw, 74px);
+            line-height: 1;
+            letter-spacing: 0.18em;
+            font-weight: 900;
+            color: transparent;
+            background: linear-gradient(90deg, #f09dff 0%, #eff6ff 44%, #60d9ff 78%, #6e8dff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            text-shadow: 0 0 36px rgba(127, 166, 255, 0.26);
+        }
+
+        .strap {
+            margin: 16px 0 34px;
+            color: #b8c7e7;
+            letter-spacing: 0.36em;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .tool-copy {
+            display: grid;
+            gap: 8px;
+            color: #c9d4ec;
+            font-size: 18px;
+            line-height: 1.45;
+        }
+
+        .tool-copy strong { color: #9eb2ff; }
 
         .login-card {
-            width: min(330px, 100%);
-            padding: 28px 30px 26px;
-            border: 1px solid rgba(187, 244, 255, 0.35);
+            min-height: 720px;
+            padding: 58px 48px;
+            border: 1px solid var(--line);
             border-radius: 24px;
             background:
-                linear-gradient(180deg, rgba(173, 236, 255, 0.72) 0%, rgba(48, 150, 236, 0.62) 42%, rgba(45, 91, 226, 0.74) 100%);
-            box-shadow: 0 24px 58px rgba(0, 8, 30, 0.62), inset 0 1px 0 rgba(255,255,255,0.38);
-            backdrop-filter: blur(14px);
+                radial-gradient(circle at 42% 10%, rgba(80, 109, 255, 0.16), transparent 24%),
+                linear-gradient(145deg, rgba(15, 20, 48, 0.86), rgba(8, 11, 30, 0.76));
+            box-shadow: 0 30px 100px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.08);
+            backdrop-filter: blur(20px);
         }
 
-        .brand {
+        .login-head {
+            text-align: center;
+            margin-bottom: 42px;
+        }
+
+        .login-head h1 {
             margin: 0;
-            text-align: center;
-            font-size: 26px;
-            font-weight: 600;
-            letter-spacing: 0;
-            text-shadow: 0 1px 14px rgba(255,255,255,0.34);
+            font-size: 34px;
+            letter-spacing: -0.04em;
         }
 
-        .tagline {
-            margin: 7px 0 21px;
-            text-align: center;
-            font-size: 12px;
-            font-weight: 600;
-            color: rgba(239, 252, 255, 0.92);
+        .login-head p {
+            margin: 16px 0 0;
+            color: var(--muted);
+            font-size: 20px;
+        }
+
+        .divider-star {
+            position: relative;
+            width: 190px;
+            height: 1px;
+            margin: 30px auto 0;
+            background: linear-gradient(90deg, transparent, rgba(117, 143, 255, 0.78), transparent);
+        }
+
+        .divider-star::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 11px;
+            height: 11px;
+            transform: translate(-50%, -50%) rotate(45deg);
+            background: #8deaff;
+            box-shadow: 0 0 22px #78bfff;
         }
 
         .auth-error {
-            margin: 0 0 12px;
-            padding: 9px 11px;
-            border-radius: 10px;
-            background: rgba(255, 58, 91, 0.17);
-            border: 1px solid rgba(255, 156, 176, 0.55);
-            color: #fff5f7;
-            font-size: 12px;
-            font-weight: 700;
+            margin: 0 0 18px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255, 70, 107, 0.13);
+            border: 1px solid rgba(255, 110, 144, 0.45);
+            color: #ffdce5;
+            font-size: 13px;
+            font-weight: 800;
         }
 
         .field {
             position: relative;
-            margin-bottom: 14px;
+            margin-bottom: 28px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 12px;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 800;
         }
 
         .field input {
             width: 100%;
-            height: 40px;
-            border: 1px solid rgba(130, 244, 255, 0.38);
-            border-radius: 7px;
+            height: 64px;
+            border: 1px solid rgba(180, 193, 239, 0.24);
+            border-radius: 12px;
             outline: none;
-            padding: 0 13px;
-            color: #eafcff;
-            background: rgba(88, 224, 236, 0.62);
-            box-shadow: inset 0 1px 8px rgba(255,255,255,0.16);
-            font-size: 13px;
+            padding: 0 56px;
+            color: #f8fbff;
+            background: rgba(19, 24, 51, 0.72);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+            font-size: 18px;
         }
 
-        .field input::placeholder { color: rgba(245, 255, 255, 0.7); }
+        .field input::placeholder { color: rgba(178, 185, 211, 0.72); }
         .field input:focus {
-            border-color: rgba(255,255,255,0.9);
-            box-shadow: 0 0 0 3px rgba(108, 206, 255, 0.23);
+            border-color: rgba(124, 126, 255, 0.88);
+            box-shadow: 0 0 0 4px rgba(126, 91, 255, 0.13);
         }
 
-        .password-field input { padding-right: 58px; }
+        .field-icon {
+            position: absolute;
+            left: 20px;
+            bottom: 20px;
+            width: 24px;
+            height: 24px;
+            color: #c6d2f3;
+        }
 
         .show-password {
             position: absolute;
-            right: 8px;
-            top: 7px;
-            height: 26px;
+            right: 15px;
+            bottom: 16px;
+            width: 34px;
+            height: 34px;
             border: 0;
+            border-radius: 50%;
             background: transparent;
-            color: rgba(255,255,255,0.74);
-            font-size: 11px;
-            font-weight: 700;
+            color: #cbd7f4;
             cursor: pointer;
+            display: grid;
+            place-items: center;
         }
 
         .form-row {
             display: flex;
             align-items: center;
             justify-content: flex-start;
-            margin: 2px 0 15px;
-            font-size: 12px;
-            color: rgba(255,255,255,0.9);
+            margin: -3px 0 40px;
+            color: #f6f7ff;
+            font-size: 16px;
         }
 
         .remember {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 11px;
             cursor: pointer;
             user-select: none;
         }
 
         .remember input {
-            width: 13px;
-            height: 13px;
-            accent-color: #6fe8ff;
+            width: 20px;
+            height: 20px;
+            accent-color: var(--violet);
         }
 
         .login-button {
             width: 100%;
-            height: 42px;
+            height: 64px;
             border: 0;
-            border-radius: 7px;
+            border-radius: 12px;
             color: #ffffff;
-            font-size: 22px;
-            font-weight: 300;
+            font-size: 20px;
+            font-weight: 900;
             cursor: pointer;
-            background: linear-gradient(180deg, #b9f7ff 0%, #5caefe 54%, #327dff 100%);
-            box-shadow: 0 10px 24px rgba(18, 73, 203, 0.42), inset 0 1px 0 rgba(255,255,255,0.55);
-            text-shadow: 0 1px 10px rgba(255,255,255,0.55);
+            background: linear-gradient(100deg, #49a9ff 0%, #6267ff 48%, #ad43ff 100%);
+            box-shadow: 0 18px 46px rgba(99, 92, 255, 0.36), inset 0 1px 0 rgba(255,255,255,0.36);
+        }
+
+        .login-button span {
+            display: inline-block;
+            margin-left: 18px;
+            font-size: 30px;
+            line-height: 0;
+            transform: translateY(2px);
         }
 
         .login-button:hover {
-            filter: brightness(1.05);
+            filter: brightness(1.07);
+            transform: translateY(-1px);
         }
 
-        @media (max-width: 520px) {
-            .login-card {
-                width: min(310px, 100%);
-                padding: 25px 22px;
+        @media (max-width: 980px) {
+            body { overflow-y: auto; }
+            .planet { width: 110vw; height: 110vw; bottom: -72vw; }
+            .login-shell {
+                grid-template-columns: 1fr;
+                width: min(620px, calc(100% - 28px));
             }
+            .brand-side { min-height: auto; padding-top: 18px; }
+            .login-card { min-height: auto; }
+        }
+
+        @media (max-width: 560px) {
+            .login-card { padding: 34px 22px; }
+            .logo-text { font-size: 38px; letter-spacing: 0.1em; }
+            .strap { font-size: 13px; letter-spacing: 0.22em; }
+            .tool-copy { font-size: 15px; }
+            .field input { font-size: 15px; }
         }
     </style>
 </head>
 <body>
-    <div class="circuit" aria-hidden="true"></div>
+    <div class="space" aria-hidden="true"></div>
+    <div class="planet" aria-hidden="true"></div>
+
     <main class="login-shell">
+        <section class="brand-side" aria-label="OptiVerse overview">
+            <div>
+                <div class="orb" aria-hidden="true"><span class="spark"></span></div>
+                <h1 class="logo-text">OPTIVERSE</h1>
+                <p class="strap">EXPLORE. OPTIMIZE. EVOLVE.</p>
+                <div class="tool-copy">
+                    <span><strong>OptiVerse</strong> is a smart OLT management platform.</span>
+                    <span>Monitor ONUs, signals, VLANs, traffic and OLT health.</span>
+                    <span>Authorize, troubleshoot and manage GPON/EPON networks faster.</span>
+                </div>
+            </div>
+        </section>
+
         <section class="login-card" aria-label="Login">
-            <h1 class="brand">Optiverse</h1>
-            <p class="tagline">Smart Solution For Huwei OLT</p>
+            <div class="login-head">
+                <h1>Welcome Back</h1>
+                <p>Login to continue your NOC session</p>
+                <div class="divider-star" aria-hidden="true"></div>
+            </div>
 
             {% if form.errors %}
                 <div class="auth-error">Invalid username or password.</div>
@@ -198,20 +382,41 @@
 
             <form method="post">
                 {% csrf_token %}
+                {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
                 <div class="field">
-                    <input type="text" name="username" id="id_username" placeholder="E-mail or Username" autocomplete="username" required autofocus>
+                    <label for="id_username">Email or Username</label>
+                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M4 21a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                    <input type="text" name="username" id="id_username" placeholder="Enter your email or username" autocomplete="username" required autofocus>
                 </div>
+
                 <div class="field password-field">
-                    <input type="password" name="password" id="id_password" placeholder="Password" autocomplete="current-password" required>
-                    <button type="button" class="show-password" id="toggle-password">Show</button>
+                    <label for="id_password">Password</label>
+                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M7 10V8a5 5 0 0 1 10 0v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M6 10h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 18 20H6a1.5 1.5 0 0 1-1.5-1.5v-7A1.5 1.5 0 0 1 6 10Z" stroke="currentColor" stroke-width="1.8"/>
+                        <path d="M12 14v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                    <input type="password" name="password" id="id_password" placeholder="Enter your password" autocomplete="current-password" required>
+                    <button type="button" class="show-password" id="toggle-password" aria-label="Show password">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+                            <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" stroke="currentColor" stroke-width="1.8"/>
+                            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.8"/>
+                        </svg>
+                    </button>
                 </div>
+
                 <div class="form-row">
                     <label class="remember" for="remember_me">
                         <input type="checkbox" name="remember_me" id="remember_me">
                         <span>Remember me</span>
                     </label>
                 </div>
-                <button type="submit" class="login-button">Log In</button>
+
+                <button type="submit" class="login-button">Login <span aria-hidden="true">-></span></button>
             </form>
         </section>
     </main>
@@ -219,11 +424,13 @@
     <script>
         const toggle = document.getElementById('toggle-password');
         const password = document.getElementById('id_password');
-        toggle.addEventListener('click', () => {
-            const isPassword = password.type === 'password';
-            password.type = isPassword ? 'text' : 'password';
-            toggle.textContent = isPassword ? 'Hide' : 'Show';
-        });
+        if (toggle && password) {
+            toggle.addEventListener('click', () => {
+                const isPassword = password.type === 'password';
+                password.type = isPassword ? 'text' : 'password';
+                toggle.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+            });
+        }
     </script>
 </body>
 </html>

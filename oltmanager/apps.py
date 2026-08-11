@@ -585,7 +585,17 @@ def _onu_signal_sample_loop():
 
         close_old_connections()
         try:
-            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only("id", "name").first()
+            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only(
+                "id",
+                "name",
+                "ip_address",
+                "snmp_port",
+                "snmp_community",
+                "pon_ports_cache",
+                "olt_cards_cache",
+                "pricing_locked",
+                "pricing_expires_at",
+            ).first()
             if not olt:
                 return
 
