@@ -19,6 +19,7 @@ from django.contrib.sessions.exceptions import SessionInterrupted
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, close_old_connections
 from django.db.models import Case, Count, IntegerField, Max, Q, Value, When
@@ -2979,6 +2980,23 @@ def _build_dashboard_status_graph(olt_id=None, range_key="24h"):
     }
 
 
+def _get_dashboard_status_graph_cached(olt_id=None, range_key="24h"):
+    """Cache graph payloads until the next dashboard sample is written."""
+    normalized_range = _dashboard_graph_config(range_key)["key"]
+    marker_qs = DashboardStatusSample.objects.all()
+    if olt_id:
+        marker_qs = marker_qs.filter(olt_id=olt_id)
+    else:
+        marker_qs = marker_qs.filter(olt__isnull=True)
+    marker = marker_qs.order_by("-sampled_at").values_list("id", flat=True).first() or 0
+    cache_key = f"dashboard-status-graph:v2:{olt_id or 'all'}:{normalized_range}:{marker}"
+    payload = cache.get(cache_key)
+    if payload is None:
+        payload = _build_dashboard_status_graph(olt_id, normalized_range)
+        cache.set(cache_key, payload, 300)
+    return payload
+
+
 def _build_dashboard_pon_traffic_graph(olt_id=None, range_key="24h"):
     config = _dashboard_graph_config(range_key)
     qs = PONTrafficSample.objects.filter(sampled_at__gte=config["since"])
@@ -4553,7 +4571,7 @@ def olt_list(request):
         'dashboard_admin_disabled_url': f"{configured_signal_base}?{urlencode(admin_disabled_params)}",
         'dashboard_loss_of_signal_url': f"{configured_signal_base}?{urlencode(loss_of_signal_params)}",
         'dashboard_power_failure_url': f"{configured_signal_base}?{urlencode(power_failure_params)}",
-        'dashboard_graph': _build_dashboard_status_graph(selected_olt.pk if selected_olt else None, '1h'),
+        'dashboard_graph': _get_dashboard_status_graph_cached(selected_olt.pk if selected_olt else None, '1h'),
         'dashboard_pon_traffic_graph': dashboard_pon_traffic_graph,
         'dashboard_pon_traffic_port_choices': dashboard_pon_traffic_port_choices,
         'dashboard_pon_traffic_graph_url': dashboard_pon_traffic_graph_url,
@@ -4573,7 +4591,7 @@ def dashboard_status_graph(request):
     if olt_filter.isdigit():
         olt_id = int(olt_filter)
     try:
-        payload = _build_dashboard_status_graph(olt_id, range_key)
+        payload = _get_dashboard_status_graph_cached(olt_id, range_key)
     except OperationalError:
         payload = {
             "range_key": range_key,
@@ -4679,7 +4697,7 @@ def dashboard_olt_uptimes(request):
         },
         "refreshed_at": refreshed_at,
         "dashboard_last_updated": dashboard_last_updated,
-        "status_graph": _build_dashboard_status_graph(selected_olt_id, graph_range),
+        "status_graph": _get_dashboard_status_graph_cached(selected_olt_id, graph_range),
         "pon_signal_alerts": _collect_dashboard_pon_signal_alerts(OLT.objects.filter(pk=selected_olt_id).first() if selected_olt_id else None),
         "updating": updating,
     })
