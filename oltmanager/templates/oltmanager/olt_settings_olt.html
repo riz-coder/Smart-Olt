@@ -48,6 +48,14 @@
         background: rgba(210, 45, 62, 0.14);
         box-shadow: 0 0 18px rgba(255, 80, 96, 0.22);
     }
+    .status-pill.locked {
+        color: #ffb86b;
+        border-color: rgba(255, 130, 70, 0.58);
+        background:
+            radial-gradient(circle at 18% 0%, rgba(255, 176, 70, 0.24), transparent 58%),
+            rgba(160, 55, 35, 0.24);
+        box-shadow: 0 0 18px rgba(255, 96, 68, 0.24), inset 0 0 12px rgba(255, 150, 80, 0.08);
+    }
     .pricing-badge {
         display: inline-flex;
         align-items: center;
@@ -101,6 +109,14 @@
         border-color: rgba(214, 31, 61, 0.42);
         background: #ffe5e9;
         box-shadow: 0 0 0 1px rgba(214, 31, 61, 0.08), 0 8px 18px rgba(214, 31, 61, 0.10);
+    }
+    html[data-theme="light"] .status-pill.locked {
+        color: #b84d05;
+        border-color: rgba(237, 105, 36, 0.48);
+        background:
+            radial-gradient(circle at 18% 0%, rgba(255, 188, 78, 0.42), transparent 58%),
+            #fff1df;
+        box-shadow: 0 0 0 1px rgba(237, 105, 36, 0.10), 0 8px 18px rgba(237, 105, 36, 0.14);
     }
     html[data-theme="light"] .pricing-badge {
         color: #1557b0;
@@ -181,9 +197,9 @@
                     <tr>
                         <td class="status-cell">
                             {% if olt.status_state == 'up' %}
-                            <span class="status-pill up" title="OLT Up{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">UP{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
+                            <span class="status-pill up {% if olt.pricing_access_locked %}locked{% endif %}" title="OLT Up{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">UP{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% else %}
-                            <span class="status-pill down" title="OLT Down{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">DOWN{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
+                            <span class="status-pill down {% if olt.pricing_access_locked %}locked{% endif %}" title="OLT Down{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">DOWN{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% endif %}
                         </td>
                         <td>{{ olt.name }}</td>
