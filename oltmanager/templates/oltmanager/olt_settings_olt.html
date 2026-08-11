@@ -48,13 +48,21 @@
         background: rgba(210, 45, 62, 0.14);
         box-shadow: 0 0 18px rgba(255, 80, 96, 0.22);
     }
-    .status-pill.locked {
+    .status-pill.up.locked {
         color: #ffb86b;
         border-color: rgba(255, 130, 70, 0.58);
         background:
             radial-gradient(circle at 18% 0%, rgba(255, 176, 70, 0.24), transparent 58%),
             rgba(160, 55, 35, 0.24);
         box-shadow: 0 0 18px rgba(255, 96, 68, 0.24), inset 0 0 12px rgba(255, 150, 80, 0.08);
+    }
+    .status-pill.down.locked {
+        color: #ff8c99;
+        border-color: rgba(255, 70, 95, 0.66);
+        background:
+            radial-gradient(circle at 18% 0%, rgba(255, 110, 84, 0.22), transparent 58%),
+            rgba(120, 20, 36, 0.34);
+        box-shadow: 0 0 20px rgba(255, 52, 80, 0.26), inset 0 0 12px rgba(255, 80, 100, 0.10);
     }
     .pricing-badge {
         display: inline-flex;
@@ -110,13 +118,21 @@
         background: #ffe5e9;
         box-shadow: 0 0 0 1px rgba(214, 31, 61, 0.08), 0 8px 18px rgba(214, 31, 61, 0.10);
     }
-    html[data-theme="light"] .status-pill.locked {
+    html[data-theme="light"] .status-pill.up.locked {
         color: #b84d05;
         border-color: rgba(237, 105, 36, 0.48);
         background:
             radial-gradient(circle at 18% 0%, rgba(255, 188, 78, 0.42), transparent 58%),
             #fff1df;
         box-shadow: 0 0 0 1px rgba(237, 105, 36, 0.10), 0 8px 18px rgba(237, 105, 36, 0.14);
+    }
+    html[data-theme="light"] .status-pill.down.locked {
+        color: #b70f2d;
+        border-color: rgba(220, 45, 70, 0.52);
+        background:
+            radial-gradient(circle at 18% 0%, rgba(255, 116, 98, 0.32), transparent 58%),
+            #ffe2e8;
+        box-shadow: 0 0 0 1px rgba(220, 45, 70, 0.10), 0 8px 18px rgba(220, 45, 70, 0.16);
     }
     html[data-theme="light"] .pricing-badge {
         color: #1557b0;

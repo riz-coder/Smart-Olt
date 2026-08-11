@@ -254,7 +254,6 @@ def _snmp_monitor_loop():
     from .models import OLT
     from .utils import (
         mark_olt_onus_offline_due_to_snmp,
-        olt_background_enabled_q,
         probe_icmp_reachability,
         probe_snmp_reachability,
         reconcile_onu_status_via_snmp,
@@ -281,7 +280,7 @@ def _snmp_monitor_loop():
 
         close_old_connections()
         try:
-            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only("id", "name", "ip_address", "snmp_port", "snmp_community").first()
+            olt = OLT.objects.filter(pk=olt_id).only("id", "name", "ip_address", "snmp_port", "snmp_community").first()
             if not olt:
                 return olt_id, False, "OLT not found", False, "ICMP ping failed"
             snmp_probe = probe_snmp_reachability(olt)
@@ -310,7 +309,6 @@ def _snmp_monitor_loop():
             now_ts = time.time()
             olt_ids = list(
                 OLT.objects
-                .filter(olt_background_enabled_q())
                 .exclude(onboarding_status__in=["queued", "running", "aborting"])
                 .order_by("id")
                 .values_list("id", flat=True)
@@ -328,7 +326,15 @@ def _snmp_monitor_loop():
                             _SNMP_PENDING_STATUS.pop(olt_id, None)
                             up_streak = _SNMP_UP_STREAK.get(olt_id, 0) + 1
                             _SNMP_UP_STREAK[olt_id] = up_streak
-                            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
+                            olt = OLT.objects.filter(pk=olt_id).only(
+                                "id",
+                                "name",
+                                "ip_address",
+                                "snmp_last_status",
+                                "snmp_last_synced_at",
+                                "pricing_locked",
+                                "pricing_expires_at",
+                            ).first()
                             if olt:
                                 # SNMP answered -> the OLT is reachable RIGHT NOW.
                                 # Always refresh the OLT status to reachable (both in
@@ -338,6 +344,8 @@ def _snmp_monitor_loop():
                                 _save_snmp_probe_status(olt_id, fresh_status)
                                 olt.snmp_last_status = fresh_status
                                 _SNMP_OFFLINE_APPLIED.discard(olt_id)
+                                if getattr(olt, "pricing_access_locked", False):
+                                    continue
 
                                 # If a previous SNMP-down probe bulk-marked ONUs
                                 # offline, immediately heal those rows once the
@@ -399,7 +407,15 @@ def _snmp_monitor_loop():
                                         close_old_connections()
                             continue
 
-                        olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
+                        olt = OLT.objects.filter(pk=olt_id).only(
+                            "id",
+                            "name",
+                            "ip_address",
+                            "snmp_last_status",
+                            "snmp_last_synced_at",
+                            "pricing_locked",
+                            "pricing_expires_at",
+                        ).first()
                         if not olt:
                             continue
                         # A failed probe breaks any recovery streak.
@@ -415,6 +431,8 @@ def _snmp_monitor_loop():
                             continue
 
                         _save_snmp_probe_status(olt_id, status_text)
+                        if getattr(olt, "pricing_access_locked", False):
+                            continue
                         if olt_id in _SNMP_OFFLINE_APPLIED:
                             continue
                         try:
