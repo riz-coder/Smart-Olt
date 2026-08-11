@@ -1640,6 +1640,32 @@
               window.setTimeout(() => item.remove(), 260);
           }, 5000);
       };
+      const readRowsFromDom = () => {
+          if (!list) return [];
+          return Array.from(list.querySelectorAll('.olt-uptime-item')).map((node) => {
+              let id = '';
+              try {
+                  const href = node.getAttribute('href') || '';
+                  id = new URL(href, window.location.origin).searchParams.get('olt') || '';
+              } catch (error) {
+                  id = '';
+              }
+              const name = node.querySelector('.olt-uptime-name')?.textContent?.trim() || '';
+              const uptimeNode = node.querySelector('.olt-uptime-pill');
+              const tempNode = node.querySelector('.olt-temp-value');
+              return {
+                  id,
+                  name,
+                  uptime: uptimeNode?.textContent?.trim() || '--',
+                  uptime_ok: !!uptimeNode?.classList.contains('ok'),
+                  temperature: tempNode?.textContent?.trim() || '--',
+                  temperature_alert: node.classList.contains('alert'),
+                  selected: node.classList.contains('selected'),
+                  health: node.getAttribute('data-health') || '',
+                  subtitle: node.querySelector('.olt-temp-label')?.textContent?.trim() || 'Temperature',
+              };
+          });
+      };
       const applyHealthFilter = (rows) => {
           const safeRows = rows || [];
           if (activeHealthFilter === 'all') {
@@ -1719,6 +1745,9 @@
       };
       filterButtons.forEach((button) => {
           button.addEventListener('click', () => {
+              if (!lastRows.length) {
+                  lastRows = readRowsFromDom();
+              }
               const nextFilter = button.getAttribute('data-health-filter') || 'all';
               activeHealthFilter = activeHealthFilter === nextFilter ? 'all' : nextFilter;
               filterButtons.forEach((node) => {
@@ -1727,6 +1756,16 @@
               });
               renderRows(lastRows);
           });
+      });
+
+      lastRows = readRowsFromDom();
+      const initialDownRows = lastRows.filter((row) => String(row.health || '') === 'red');
+      initialDownRows.forEach((row) => {
+          const name = String(row.name || '').trim();
+          if (!name) return;
+          knownDownNames.add(name);
+          showSnmpToast(row);
+          downToastTimestamps.set(name, Date.now());
       });
 
       let dashboardRefreshPending = false;
