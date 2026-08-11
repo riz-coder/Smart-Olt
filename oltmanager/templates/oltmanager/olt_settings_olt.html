@@ -181,9 +181,9 @@
                     <tr>
                         <td class="status-cell">
                             {% if olt.status_state == 'up' %}
-                            <span class="status-pill up" title="OLT Up">UP</span>
+                            <span class="status-pill up" title="OLT Up{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">UP{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% else %}
-                            <span class="status-pill down" title="OLT Down">DOWN</span>
+                            <span class="status-pill down" title="OLT Down{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">DOWN{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% endif %}
                         </td>
                         <td>{{ olt.name }}</td>
