@@ -2139,6 +2139,50 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
         result["message"] = status or "Telnet session could not be opened."
         return result
 
+    def _delete_failure_text(text):
+        lowered = str(text or "").lower()
+        return any(token in lowered for token in (
+            "failure:",
+            "failed",
+            "error:",
+            "unknown command",
+            "parameter error",
+            "incomplete command",
+            "unrecognized command",
+            "wrong parameter",
+            "% invalid",
+        ))
+
+    def _deleted_text(text):
+        lowered = str(text or "").lower()
+        return any(token in lowered for token in (
+            "ont does not exist",
+            "onu does not exist",
+            "the ont does not exist",
+            "the onu does not exist",
+        ))
+
+    def _verify_onu_deleted():
+        service_port_verify_command = f"display current-configuration | include {int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} ont {int(ont_id or 0)}"
+        service_port_verify_output = _run_telnet_command(
+            tn, service_port_verify_command, enter_until_prompt=True, max_wait_seconds=30, step_timeout=0.45
+        )
+        _append_authorize_transcript(transcript, service_port_verify_command, service_port_verify_output)
+        service_port_cleaned = _clean_cli_response_text(service_port_verify_command, service_port_verify_output).lower()
+        service_port_exists = re.search(
+            rf"\bservice-port\s+\d+\b.*\b(?:gpon|epon)\s+{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)}\s+ont\s+{int(ont_id or 0)}\b",
+            service_port_cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        ont_verify_command = f"display this | include ont add {int(port or 0)} {int(ont_id or 0)}"
+        ont_verify_output = _run_telnet_command(
+            tn, ont_verify_command, enter_until_prompt=True, max_wait_seconds=18, step_timeout=0.45
+        )
+        _append_authorize_transcript(transcript, ont_verify_command, ont_verify_output)
+        ont_cleaned = _clean_cli_response_text(ont_verify_command, ont_verify_output).lower()
+        ont_exists = re.search(rf"\b(?:ont|onu)\s+add\s+{int(port or 0)}\s+{int(ont_id or 0)}\b", ont_cleaned)
+        return not service_port_exists and not ont_exists
+
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
         # Seed with any service-ports we already know from the DB cache.
@@ -2176,7 +2220,9 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
 
         for service_port_id in delete_service_ports:
             command = f"undo service-port {service_port_id}"
-            output = _run_telnet_command(tn, command, enter_until_prompt=True, confirm_response="y")
+            output = _run_telnet_command(
+                tn, command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=18, step_timeout=0.45
+            )
             _append_authorize_transcript(transcript, command, output)
             lowered = str(output or "").strip().lower()
             missing_service_port = any(token in lowered for token in (
@@ -2186,10 +2232,23 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
                 "does not exist",
                 "not exist",
             ))
-            if _is_cli_error_text(output) and not missing_service_port:
-                result["message"] = _clean_cli_response_text(command, output) or f"Service-port {service_port_id} delete failed."
-                result["transcript"] = "\n\n".join(transcript)[:16000]
-                return result
+            if _delete_failure_text(output) and not missing_service_port:
+                retry_output = _run_telnet_command(
+                    tn, command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=18, step_timeout=0.45
+                )
+                _append_authorize_transcript(transcript, command, retry_output)
+                retry_lowered = str(retry_output or "").strip().lower()
+                retry_missing = any(token in retry_lowered for token in (
+                    "service virtual port does not exist",
+                    "service-port does not exist",
+                    "service port does not exist",
+                    "does not exist",
+                    "not exist",
+                ))
+                if _delete_failure_text(retry_output) and not retry_missing:
+                    # Continue to ONT delete anyway; a stale service-port cache must not
+                    # leave the ONU configured when the user asked for delete.
+                    result["message"] = _clean_cli_response_text(command, retry_output) or f"Service-port {service_port_id} delete warning."
 
         # Enter the PON interface matching THIS board's technology (EPON / GPON /
         # XGS-PON). A hardcoded "interface gpon" silently fails on an EPON board,
@@ -2212,27 +2271,23 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
 
         is_epon = "epon" in str(board_kind or "").lower()
         delete_command = f"ont delete {int(port or 0)} {int(ont_id or 0)}"
-        delete_output = _run_telnet_command(tn, delete_command, enter_until_prompt=True, confirm_response="y")
+        delete_output = _run_telnet_command(
+            tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
+        )
         _append_authorize_transcript(transcript, delete_command, delete_output)
-        # A few EPON firmwares use the "onu" verb instead of "ont" — retry once.
-        if is_epon and _is_cli_error_text(delete_output) and any(
+        # A few EPON firmwares use the "onu" verb instead of "ont"; retry once.
+        if is_epon and _delete_failure_text(delete_output) and any(
             t in str(delete_output or "").lower()
             for t in ("unknown command", "incomplete command", "% invalid", "parameter error", "command not found", "wrong parameter")
         ):
             delete_command = f"onu delete {int(port or 0)} {int(ont_id or 0)}"
-            delete_output = _run_telnet_command(tn, delete_command, enter_until_prompt=True, confirm_response="y")
+            delete_output = _run_telnet_command(
+                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
+            )
             _append_authorize_transcript(transcript, delete_command, delete_output)
+
         lowered_delete = str(delete_output or "").strip().lower()
-        # The ONT was already gone from the OLT (e.g. deleted on a prior attempt
-        # or removed manually). Huawei replies "Failure: The ONT does not exist".
-        # That is not a failure for us — the end state is exactly what we wanted,
-        # so report it as success with an "already deleted" flag for the UI.
-        if any(token in lowered_delete for token in (
-            "ont does not exist",
-            "onu does not exist",
-            "the ont does not exist",
-            "the onu does not exist",
-        )):
+        if _deleted_text(delete_output):
             quit_interface_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
             _append_authorize_transcript(transcript, "quit", quit_interface_output)
             quit_config_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
@@ -2242,25 +2297,33 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             result["message"] = "This ONU is already deleted."
             result["transcript"] = "\n\n".join(transcript)[:16000]
             return result
-        if _is_cli_error_text(delete_output):
-            detail = _clean_cli_response_text(delete_command, delete_output)
-            result["message"] = f"{delete_command} failed: {detail or 'OLT rejected ONU delete command.'}"
-            result["transcript"] = "\n\n".join(transcript)[:16000]
-            return result
-        success_match = re.search(r"(?i)success\s*:\s*(\d+)", str(delete_output or ""))
-        if success_match and int(success_match.group(1)) < 1:
-            detail = _clean_cli_response_text(delete_command, delete_output)
-            result["message"] = f"{delete_command} failed: {detail or 'ONU delete did not succeed.'}"
-            result["transcript"] = "\n\n".join(transcript)[:16000]
-            return result
-        if "number of onts that can be deleted" in lowered_delete and not success_match:
-            detail = _clean_cli_response_text(delete_command, delete_output)
-            result["message"] = f"{delete_command} failed: {detail or 'ONU delete did not confirm success.'}"
-            result["transcript"] = "\n\n".join(transcript)[:16000]
-            return result
 
-        # "ont delete" returned no error -> ONU is deleted. No save, no verify —
-        # quit out and return immediately so the UI jumps straight to Autofind.
+        success_match = re.search(r"(?i)success\s*:\s*(\d+)", str(delete_output or ""))
+        needs_retry = (
+            _delete_failure_text(delete_output)
+            or (success_match and int(success_match.group(1)) < 1)
+            or ("number of onts that can be deleted" in lowered_delete and not success_match)
+        )
+        if needs_retry:
+            retry_output = _run_telnet_command(
+                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
+            )
+            _append_authorize_transcript(transcript, delete_command, retry_output)
+            delete_output = retry_output
+
+        if not _deleted_text(delete_output) and not _verify_onu_deleted():
+            retry_output = _run_telnet_command(
+                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
+            )
+            _append_authorize_transcript(transcript, delete_command, retry_output)
+            if not _deleted_text(retry_output) and not _verify_onu_deleted():
+                detail = _clean_cli_response_text(delete_command, retry_output or delete_output)
+                result["message"] = f"{delete_command} failed: {detail or 'ONU still exists after delete attempt.'}"
+                result["transcript"] = "\n\n".join(transcript)[:16000]
+                return result
+
+        # Verified end state: ONU config is gone. No save; return immediately so
+        # the UI jumps straight to Autofind.
         quit_interface_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
         _append_authorize_transcript(transcript, "quit", quit_interface_output)
         quit_config_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
@@ -8620,6 +8683,8 @@ def authorize_autofind_onu(
     onu_type_serial,
     pots_ports,
     eth_ports,
+    service_vlan="",
+    tag_transform="",
     on_progress=None,
 ):
     from .models import ConfiguredONU
@@ -8652,6 +8717,12 @@ def authorize_autofind_onu(
         return result
 
     primary_vlan = vlan_values[0]
+    service_vlan_value = str(service_vlan or "").strip()
+    use_svlan = bool(service_vlan_value)
+    service_tag_transform = str(tag_transform or "default").strip().lower()
+    if use_svlan and service_tag_transform not in {"default", "translate"}:
+        result["message"] = "Invalid tag-transform selected."
+        return result
     effective_eth_ports = _normalize_authorize_eth_ports(eth_ports)
     generic_mode = False
 
@@ -8917,16 +8988,15 @@ def authorize_autofind_onu(
                     return result
             # ── end ONT add block ───────────────────────────────────────────────────
 
-            for eth_port in range(1, int(effective_eth_ports) + 1):
-                native_vlan_command = (
-                    f"ont port native-vlan {int(port)} {int(ont_id)} "
-                    f"eth {eth_port} vlan {primary_vlan} priority 0"
-                )
-                native_vlan_output = _run_telnet_authorize_command(tn, native_vlan_command, enter_until_prompt=True)
-                _append_authorize_transcript(transcript, native_vlan_command, native_vlan_output)
-                # Ethernet port native-VLAN errors ("Failure: Make configuration repeatedly"
-                # or any other OLT-side warning) are non-fatal — the ONT is already registered
-                # and the service-port is still created. Continue regardless.
+            if str(primary_vlan).lower() != "untagged":
+                for eth_port in range(1, int(effective_eth_ports) + 1):
+                    native_vlan_command = (
+                        f"ont port native-vlan {int(port)} {int(ont_id)} "
+                        f"eth {eth_port} vlan {primary_vlan} priority 0"
+                    )
+                    native_vlan_output = _run_telnet_authorize_command(tn, native_vlan_command, enter_until_prompt=True)
+                    _append_authorize_transcript(transcript, native_vlan_command, native_vlan_output)
+                    # Native-VLAN errors are non-fatal; service-port binding below is authoritative.
 
             quit_interface_output = _run_telnet_authorize_command(tn, "quit", enter_until_prompt=True)
             _append_authorize_transcript(transcript, "quit", quit_interface_output)
@@ -8940,21 +9010,26 @@ def authorize_autofind_onu(
 
             created_service_ports = []
             current_service_port_index = int(next_service_port_index)
+            created_service_vlans = []
+            created_user_vlans = []
             for vlan_value in vlan_values:
+                outer_vlan = service_vlan_value if use_svlan else vlan_value
+                user_vlan_token = str(vlan_value).strip()
+                service_tag_transform_value = service_tag_transform if use_svlan else ("default" if user_vlan_token.lower() == "untagged" else "translate")
                 if is_epon:
                     # EPON service-port: no gemport, uses "epon" + "ont".
                     service_port_command = (
-                        f"service-port {current_service_port_index} vlan {vlan_value} "
+                        f"service-port {current_service_port_index} vlan {outer_vlan} "
                         f"epon {int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} ont {ont_id} "
-                        f"multi-service user-vlan {vlan_value} tag-transform translate "
+                        f"multi-service user-vlan {user_vlan_token} tag-transform {service_tag_transform_value} "
                         f"inbound traffic-table index {effective_upload_profile_index} "
                         f"outbound traffic-table index {effective_download_profile_index}"
                     )
                 else:
                     service_port_command = (
-                        f"service-port {current_service_port_index} vlan {vlan_value} "
+                        f"service-port {current_service_port_index} vlan {outer_vlan} "
                         f"gpon {int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} ont {ont_id} gemport 1 "
-                        f"multi-service user-vlan {vlan_value} tag-transform translate "
+                        f"multi-service user-vlan {user_vlan_token} tag-transform {service_tag_transform_value} "
                         f"inbound traffic-table index {effective_upload_profile_index} "
                         f"outbound traffic-table index {effective_download_profile_index}"
                     )
@@ -8965,6 +9040,8 @@ def authorize_autofind_onu(
                     result["transcript"] = "\n\n".join(transcript)[:16000]
                     return result
                 created_service_ports.append(str(current_service_port_index))
+                created_service_vlans.append(str(outer_vlan))
+                created_user_vlans.append(user_vlan_token)
                 current_service_port_index += 1
 
             quit_config_output = _run_telnet_authorize_command(tn, "quit", enter_until_prompt=True)
@@ -8989,10 +9066,10 @@ def authorize_autofind_onu(
             record.description = str(authorized_desc or subscriber_name or "").strip()[:255]
             record.onu_type_cache = _format_solt_onu_type_name(onu_type_name)[:128]
             record.onu_mode_cache = str(onu_mode or "").strip()[:64]
-            record.attached_vlans_cache = ",".join(vlan_values)[:255]
+            record.attached_vlans_cache = ",".join(created_service_vlans or vlan_values)[:255]
             record.attached_vlans_synced_at = now
             record.service_port_id_cache = ",".join(created_service_ports)[:255]
-            record.user_vlan_cache = primary_vlan[:255]
+            record.user_vlan_cache = ",".join(created_user_vlans or vlan_values)[:255]
             record.download_profile_index_cache = str(effective_download_profile_index)[:255]
             record.upload_profile_index_cache = str(effective_upload_profile_index)[:255]
             record.download_profile_name_cache = str(download_profile_name or "").strip()[:255]

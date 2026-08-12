@@ -1994,6 +1994,9 @@ def _build_unconfigured_group(
         if vlan_desc and vlan_desc != "-":
             vlan_label = f"{vlan_id_text} - {vlan_desc}"
         vlan_options.append({"value": vlan_id_text, "label": vlan_label})
+    vlan_options_with_untagged = list(vlan_options)
+    if not any(str(item.get("value") or "").strip().lower() == "untagged" for item in vlan_options_with_untagged):
+        vlan_options_with_untagged.append({"value": "untagged", "label": "untagged"})
 
     olt_rows = []
     total_new = 0
@@ -2031,7 +2034,8 @@ def _build_unconfigured_group(
         )
         item["authorize_key"] = f"auth-{olt.id}-{int(item.get('board') or 0)}-{int(item.get('port') or 0)}-{re.sub(r'[^A-Za-z0-9]+', '-', str(item.get('sn') or '').strip())}"
         item["authorize_pon_type"] = "GPON"
-        item["authorize_vlan_options"] = vlan_options
+        item["authorize_vlan_options"] = vlan_options_with_untagged
+        item["authorize_svlan_options"] = vlan_options
         equipment_id = str(item.get("type") or "-").strip()
         item["equipment_id"] = equipment_id or "-"
         matched_onu_type = ""
@@ -2040,7 +2044,13 @@ def _build_unconfigured_group(
         item["authorize_onu_type"] = matched_onu_type
         item["authorize_onu_mode"] = str(getattr(existing_record, "onu_mode_cache", "") or "").strip() if existing_record else ""
         item["authorize_subscriber_name"] = str(getattr(existing_record, "description", "") or "").strip() if existing_record else ""
-        item["authorize_vlan"] = str(getattr(existing_record, "user_vlan_cache", "") or "").strip() if existing_record else ""
+        existing_user_vlan_cache = str(getattr(existing_record, "user_vlan_cache", "") or "").strip() if existing_record else ""
+        existing_service_vlan_cache = str(getattr(existing_record, "attached_vlans_cache", "") or "").strip() if existing_record else ""
+        item["authorize_vlan"] = (existing_user_vlan_cache.split(",")[0].strip() if existing_user_vlan_cache else "")
+        existing_service_vlan = existing_service_vlan_cache.split(",")[0].strip() if existing_service_vlan_cache else ""
+        existing_user_vlan = item["authorize_vlan"]
+        item["authorize_svlan"] = existing_service_vlan if existing_service_vlan and existing_service_vlan != existing_user_vlan else ""
+        item["authorize_tag_transform"] = "default"
         item["authorize_download_speed"] = str(getattr(existing_record, "download_profile_index_cache", "") or "").strip() if existing_record else ""
         item["authorize_upload_speed"] = str(getattr(existing_record, "upload_profile_index_cache", "") or "").strip() if existing_record else ""
         if existing_record:
@@ -5310,6 +5320,9 @@ def unconfigured_onu_authorize(request):
     onu_type_value = str(request.POST.get("onu_type") or "").strip()
     onu_mode = str(request.POST.get("onu_mode") or "").strip().lower()
     vlan_value = str(request.POST.get("vlan") or "").strip()
+    use_svlan = bool(request.POST.get("use_svlan"))
+    service_vlan_value = str(request.POST.get("service_vlan") or "").strip() if use_svlan else ""
+    tag_transform_value = str(request.POST.get("tag_transform") or "default").strip().lower() if use_svlan else ""
     download_profile_index = str(request.POST.get("download_speed") or "").strip()
     upload_profile_index = str(request.POST.get("upload_speed") or "").strip()
     subscriber_name = str(request.POST.get("subscriber_name") or "").strip()
@@ -5324,6 +5337,12 @@ def unconfigured_onu_authorize(request):
         return _finish_error("Authorize failed: select an ONU Mode.")
     if not vlan_value:
         return _finish_error("Authorize failed: select a VLAN.")
+    if use_svlan and not service_vlan_value:
+        return _finish_error("Authorize failed: select an SVLAN.")
+    if use_svlan and vlan_value.lower() == "untagged":
+        tag_transform_value = "default"
+    if use_svlan and tag_transform_value not in {"default", "translate"}:
+        return _finish_error("Authorize failed: select a valid tag-transform.")
     if not download_profile_index or not upload_profile_index:
         return _finish_error("Authorize failed: select both download and upload speed profiles.")
     if not subscriber_name:
@@ -5337,74 +5356,6 @@ def unconfigured_onu_authorize(request):
         return _finish_error("Authorize failed: OLT not found.")
     if olt.pricing_access_locked:
         return _finish_error(olt.pricing_lock_message or "Authorize failed: subscription expired.")
-
-    # ── Reconfigure: drop the existing DB record for this ONU (matched by SN) so
-    # it becomes a brand-new autofind ONU and runs the normal authorize flow. ──
-    if str(request.POST.get("reconfigure") or "").strip() == "1":
-        sn_tokens = set(_normalize_onu_serial_token(sn))
-        if sn_tokens:
-            removed = 0
-            matching_records = []
-            for rec in (
-                ConfiguredONU.objects.filter(olt=olt)
-                .exclude(sn="")
-                .only("id", "sn", "frame", "slot", "port", "ont_id", "service_port_id_cache")
-            ):
-                if sn_tokens & set(_normalize_onu_serial_token(rec.sn)):
-                    matching_records.append(rec)
-
-            for rec in matching_records:
-                service_port_ids = [
-                    value.strip()
-                    for value in str(getattr(rec, "service_port_id_cache", "") or "").split(",")
-                    if value.strip().isdigit()
-                ]
-                delete_result = execute_onu_cli_delete_action(
-                    olt,
-                    int(rec.slot or 0),
-                    int(rec.port or 0),
-                    int(rec.ont_id or 0),
-                    frame=int(rec.frame or 0),
-                    service_port_ids=service_port_ids,
-                )
-                if not delete_result.get("ok"):
-                    delete_message = str(delete_result.get("message") or "").strip()
-                    return _finish_error(
-                        f"Reconfigure failed: existing ONU could not be deleted from {olt.name}. {delete_message}".strip()
-                    )
-                try:
-                    rec.delete()
-                    removed += 1
-                except Exception as exc:
-                    return _finish_error(f"Reconfigure failed: existing ONU DB row could not be removed. {exc}")
-            if not matching_records:
-                existing_location = find_onu_location_by_sn_cli(olt, sn)
-                if existing_location.get("ok"):
-                    delete_result = execute_onu_cli_delete_action(
-                        olt,
-                        int(existing_location.get("slot") or 0),
-                        int(existing_location.get("port") or 0),
-                        int(existing_location.get("ont_id") or 0),
-                        frame=int(existing_location.get("frame") or 0),
-                        service_port_ids=[],
-                    )
-                    if not delete_result.get("ok"):
-                        delete_message = str(delete_result.get("message") or "").strip()
-                        return _finish_error(
-                            f"Reconfigure failed: existing ONU could not be deleted from {olt.name}. {delete_message}".strip()
-                        )
-                    ConfiguredONU.objects.filter(
-                        olt=olt,
-                        frame=int(existing_location.get("frame") or 0),
-                        slot=int(existing_location.get("slot") or 0),
-                        port=int(existing_location.get("port") or 0),
-                        ont_id=int(existing_location.get("ont_id") or 0),
-                    ).delete()
-                    removed += 1
-            if removed:
-                with _AUTOFIND_ROWS_CACHE_LOCK:
-                    _AUTOFIND_ROWS_CACHE.pop(int(olt.pk), None)
-                _schedule_autofind_counts_refresh(int(olt.pk))
 
     onu_type_map = {
         str(row.get("value") or "").strip().lower(): row
@@ -5442,6 +5393,8 @@ def unconfigured_onu_authorize(request):
         upload_profile_name=upload_profile_name,
         subscriber_name=subscriber_name,
         onu_mode=onu_mode,
+        service_vlan=service_vlan_value,
+        tag_transform=tag_transform_value,
         onu_type_serial=int(onu_type_entry.get("serial_no") or 300),
         pots_ports=str(onu_type_entry.get("voip_ports") or "0").strip() or "0",
         eth_ports=str(onu_type_entry.get("ethernet_ports") or "0").strip() or "0",

@@ -37,6 +37,7 @@
                                 type="button"
                                 class="btn btn-mini btn-authorize authorize-trigger"
                                 data-authorize-toggle="{{ row.authorize_key }}"
+                                data-authorize-label="Authorize"
                             >Authorize</button>
                             {% else %}
                             <span class="muted-cell">-</span>
@@ -47,6 +48,7 @@
                                 type="button"
                                 class="btn btn-mini btn-reconfigure authorize-trigger"
                                 data-authorize-toggle="{{ row.authorize_key }}"
+                                data-authorize-label="Reconfigure"
                             >Reconfigure</button>
                             {% endif %}
                             <a href="{{ row.existing_onu_url }}" target="_blank" rel="noopener" class="btn btn-primary btn-mini">View ONU</a>
@@ -110,19 +112,46 @@
                                     </select>
                                 </div>
                                 <div class="authorize-field">
-                                    <label>VLAN</label>
-                                    {% if row.authorize_vlan_options %}
-                                    <select name="vlan" required>
-                                        <option value="">Select VLAN</option>
-                                        {% for option in row.authorize_vlan_options %}
-                                        <option value="{{ option.value }}"{% if row.authorize_vlan == option.value %} selected{% endif %}>{{ option.label }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <label>Name</label>
+                                    <input type="text" name="subscriber_name" value="{{ row.authorize_subscriber_name }}" placeholder="Client name" required>
+                                </div>
+                                <div class="authorize-field authorize-vlan-stack">
+                                    <label class="authorize-inline-check">
+                                        <input type="checkbox" name="use_svlan" data-authorize-svlan-toggle {% if row.authorize_svlan %}checked{% endif %}>
+                                        <span>Use SVLAN</span>
+                                    </label>
+                                    {% if row.authorize_svlan_options %}
+                                    <div class="authorize-svlan-controls" data-authorize-svlan-controls {% if not row.authorize_svlan %}hidden{% endif %}>
+                                        <select name="service_vlan" data-authorize-svlan-select {% if not row.authorize_svlan %}disabled{% endif %}>
+                                            <option value="">Select SVLAN</option>
+                                            {% for option in row.authorize_svlan_options %}
+                                            <option value="{{ option.value }}"{% if row.authorize_svlan == option.value %} selected{% endif %}>{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <select name="tag_transform" data-authorize-tag-transform {% if not row.authorize_svlan %}disabled{% endif %}>
+                                            <option value="default"{% if row.authorize_tag_transform == 'default' %} selected{% endif %}>default</option>
+                                            <option value="translate"{% if row.authorize_tag_transform == 'translate' %} selected{% endif %}>translate</option>
+                                        </select>
+                                    </div>
                                     {% else %}
                                     <div class="authorize-empty">No VLANs cached for this OLT yet.</div>
                                     {% endif %}
+                                    <div class="authorize-vlan-user">
+                                        <label>User VLAN</label>
+                                        {% if row.authorize_vlan_options %}
+                                        <select name="vlan" required>
+                                            <option value="">Select User VLAN</option>
+                                            {% for option in row.authorize_vlan_options %}
+                                            <option value="{{ option.value }}"{% if row.authorize_vlan == option.value %} selected{% endif %}>{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        {% else %}
+                                        <div class="authorize-empty">No VLANs cached for this OLT yet.</div>
+                                        {% endif %}
+                                    </div>
                                 </div>
-                                <div class="authorize-field">
+                                <div class="authorize-field authorize-speed-stack">
+                                    <div class="authorize-speed-field">
                                     <label>Download Speed</label>
                                     {% if unconfigured_download_speed_options %}
                                     <select name="download_speed" required>
@@ -134,8 +163,8 @@
                                     {% else %}
                                     <div class="authorize-empty">No download profiles available in DB.</div>
                                     {% endif %}
-                                </div>
-                                <div class="authorize-field">
+                                    </div>
+                                    <div class="authorize-speed-field">
                                     <label>Upload Speed</label>
                                     {% if unconfigured_upload_speed_options %}
                                     <select name="upload_speed" required>
@@ -147,10 +176,7 @@
                                     {% else %}
                                     <div class="authorize-empty">No upload profiles available in DB.</div>
                                     {% endif %}
-                                </div>
-                                <div class="authorize-field is-wide">
-                                    <label>Name</label>
-                                    <input type="text" name="subscriber_name" value="{{ row.authorize_subscriber_name }}" placeholder="Client name" required>
+                                    </div>
                                 </div>
                             </div>
                             <div class="authorize-submit-row">

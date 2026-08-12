@@ -331,10 +331,12 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        margin-top: 6px;
+        width: max-content;
+        margin-top: 0;
         color: #d8e6ff;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
+        line-height: 1;
     }
     .authorize-inline-check input[type="checkbox"] {
         width: 16px;
@@ -342,6 +344,32 @@
         min-height: auto;
         margin: 0;
         accent-color: #2f80ff;
+    }
+    .authorize-vlan-stack {
+        gap: 10px;
+    }
+    .authorize-svlan-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
+        gap: 10px;
+        align-items: center;
+    }
+    .authorize-svlan-controls[hidden] {
+        display: none;
+    }
+    .authorize-vlan-user {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .authorize-speed-stack,
+    .authorize-speed-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .authorize-speed-stack {
+        gap: 14px;
     }
     .authorize-field.is-wide {
         grid-column: 1 / -1;
@@ -526,12 +554,61 @@
         background: #67d39c;
         box-shadow: 0 0 12px rgba(103, 211, 156, 0.45);
     }
+    html[data-theme="light"] .olt-wait-overlay {
+        background: rgba(11, 24, 48, 0.56);
+        backdrop-filter: blur(5px);
+    }
+    html[data-theme="light"] .olt-wait-card {
+        border-color: rgba(28, 91, 170, 0.34);
+        background: linear-gradient(180deg, #ffffff 0%, #edf5ff 100%);
+        box-shadow: 0 24px 70px rgba(25, 55, 96, 0.28);
+    }
+    html[data-theme="light"] .olt-wait-wheel {
+        border-color: rgba(38, 81, 140, 0.16);
+        border-top-color: #2376ff;
+        border-right-color: #00c853;
+    }
+    html[data-theme="light"] .olt-wait-card h3 {
+        color: #10213d;
+    }
+    html[data-theme="light"] .olt-wait-card p,
+    html[data-theme="light"] .olt-wait-stage {
+        color: #355174;
+    }
+    html[data-theme="light"] .olt-wait-progress {
+        background: rgba(34, 69, 116, 0.12);
+        border-color: rgba(34, 69, 116, 0.18);
+    }
+    html[data-theme="light"] .olt-wait-progress-bar {
+        background: linear-gradient(90deg, #2376ff 0%, #00d46a 100%);
+        box-shadow: 0 0 18px rgba(0, 212, 106, 0.42);
+    }
+    html[data-theme="light"] .olt-wait-steps li {
+        color: #5d6f8d;
+    }
+    html[data-theme="light"] .olt-wait-steps li::before {
+        background: rgba(73, 91, 119, 0.24);
+        box-shadow: inset 0 0 0 1px rgba(34, 69, 116, 0.08);
+    }
+    html[data-theme="light"] .olt-wait-steps li.is-active {
+        color: #123a72;
+    }
+    html[data-theme="light"] .olt-wait-steps li.is-done {
+        color: #007a3d;
+    }
+    html[data-theme="light"] .olt-wait-steps li.is-done::before {
+        background: #00c853;
+        box-shadow: 0 0 12px rgba(0, 200, 83, 0.55);
+    }
     @keyframes oltWaitSpin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
     @media (max-width: 900px) {
         .authorize-grid {
+            grid-template-columns: 1fr;
+        }
+        .authorize-svlan-controls {
             grid-template-columns: 1fr;
         }
     }
@@ -814,7 +891,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!target) return;
                 const isOpen = target.classList.contains('is-open');
                 document.querySelectorAll('[data-authorize-panel]').forEach((panel) => panel.classList.remove('is-open'));
-                document.querySelectorAll('[data-authorize-toggle]').forEach((btn) => { btn.textContent = 'Authorize'; });
+                document.querySelectorAll('[data-authorize-toggle]').forEach((btn) => {
+                    btn.textContent = btn.dataset.authorizeLabel || 'Authorize';
+                });
                 if (!isOpen) {
                     target.classList.add('is-open');
                     button.textContent = 'Close';
@@ -830,6 +909,39 @@ document.addEventListener('DOMContentLoaded', function () {
         forms.forEach((form) => {
             if (form.dataset.ajaxBound === '1') return;
             form.dataset.ajaxBound = '1';
+            const svlanToggle = form.querySelector('[data-authorize-svlan-toggle]');
+            const svlanControls = form.querySelector('[data-authorize-svlan-controls]');
+            const svlanSelect = form.querySelector('[data-authorize-svlan-select]');
+            const tagTransformSelect = form.querySelector('[data-authorize-tag-transform]');
+            const userVlanSelect = form.querySelector('select[name="vlan"]');
+            const syncTagTransformOptions = () => {
+                if (!tagTransformSelect || !userVlanSelect) return;
+                const isUntagged = String(userVlanSelect.value || '').toLowerCase() === 'untagged';
+                const translateOption = Array.from(tagTransformSelect.options).find((option) => option.value === 'translate');
+                if (translateOption) {
+                    translateOption.hidden = isUntagged;
+                    translateOption.disabled = isUntagged;
+                }
+                if (isUntagged) tagTransformSelect.value = 'default';
+            };
+            if (svlanToggle) {
+                const syncSvlanSelect = () => {
+                    const enabled = svlanToggle.checked;
+                    if (svlanControls) svlanControls.hidden = !enabled;
+                    if (svlanSelect) {
+                        svlanSelect.disabled = !enabled;
+                        if (!enabled) svlanSelect.value = '';
+                    }
+                    if (tagTransformSelect) {
+                        tagTransformSelect.disabled = !enabled;
+                        if (!enabled) tagTransformSelect.value = 'default';
+                    }
+                    syncTagTransformOptions();
+                };
+                svlanToggle.addEventListener('change', syncSvlanSelect);
+                if (userVlanSelect) userVlanSelect.addEventListener('change', syncTagTransformOptions);
+                syncSvlanSelect();
+            }
             form.addEventListener('submit', async function (event) {
                 event.preventDefault();
                 const submitButton = form.querySelector('button[type="submit"]');
