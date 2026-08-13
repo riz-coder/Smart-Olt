@@ -1981,9 +1981,9 @@ def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0)
     #   col 1 = admin switch (1 = enable / 2 = disable)
     #   col 2 = reset
     #   col 3 = restart
-    # GPON / XG(S)-PON ONTs use hwGponDeviceOntControlTable (.46); EPON ONTs use the
-    # mirrored hwEponDeviceOntControlTable (.56) — the same +10 device-table offset
-    # Huawei uses for the ONT config table (.43 GPON / .53 EPON, see the delete path).
+    # GPON / XG(S)-PON ONTs use hwGponDeviceOntControlTable (.46).
+    # EPON ONTs use hwEponDeviceOntControlInfoTable (.57);
+    # .56 is EPON capability, not control.
     action_map = {
         "enable": {"col": 1, "value": 1, "label": "Enable ONU"},
         "disable": {"col": 1, "value": 2, "label": "Disable ONU"},
@@ -2003,14 +2003,12 @@ def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0)
             result["message"] = "SNMP ifIndex lookup failed."
             return result
 
-        # Control-table base(s) to try, in order. For EPON try the EPON table first,
-        # then fall back to the GPON table; for GPON the reverse. A SET to a column
-        # that does not exist on this firmware returns a harmless no-op error, so
-        # trying both safely covers firmwares that expose only one unified table.
+        # Keep GPON behavior unchanged. EPON uses its own control table only.
         tech = str(_slot_pon_tech(olt, slot) or "").upper()
         gpon_base = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1"
-        epon_base = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1"
-        table_bases = [epon_base, gpon_base] if tech == "EPON" else [gpon_base, epon_base]
+        legacy_epon_base = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1"
+        epon_control_base = "1.3.6.1.4.1.2011.6.128.1.1.2.57.1"
+        table_bases = [epon_control_base] if tech == "EPON" else [gpon_base, legacy_epon_base]
 
         result["value"] = str(config["value"])
         last_error = ""
