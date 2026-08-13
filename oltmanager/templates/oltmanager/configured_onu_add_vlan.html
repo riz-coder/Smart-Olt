@@ -22,8 +22,8 @@
         margin-top: 8px;
         border: 1px solid rgba(120, 170, 255, 0.35);
         border-radius: 10px;
-        background: #f8fbff;
-        color: #111827;
+        background: #0f1d35;
+        color: #edf5ff;
         overflow: hidden;
         box-shadow: 0 18px 46px rgba(0, 0, 0, 0.35);
     }
@@ -34,17 +34,17 @@
         max-height: 280px;
         overflow: auto;
         padding: 8px 14px 12px;
-        scrollbar-color: #111827 #e5edf7;
+        scrollbar-color: #62a8ff #152845;
         scrollbar-width: thin;
     }
     .vlan-picker-list::-webkit-scrollbar {
         width: 10px;
     }
     .vlan-picker-list::-webkit-scrollbar-track {
-        background: #e5edf7;
+        background: #152845;
     }
     .vlan-picker-list::-webkit-scrollbar-thumb {
-        background: #111827;
+        background: #62a8ff;
         border-radius: 999px;
     }
     .vlan-picker-option {
@@ -52,17 +52,30 @@
         align-items: center;
         gap: 8px;
         min-height: 28px;
-        color: #000;
+        color: #edf5ff !important;
         font-weight: 700;
+    }
+    .vlan-picker-option span {
+        color: #edf5ff !important;
     }
     .vlan-picker-option input {
         width: 14px;
         height: 14px;
+        accent-color: #2f83ff;
     }
     html[data-theme="light"] .vlan-picker-button {
         background: #f7faff;
         border-color: #cdd9ec;
         color: #16233c;
+    }
+    html[data-theme="light"] .vlan-picker-menu {
+        background: #102241;
+        border-color: #6aa8ff;
+        box-shadow: 0 18px 46px rgba(12, 28, 56, 0.22);
+    }
+    html[data-theme="light"] .vlan-picker-option,
+    html[data-theme="light"] .vlan-picker-option span {
+        color: #f1f7ff !important;
     }
 </style>
 {% endblock %}
