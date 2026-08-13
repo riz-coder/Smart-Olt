@@ -6017,6 +6017,7 @@ def sync_configured_onus_inventory(olt):
     }
     to_create = []
     to_update = []
+    new_onu_rows = []
     seen_keys = set()
 
     for row in rows:
@@ -6058,6 +6059,16 @@ def sync_configured_onus_inventory(olt):
         existing = existing_map.get(key)
         if existing is None:
             payload["onu_mode_cache"] = "routing"
+            new_onu_rows.append({
+                "frame": key[0],
+                "slot": key[1],
+                "port": key[2],
+                "ont_id": key[3],
+                "sn": payload.get("sn") or "",
+                "name": payload.get("description") or "",
+                "status": derived_status or "",
+                "signal": payload.get("olt_rx") or payload.get("onu_rx") or "",
+            })
             to_create.append(
                 ConfiguredONU(
                     olt=olt,
@@ -6136,6 +6147,8 @@ def sync_configured_onus_inventory(olt):
     return {
         "status": f"{status} | Database synced: {len(rows)} | New: {len(to_create)}",
         "count": len(rows),
+        "new_count": len(to_create),
+        "new_onus": new_onu_rows,
     }
 
 

@@ -56,7 +56,7 @@ RECONCILE_THROTTLE_SECONDS = 30
 # Per-OLT timestamp of last SNMP-based new-ONU detection check.
 _LAST_NEW_ONU_CHECK_AT = {}
 NEW_ONU_CHECK_SECONDS = 60
-AUTO_IMMEDIATE_INVENTORY_SYNC = False
+AUTO_IMMEDIATE_INVENTORY_SYNC = True
 # Tracks OLT IDs for which an immediate inventory sync thread is already running
 # so we never stack concurrent Telnet syncs for the same OLT.
 _IMMEDIATE_SYNC_RUNNING = set()
@@ -101,7 +101,11 @@ def _run_sample_retention_cleanup_if_due():
 def _run_immediate_inventory_sync(olt_id):
     """Background thread: run a full inventory sync for one OLT right now."""
     from .models import OLT
-    from .utils import olt_background_enabled_q, sync_configured_onus_inventory
+    from .utils import (
+        olt_background_enabled_q,
+        sync_configured_onus_inventory,
+        sync_onu_attached_vlans_for_olt,
+    )
 
     close_old_connections()
     try:
@@ -118,6 +122,17 @@ def _run_immediate_inventory_sync(olt_id):
             )
         else:
             logger.info("OLT %s immediate sync done: %s", olt.name, result.get("status", ""))
+            config_result = sync_onu_attached_vlans_for_olt(
+                olt,
+                fallback_missing=True,
+                only_missing=True,
+                imported_only=True,
+            )
+            logger.info(
+                "OLT %s immediate imported ONU config sync done: %s",
+                olt.name,
+                config_result.get("status", ""),
+            )
     except Exception as exc:
         logger.exception("OLT %s immediate sync error: %s", olt_id, exc)
     finally:

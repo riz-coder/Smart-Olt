@@ -7888,6 +7888,8 @@ def olt_sync_config(request, pk):
                     "message": message,
                     "duration_seconds": duration_seconds,
                     "count": count,
+                    "new_count": int(result.get("new_count") or 0),
+                    "new_onus": result.get("new_onus") or [],
                     "status": result.get("status") or "",
                 })
             messages.success(request, message)

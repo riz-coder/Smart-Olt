@@ -537,6 +537,63 @@
         font-size: 12px;
         line-height: 1.45;
     }
+    .sync-new-onus {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(120,190,255,0.25);
+    }
+    .sync-new-onus[hidden] {
+        display: none;
+    }
+    .sync-new-title {
+        margin: 0 0 8px;
+        color: #eaf4ff;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .sync-new-table-wrap {
+        max-height: 260px;
+        overflow: auto;
+        border: 1px solid rgba(120,190,255,0.22);
+        border-radius: 10px;
+        background: rgba(4, 10, 22, 0.35);
+    }
+    .sync-new-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .sync-new-table th,
+    .sync-new-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(120,190,255,0.14);
+        color: #f4f8ff;
+        font-size: 12px;
+        text-align: left;
+        white-space: nowrap;
+    }
+    .sync-new-table th {
+        color: #83b8ff;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    html[data-theme="light"] .sync-new-title {
+        color: #14345a;
+    }
+    html[data-theme="light"] .sync-new-table-wrap {
+        border-color: #bfd6f2;
+        background: #f6fbff;
+    }
+    html[data-theme="light"] .sync-new-table th {
+        color: #1f62a6;
+    }
+    html[data-theme="light"] .sync-new-table td {
+        color: #10213d;
+        border-bottom-color: #d5e3f5;
+    }
     .olt-wait-overlay {
         position: fixed;
         inset: 0;
@@ -1555,6 +1612,23 @@
                             <span>Time: <strong id="syncReportTime">-</strong></span>
                         </div>
                         <p class="sync-report-message" id="syncReportMessage"></p>
+                        <div class="sync-new-onus" id="syncNewOnus" hidden>
+                            <p class="sync-new-title" id="syncNewTitle">New ONUs Detected</p>
+                            <div class="sync-new-table-wrap">
+                                <table class="sync-new-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ONU</th>
+                                            <th>SN</th>
+                                            <th>Name</th>
+                                            <th>Status</th>
+                                            <th>Signal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="syncNewOnuRows"></tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </section>
                 {% endif %}
@@ -2206,6 +2280,12 @@ terminal.addEventListener('click', () => terminal.focus());
     const syncConfigForm = document.getElementById('syncConfigForm');
     const syncConfigOverlay = document.getElementById('syncConfigOverlay');
     const syncConfigReport = document.getElementById('syncConfigReport');
+    const syncEscapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     const setSyncReport = (payload, ok) => {
         if (!syncConfigReport) return;
         syncConfigReport.hidden = false;
@@ -2215,6 +2295,9 @@ terminal.addEventListener('click', () => terminal.focus());
         const timeNode = document.getElementById('syncReportTime');
         const messageNode = document.getElementById('syncReportMessage');
         const titleNode = document.getElementById('syncReportTitle');
+        const newOnuBox = document.getElementById('syncNewOnus');
+        const newOnuTitle = document.getElementById('syncNewTitle');
+        const newOnuRows = document.getElementById('syncNewOnuRows');
         const reportType = payload.type || (ok ? 'Completed' : 'Failed');
         const count = payload.count ?? payload.actual_count ?? '-';
         if (titleNode) titleNode.textContent = ok ? 'Config Sync Report' : 'Config Sync Report - Attention Required';
@@ -2222,6 +2305,32 @@ terminal.addEventListener('click', () => terminal.focus());
         if (countNode) countNode.textContent = count;
         if (timeNode) timeNode.textContent = payload.duration_seconds ? `${payload.duration_seconds}s` : '-';
         if (messageNode) messageNode.textContent = payload.status || payload.message || '';
+        const newOnus = Array.isArray(payload.new_onus) ? payload.new_onus : [];
+        if (newOnuBox && newOnuRows) {
+            if (ok && newOnus.length) {
+                if (newOnuTitle) newOnuTitle.textContent = `New ONUs Detected (${newOnus.length})`;
+                newOnuRows.innerHTML = newOnus.map((onu) => {
+                    const frame = onu.frame ?? 0;
+                    const slot = onu.slot ?? '-';
+                    const port = onu.port ?? '-';
+                    const ontId = onu.ont_id ?? '-';
+                    const path = `${frame}/${slot}/${port} ONT ${ontId}`;
+                    return `
+                        <tr>
+                            <td>${syncEscapeHtml(path)}</td>
+                            <td>${syncEscapeHtml(onu.sn || '-')}</td>
+                            <td>${syncEscapeHtml(onu.name || '-')}</td>
+                            <td>${syncEscapeHtml(onu.status || '-')}</td>
+                            <td>${syncEscapeHtml(onu.signal || '-')}</td>
+                        </tr>
+                    `;
+                }).join('');
+                newOnuBox.hidden = false;
+            } else {
+                newOnuRows.innerHTML = '';
+                newOnuBox.hidden = true;
+            }
+        }
     };
     if (syncConfigForm) {
         syncConfigForm.addEventListener('submit', async (event) => {
