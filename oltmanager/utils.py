@@ -2351,8 +2351,16 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
 def find_onu_location_by_sn_cli(olt, sn):
     """Find an existing ONU location on one OLT by serial number via CLI."""
     result = {"ok": False, "frame": None, "slot": None, "port": None, "ont_id": None, "message": ""}
-    sn_auth = _preferred_sn_auth_serial(sn)
-    if not sn_auth:
+    candidates = []
+    for candidate in (
+        _preferred_sn_auth_serial(sn),
+        str(sn or "").strip(),
+        _format_epon_mac_auth(sn),
+    ):
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    if not candidates:
         result["message"] = "Serial is missing."
         return result
 
@@ -2362,10 +2370,10 @@ def find_onu_location_by_sn_cli(olt, sn):
         return result
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
-        commands = [
-            f"display ont info by-sn {sn_auth}",
-            f'display ont info by-sn "{sn_auth}"',
-        ]
+        commands = []
+        for candidate in candidates:
+            commands.append(f"display ont info by-sn {candidate}")
+            commands.append(f'display ont info by-sn "{candidate}"')
         last_output = ""
         for command in commands:
             output = _run_telnet_command(tn, command, enter_until_prompt=True, max_wait_seconds=30)
@@ -8070,9 +8078,28 @@ def _authorize_cli_duplicate_ont_name(text):
     lowered = str(text or "").strip().lower()
     if not lowered:
         return False
+    if _authorize_cli_duplicate_sn(lowered):
+        return False
     name_hint = any(token in lowered for token in ("name", "description", "desc"))
     duplicate_hint = any(token in lowered for token in ("same", "duplicate", "already exist", "already exists", "has been used", "is used"))
     return name_hint and duplicate_hint
+
+
+def _authorize_cli_duplicate_sn(text):
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    sn_hint = any(token in lowered for token in ("sn", "serial", "sn-auth", "mac-auth", "mac address"))
+    duplicate_hint = any(token in lowered for token in (
+        "already exist",
+        "already exists",
+        "exists already",
+        "duplicate",
+        "has been used",
+        "is used",
+        "has already existed",
+    ))
+    return sn_hint and duplicate_hint
 
 
 def _parse_created_ont_id_from_add_output(text):
@@ -8747,7 +8774,9 @@ def authorize_autofind_onu(
 
     _emit(0, "Opening Telnet session...")
     last_retryable_message = ""
-    for attempt in range(1, 3):
+    duplicate_sn_recovered = False
+    max_authorize_attempts = 3
+    for attempt in range(1, max_authorize_attempts + 1):
         transcript = []
         tn, status = open_telnet_authenticated_session(olt)
         if tn is None:
@@ -8758,6 +8787,7 @@ def authorize_autofind_onu(
             _emit(0, "Telnet session opened.")
             if attempt > 1:
                 _append_authorize_transcript(transcript, f"authorize retry attempt {attempt}", "Reopened the Telnet session after a transient transport failure.")
+            retry_after_duplicate_sn_delete = False
 
             _emit(1, "Checking required profiles...")
             _prepare_telnet_cli_session(tn, use_paging=False)
@@ -8964,6 +8994,72 @@ def authorize_autofind_onu(
                         if not _authorize_cli_has_failure(add_output):
                             authorized_desc = candidate_desc
                             break
+                    if _authorize_cli_duplicate_sn(add_output) and not duplicate_sn_recovered:
+                        _emit(3, "Existing ONU with this SN found. Removing it first...")
+                        _append_authorize_transcript(
+                            transcript,
+                            "duplicate SN recovery",
+                            "OLT reported this serial already exists. Locating and deleting the existing ONU before retrying authorize.",
+                        )
+                        try:
+                            _close_telnet_session(tn)
+                        except Exception:
+                            pass
+                        existing_location = find_onu_location_by_sn_cli(olt, sn)
+                        _append_authorize_transcript(
+                            transcript,
+                            "display ont info by-sn",
+                            existing_location.get("message") or str(existing_location),
+                        )
+                        if not existing_location.get("ok"):
+                            result["message"] = (
+                                "SN already exists, but existing ONU location could not be resolved: "
+                                f"{existing_location.get('message') or 'not found'}"
+                            )
+                            result["transcript"] = "\n\n".join(transcript)[:16000]
+                            return result
+                        old_frame = int(existing_location.get("frame") or 0)
+                        old_slot = int(existing_location.get("slot") or 0)
+                        old_port = int(existing_location.get("port") or 0)
+                        old_ont_id = int(existing_location.get("ont_id") or 0)
+                        delete_result = execute_onu_cli_delete_action(
+                            olt,
+                            old_slot,
+                            old_port,
+                            old_ont_id,
+                            frame=old_frame,
+                            service_port_ids=[],
+                        )
+                        _append_authorize_transcript(
+                            transcript,
+                            "delete existing ONU by SN",
+                            delete_result.get("transcript") or delete_result.get("message") or "",
+                        )
+                        if not delete_result.get("ok"):
+                            result["message"] = (
+                                "SN already exists, but existing ONU could not be deleted: "
+                                f"{delete_result.get('message') or 'delete failed'}"
+                            )
+                            result["transcript"] = "\n\n".join(transcript)[:16000]
+                            return result
+                        try:
+                            ConfiguredONU.objects.filter(
+                                olt=olt,
+                                frame=old_frame,
+                                slot=old_slot,
+                                port=old_port,
+                                ont_id=old_ont_id,
+                            ).delete()
+                        except Exception as exc:
+                            _append_authorize_transcript(
+                                transcript,
+                                "cleanup stale ONU DB row",
+                                f"Warning: existing ONU was deleted from OLT, but DB cleanup failed: {exc}",
+                            )
+                        duplicate_sn_recovered = True
+                        retry_after_duplicate_sn_delete = True
+                        last_retryable_message = "Recovered duplicate SN by deleting the existing ONU."
+                        break
                     if _authorize_cli_duplicate_ont_name(add_output):
                         last_duplicate_name_output = add_output
                         continue
@@ -8974,6 +9070,8 @@ def authorize_autofind_onu(
                     result["message"] = _clean_cli_response_text(add_command, last_duplicate_name_output or add_output) or "OLT rejected ONU add command because the ONU name already exists."
                     result["transcript"] = "\n\n".join(transcript)[:16000]
                     return result
+                if retry_after_duplicate_sn_delete:
+                    continue
                 if is_epon:
                     # We supplied the ONT-ID explicitly for EPON; prefer the OLT's
                     # echoed value but fall back to the one we requested.
@@ -9135,7 +9233,7 @@ def authorize_autofind_onu(
         except (socket.timeout, TimeoutError, EOFError, OSError) as exc:
             last_retryable_message = str(exc or "").strip()
             _append_authorize_transcript(transcript, f"authorize transport error attempt {attempt}", last_retryable_message or exc.__class__.__name__)
-            if attempt < 2 and _is_retryable_authorize_exception(exc):
+            if attempt < max_authorize_attempts and _is_retryable_authorize_exception(exc):
                 continue
             if isinstance(exc, (socket.timeout, TimeoutError)):
                 result["message"] = "Telnet timeout while authorizing ONU."
