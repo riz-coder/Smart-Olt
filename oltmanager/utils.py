@@ -85,19 +85,43 @@ def _telnet_auth_output_detected(text):
 
 
 def _run_asyncio_sync(awaitable):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(awaitable)
-    finally:
+    def _run_in_new_loop():
+        loop = asyncio.new_event_loop()
         try:
-            loop.close()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(awaitable)
         finally:
             try:
-                asyncio.set_event_loop(None)
-            except Exception:
-                pass
+                loop.close()
+            finally:
+                try:
+                    asyncio.set_event_loop(None)
+                except Exception:
+                    pass
 
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run_in_new_loop()
+
+    # Daphne/ASGI may execute app startup hooks inside a thread that already has
+    # an event loop. Do not call asyncio.run/run_until_complete there; hop the
+    # pysnmp coroutine to a short-lived worker thread and keep the caller sync.
+    result_box = {}
+    error_box = {}
+
+    def _target():
+        try:
+            result_box["value"] = _run_in_new_loop()
+        except Exception as exc:
+            error_box["error"] = exc
+
+    thread = threading.Thread(target=_target, name="snmp-asyncio-runner", daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in error_box:
+        raise error_box["error"]
+    return result_box.get("value")
 
 def generate_snmp_community():
     token = secrets.token_urlsafe(9).replace("-", "").replace("_", "")
@@ -2447,6 +2471,9 @@ def _configured_onu_snmp_walk_limits(olt, *, ifname_limit=None, status_limit=Non
 
         onu_count = ConfiguredONU.objects.filter(olt=olt).count()
     except Exception:
+        # Under Daphne/ASGI this helper may be reached from an async-marked
+        # context. The status walk can still run safely with conservative
+        # defaults, so do not let Django's async-safety guard abort the SNMP sync.
         onu_count = 0
     ifname_limit = int(ifname_limit or max(8192, (onu_count * 3) + 1024))
     status_limit = int(status_limit or max(16384, onu_count + 2048))
