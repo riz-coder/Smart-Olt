@@ -7846,6 +7846,41 @@ def olt_config_backup(request, pk):
     return response
 
 
+def _sync_config_new_onu_report_rows(olt, new_onu_rows):
+    key_q = Q()
+    for row in new_onu_rows or []:
+        try:
+            key_q |= Q(
+                frame=int(row.get("frame") or 0),
+                slot=int(row.get("slot")),
+                port=int(row.get("port")),
+                ont_id=int(row.get("ont_id")),
+            )
+        except (TypeError, ValueError, AttributeError):
+            continue
+    if not key_q:
+        return new_onu_rows or []
+    records = ConfiguredONU.objects.filter(olt=olt).filter(key_q).order_by("slot", "port", "ont_id")
+    return [
+        {
+            "frame": int(record.frame or 0),
+            "slot": int(record.slot),
+            "port": int(record.port),
+            "ont_id": int(record.ont_id),
+            "sn": record.sn or "",
+            "name": record.description or "",
+            "status": record.derived_status or record.run_state or "",
+            "signal": record.olt_rx or record.onu_rx or "",
+            "onu_type": record.onu_type_cache or "",
+            "vlans": record.attached_vlans_cache or "",
+            "distance": record.ont_distance_m or "",
+            "download": record.download_profile_name_cache or "",
+            "upload": record.upload_profile_name_cache or "",
+        }
+        for record in records
+    ]
+
+
 @login_required
 @admin_required
 @require_POST
@@ -7861,6 +7896,19 @@ def olt_sync_config(request, pk):
     )
     try:
         result = sync_configured_onus_inventory(olt)
+        new_onu_rows = result.get("new_onus") or []
+        detail_fill = {}
+        vlan_fill = {}
+        if not result.get("incomplete") and new_onu_rows:
+            detail_fill = sync_onu_detail_fields_for_olt(olt, target_keys=new_onu_rows)
+            vlan_fill = sync_onu_attached_vlans_for_olt(
+                olt,
+                fallback_missing=True,
+                only_missing=True,
+                imported_only=True,
+                target_keys=new_onu_rows,
+            )
+            new_onu_rows = _sync_config_new_onu_report_rows(olt, new_onu_rows)
         duration_seconds = round(time.time() - started_at, 1)
         if result.get("incomplete"):
             message = (
@@ -7889,7 +7937,9 @@ def olt_sync_config(request, pk):
                     "duration_seconds": duration_seconds,
                     "count": count,
                     "new_count": int(result.get("new_count") or 0),
-                    "new_onus": result.get("new_onus") or [],
+                    "new_onus": new_onu_rows,
+                    "detail_fill_status": detail_fill.get("status") or "",
+                    "vlan_fill_status": vlan_fill.get("status") or "",
                     "status": result.get("status") or "",
                 })
             messages.success(request, message)

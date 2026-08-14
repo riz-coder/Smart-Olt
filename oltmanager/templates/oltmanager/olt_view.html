@@ -1621,6 +1621,10 @@
                                             <th>ONU</th>
                                             <th>SN</th>
                                             <th>Name</th>
+                                            <th>ONU Type</th>
+                                            <th>VLANs</th>
+                                            <th>Distance</th>
+                                            <th>Profiles</th>
                                             <th>Status</th>
                                             <th>Signal</th>
                                         </tr>
@@ -2320,6 +2324,10 @@ terminal.addEventListener('click', () => terminal.focus());
                             <td>${syncEscapeHtml(path)}</td>
                             <td>${syncEscapeHtml(onu.sn || '-')}</td>
                             <td>${syncEscapeHtml(onu.name || '-')}</td>
+                            <td>${syncEscapeHtml(onu.onu_type || '-')}</td>
+                            <td>${syncEscapeHtml(onu.vlans || '-')}</td>
+                            <td>${syncEscapeHtml(onu.distance || '-')}</td>
+                            <td>${syncEscapeHtml([onu.download, onu.upload].filter(Boolean).join(' / ') || '-')}</td>
                             <td>${syncEscapeHtml(onu.status || '-')}</td>
                             <td>${syncEscapeHtml(onu.signal || '-')}</td>
                         </tr>

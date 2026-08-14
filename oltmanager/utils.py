@@ -9931,10 +9931,41 @@ def sync_single_onu_detail_fields(olt, slot, port, ont_id, *, record=None):
         _close_telnet_session(tn)
 
 
-def sync_onu_detail_fields_for_olt(olt, limit=None, start_pk=None):
+def _filter_onu_queryset_by_target_keys(qs, target_keys):
+    if not target_keys:
+        return qs
+    key_q = Q()
+    for raw in target_keys:
+        if isinstance(raw, dict):
+            frame = raw.get("frame", 0)
+            slot = raw.get("slot")
+            port = raw.get("port")
+            ont_id = raw.get("ont_id")
+        else:
+            parts = list(raw or [])
+            if len(parts) == 4:
+                frame, slot, port, ont_id = parts
+            elif len(parts) == 3:
+                frame, slot, port, ont_id = 0, parts[0], parts[1], parts[2]
+            else:
+                continue
+        try:
+            key_q |= Q(
+                frame=int(frame or 0),
+                slot=int(slot),
+                port=int(port),
+                ont_id=int(ont_id),
+            )
+        except (TypeError, ValueError):
+            continue
+    return qs.filter(key_q) if key_q else qs.none()
+
+
+def sync_onu_detail_fields_for_olt(olt, limit=None, start_pk=None, target_keys=None):
     from .models import ConfiguredONU
 
     qs = ConfiguredONU.objects.filter(olt=olt).order_by("id")
+    qs = _filter_onu_queryset_by_target_keys(qs, target_keys)
     wrapped = False
     if start_pk:
         records = list(qs.filter(id__gt=int(start_pk))[:limit] if limit else qs.filter(id__gt=int(start_pk)))
@@ -11251,11 +11282,13 @@ def sync_onu_attached_vlans_for_olt(
     progress_callback=None,
     only_missing=False,
     imported_only=False,
+    target_keys=None,
 ):
     from django.utils import timezone
     from .models import ConfiguredONU
 
     qs = ConfiguredONU.objects.filter(olt=olt).order_by("id")
+    qs = _filter_onu_queryset_by_target_keys(qs, target_keys)
     if imported_only:
         qs = qs.filter(configured_via_app=False)
     if only_missing:
