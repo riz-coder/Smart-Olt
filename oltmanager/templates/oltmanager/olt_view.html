@@ -496,6 +496,17 @@
         gap: 10px;
         margin-top: 8px;
     }
+    .sync-config-warning {
+        border: 1px solid rgba(255, 88, 99, 0.58);
+        border-radius: 11px;
+        margin: 8px 0 12px;
+        padding: 10px 12px;
+        background: rgba(126, 19, 36, 0.28);
+        color: #ff6b77;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0.01em;
+    }
     .sync-config-report {
         margin-top: 14px;
         border: 1px solid #2c5e91;
@@ -1119,6 +1130,7 @@
                 <a href="?section=pon-ports" class="{% if selected_section == 'pon-ports' %}active{% endif %}">PON ports</a>
                 <a href="?section=uplink" class="{% if selected_section == 'uplink' %}active{% endif %}">Uplink</a>
                 <a href="?section=vlans" class="{% if selected_section == 'vlans' %}active{% endif %}">VLANs</a>
+                <a href="?section=config-sync" class="{% if selected_section == 'config-sync' %}active{% endif %}">Config Sync</a>
                 <a href="?section=advanced" class="{% if selected_section == 'advanced' %}active{% endif %}">Advanced</a>
             </nav>
 
@@ -1594,9 +1606,10 @@
                     </div>
                     {{ vlan_data.rows|json_script:"existingVlanData" }}
                 </section>
-                {% else %}
-                <section id="advanced">
-                    <h3>Advanced</h3>
+                {% elif selected_section == 'config-sync' %}
+                <section id="config-sync">
+                    <h3>Config Sync</h3>
+                    <p class="sync-config-warning">ONU sync can take at least 15-20 minutes depending on OLT size, cards, and ONU count.</p>
                     <p class="subtle">Run configured ONU inventory sync manually for this OLT.</p>
                     {% if user.is_staff or user.is_superuser %}
                     <form class="inline js-op-form sync-config-form" id="syncConfigForm" method="post" action="{% url 'olt_sync_config' olt.pk %}">
@@ -1634,6 +1647,11 @@
                             </div>
                         </div>
                     </div>
+                </section>
+                {% else %}
+                <section id="advanced">
+                    <h3>Advanced</h3>
+                    <p class="subtle">Coming soon.</p>
                 </section>
                 {% endif %}
             </div>
