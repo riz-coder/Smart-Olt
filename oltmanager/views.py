@@ -7954,7 +7954,7 @@ def olt_sync_config(request, pk):
                 "duration_seconds": duration_seconds,
             }, status=500)
         messages.error(request, message)
-    return redirect(f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=config-sync")
+    return redirect(f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=advanced")
 
 
 @login_required
@@ -7966,7 +7966,6 @@ def olt_view(request, pk):
         'pon-ports',
         'uplink',
         'vlans',
-        'config-sync',
         'advanced',
     }
     selected_section = getattr(request, "_olt_view_section", None) or request.GET.get('section', 'olt-details')

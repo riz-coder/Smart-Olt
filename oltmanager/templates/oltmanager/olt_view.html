@@ -507,6 +507,24 @@
         font-weight: 900;
         letter-spacing: 0.01em;
     }
+    .advanced-tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 14px;
+        margin-top: 12px;
+    }
+    .advanced-tool-card {
+        border: 1px solid rgba(95, 150, 230, 0.28);
+        border-radius: 14px;
+        padding: 16px;
+        background: rgba(5, 17, 38, 0.28);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .advanced-tool-card h4 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        color: #fff;
+    }
     .sync-config-report {
         margin-top: 14px;
         border: 1px solid #2c5e91;
@@ -1130,7 +1148,6 @@
                 <a href="?section=pon-ports" class="{% if selected_section == 'pon-ports' %}active{% endif %}">PON ports</a>
                 <a href="?section=uplink" class="{% if selected_section == 'uplink' %}active{% endif %}">Uplink</a>
                 <a href="?section=vlans" class="{% if selected_section == 'vlans' %}active{% endif %}">VLANs</a>
-                <a href="?section=config-sync" class="{% if selected_section == 'config-sync' %}active{% endif %}">Config Sync</a>
                 <a href="?section=advanced" class="{% if selected_section == 'advanced' %}active{% endif %}">Advanced</a>
             </nav>
 
@@ -1606,52 +1623,52 @@
                     </div>
                     {{ vlan_data.rows|json_script:"existingVlanData" }}
                 </section>
-                {% elif selected_section == 'config-sync' %}
-                <section id="config-sync">
-                    <h3>Config Sync</h3>
-                    <p class="sync-config-warning">ONU sync can take at least 15-20 minutes depending on OLT size, cards, and ONU count.</p>
-                    <p class="subtle">Run configured ONU inventory sync manually for this OLT.</p>
-                    {% if user.is_staff or user.is_superuser %}
-                    <form class="inline js-op-form sync-config-form" id="syncConfigForm" method="post" action="{% url 'olt_sync_config' olt.pk %}">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-primary" data-op="Sync Config">Sync Config</button>
-                    </form>
-                    {% endif %}
-                    <div class="sync-config-report" id="syncConfigReport" hidden>
-                        <p class="sync-report-title" id="syncReportTitle">Config Sync Report</p>
-                        <div class="sync-report-grid">
-                            <span>Result: <strong id="syncReportType">-</strong></span>
-                            <span>ONUs: <strong id="syncReportCount">-</strong></span>
-                            <span>Time: <strong id="syncReportTime">-</strong></span>
-                        </div>
-                        <p class="sync-report-message" id="syncReportMessage"></p>
-                        <div class="sync-new-onus" id="syncNewOnus" hidden>
-                            <p class="sync-new-title" id="syncNewTitle">New ONUs Detected</p>
-                            <div class="sync-new-table-wrap">
-                                <table class="sync-new-table">
-                                    <thead>
-                                        <tr>
-                                            <th>ONU</th>
-                                            <th>SN</th>
-                                            <th>Name</th>
-                                            <th>ONU Type</th>
-                                            <th>VLANs</th>
-                                            <th>Distance</th>
-                                            <th>Profiles</th>
-                                            <th>Status</th>
-                                            <th>Signal</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="syncNewOnuRows"></tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </section>
                 {% else %}
                 <section id="advanced">
                     <h3>Advanced</h3>
-                    <p class="subtle">Coming soon.</p>
+                    <div class="advanced-tools-grid">
+                        <div class="advanced-tool-card">
+                            <h4>Config Sync</h4>
+                            <p class="sync-config-warning">ONU sync can take at least 15-20 minutes depending on OLT size, cards, and ONU count.</p>
+                            <p class="subtle">Run configured ONU inventory sync manually for this OLT.</p>
+                            {% if user.is_staff or user.is_superuser %}
+                            <form class="inline js-op-form sync-config-form" id="syncConfigForm" method="post" action="{% url 'olt_sync_config' olt.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary" data-op="Sync Config">Sync Config</button>
+                            </form>
+                            {% endif %}
+                            <div class="sync-config-report" id="syncConfigReport" hidden>
+                                <p class="sync-report-title" id="syncReportTitle">Config Sync Report</p>
+                                <div class="sync-report-grid">
+                                    <span>Result: <strong id="syncReportType">-</strong></span>
+                                    <span>ONUs: <strong id="syncReportCount">-</strong></span>
+                                    <span>Time: <strong id="syncReportTime">-</strong></span>
+                                </div>
+                                <p class="sync-report-message" id="syncReportMessage"></p>
+                                <div class="sync-new-onus" id="syncNewOnus" hidden>
+                                    <p class="sync-new-title" id="syncNewTitle">New ONUs Detected</p>
+                                    <div class="sync-new-table-wrap">
+                                        <table class="sync-new-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>ONU</th>
+                                                    <th>SN</th>
+                                                    <th>Name</th>
+                                                    <th>ONU Type</th>
+                                                    <th>VLANs</th>
+                                                    <th>Distance</th>
+                                                    <th>Profiles</th>
+                                                    <th>Status</th>
+                                                    <th>Signal</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="syncNewOnuRows"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </section>
                 {% endif %}
             </div>

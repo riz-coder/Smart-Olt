@@ -2184,6 +2184,54 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             "the onu does not exist",
         ))
 
+    def _delete_success_text(text):
+        raw = str(text or "")
+        success_match = re.search(r"(?i)success\s*:\s*(\d+)", raw)
+        if success_match and int(success_match.group(1)) >= 1:
+            return True
+        lowered = raw.lower()
+        return any(token in lowered for token in (
+            "number of onts that can be deleted: 1, success: 1",
+            "number of onus that can be deleted: 1, success: 1",
+            "successfully deleted",
+            "delete successfully",
+        ))
+
+    def _onu_missing_from_info():
+        """Return True only when the OLT confirms this ONU is absent."""
+        info_commands = [
+            f"display ont info {int(port or 0)} {int(ont_id or 0)}",
+            f"display onu info {int(port or 0)} {int(ont_id or 0)}",
+        ]
+        for info_command in info_commands:
+            info_output = _run_telnet_command(
+                tn, info_command, enter_until_prompt=True, max_wait_seconds=18, step_timeout=0.45
+            )
+            _append_authorize_transcript(transcript, info_command, info_output)
+            cleaned = _clean_cli_response_text(info_command, info_output)
+            lowered = str(cleaned or info_output or "").lower()
+            if any(token in lowered for token in (
+                "does not exist",
+                "not exist",
+                "the ont does not exist",
+                "the onu does not exist",
+                "ont does not exist",
+                "onu does not exist",
+            )):
+                return True
+            if any(token in lowered for token in (
+                "unknown command",
+                "incomplete command",
+                "parameter error",
+                "% invalid",
+                "wrong parameter",
+                "unrecognized command",
+            )):
+                continue
+            if re.search(r"(?i)\b(?:sn|serial|run state|control flag|ont id|onu id|equipment id)\b", cleaned):
+                return False
+        return False
+
     def _verify_onu_deleted():
         service_port_verify_command = f"display current-configuration | include {int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} ont {int(ont_id or 0)}"
         service_port_verify_output = _run_telnet_command(
@@ -2203,7 +2251,7 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
         _append_authorize_transcript(transcript, ont_verify_command, ont_verify_output)
         ont_cleaned = _clean_cli_response_text(ont_verify_command, ont_verify_output).lower()
         ont_exists = re.search(rf"\b(?:ont|onu)\s+add\s+{int(port or 0)}\s+{int(ont_id or 0)}\b", ont_cleaned)
-        return not service_port_exists and not ont_exists
+        return not service_port_exists and not ont_exists and _onu_missing_from_info()
 
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
@@ -2268,9 +2316,9 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
                     "not exist",
                 ))
                 if _delete_failure_text(retry_output) and not retry_missing:
-                    # Continue to ONT delete anyway; a stale service-port cache must not
-                    # leave the ONU configured when the user asked for delete.
-                    result["message"] = _clean_cli_response_text(command, retry_output) or f"Service-port {service_port_id} delete warning."
+                    result["message"] = _clean_cli_response_text(command, retry_output) or f"Service-port {service_port_id} delete failed."
+                    result["transcript"] = "\n\n".join(transcript)[:16000]
+                    return result
 
         # Enter the PON interface matching THIS board's technology (EPON / GPON /
         # XGS-PON). A hardcoded "interface gpon" silently fails on an EPON board,
@@ -2320,11 +2368,12 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             result["transcript"] = "\n\n".join(transcript)[:16000]
             return result
 
-        success_match = re.search(r"(?i)success\s*:\s*(\d+)", str(delete_output or ""))
+        delete_confirmed = _delete_success_text(delete_output)
         needs_retry = (
             _delete_failure_text(delete_output)
-            or (success_match and int(success_match.group(1)) < 1)
-            or ("number of onts that can be deleted" in lowered_delete and not success_match)
+            or (re.search(r"(?i)success\s*:\s*0\b", str(delete_output or "")) is not None)
+            or ("number of onts that can be deleted" in lowered_delete and not delete_confirmed)
+            or ("number of onus that can be deleted" in lowered_delete and not delete_confirmed)
         )
         if needs_retry:
             retry_output = _run_telnet_command(
@@ -2332,13 +2381,15 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             )
             _append_authorize_transcript(transcript, delete_command, retry_output)
             delete_output = retry_output
+            delete_confirmed = _delete_success_text(delete_output)
 
-        if not _deleted_text(delete_output) and not _verify_onu_deleted():
+        if not _deleted_text(delete_output) and not delete_confirmed and not _verify_onu_deleted():
             retry_output = _run_telnet_command(
                 tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
             )
             _append_authorize_transcript(transcript, delete_command, retry_output)
-            if not _deleted_text(retry_output) and not _verify_onu_deleted():
+            retry_confirmed = _delete_success_text(retry_output)
+            if not _deleted_text(retry_output) and not retry_confirmed and not _verify_onu_deleted():
                 detail = _clean_cli_response_text(delete_command, retry_output or delete_output)
                 result["message"] = f"{delete_command} failed: {detail or 'ONU still exists after delete attempt.'}"
                 result["transcript"] = "\n\n".join(transcript)[:16000]
