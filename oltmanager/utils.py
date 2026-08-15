@@ -1050,7 +1050,7 @@ def _parse_snmp_gpon_fsp_from_ifname(value):
     return None
 
 
-def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1):
+def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1, operation_timeout=None):
     from pysnmp.hlapi.asyncio import (  # type: ignore
         bulk_cmd,
         CommunityData,
@@ -1111,6 +1111,8 @@ def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1):
         engine.close_dispatcher()
         return rows
 
+    if operation_timeout and float(operation_timeout) > 0:
+        return _run_asyncio_sync(asyncio.wait_for(_walk(), timeout=float(operation_timeout)))
     return _run_asyncio_sync(_walk())
 
 
@@ -2531,7 +2533,7 @@ def _configured_onu_snmp_walk_limits(olt, *, ifname_limit=None, status_limit=Non
     return min(ifname_limit, 65535), min(status_limit, 65535)
 
 
-def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
+def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_seconds=None):
     result = {
         "status": "SNMP ONU status map unavailable",
         "items": {},
@@ -2546,17 +2548,52 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
             ifname_limit=ifname_limit,
             status_limit=status_limit,
         )
+        deadline_ts = None
+        if max_seconds and float(max_seconds) > 0:
+            deadline_ts = time.monotonic() + float(max_seconds)
+
+        def _remaining_timeout():
+            if deadline_ts is None:
+                return None
+            remaining = deadline_ts - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("ONU status SNMP walk timed out.")
+            return max(0.5, remaining)
+
         last_error = ""
         for mp_model in (1, 0):
             try:
-                ifname_rows = _snmp_walk_rows(olt, base_ifname_oid, limit=ifname_limit, mp_model=mp_model)
+                walk_incomplete = False
+                ifname_rows = _snmp_walk_rows(
+                    olt,
+                    base_ifname_oid,
+                    limit=ifname_limit,
+                    mp_model=mp_model,
+                    operation_timeout=_remaining_timeout(),
+                )
                 try:
-                    run_rows = _snmp_walk_rows(olt, base_run_oid, limit=status_limit, mp_model=mp_model)
-                except Exception:
+                    run_rows = _snmp_walk_rows(
+                        olt,
+                        base_run_oid,
+                        limit=status_limit,
+                        mp_model=mp_model,
+                        operation_timeout=_remaining_timeout(),
+                    )
+                except Exception as exc:
+                    walk_incomplete = True
+                    last_error = str(exc)
                     run_rows = {}
                 try:
-                    config_rows = _snmp_walk_rows(olt, base_config_oid, limit=status_limit, mp_model=mp_model)
-                except Exception:
+                    config_rows = _snmp_walk_rows(
+                        olt,
+                        base_config_oid,
+                        limit=status_limit,
+                        mp_model=mp_model,
+                        operation_timeout=_remaining_timeout(),
+                    )
+                except Exception as exc:
+                    walk_incomplete = True
+                    last_error = str(exc)
                     config_rows = {}
                 break
             except Exception as exc:
@@ -2582,10 +2619,11 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None):
         truncated = (
             len(ifname_rows or {}) >= ifname_limit
             or len(run_rows or {}) >= status_limit
+            or walk_incomplete
         )
         result["items"] = items
         result["truncated"] = truncated
-        suffix = " (walk limit reached)" if truncated else ""
+        suffix = " (walk incomplete)" if walk_incomplete else " (walk limit reached)" if truncated else ""
         result["status"] = f"SNMP ONU status map fetched: {len(items)} (GPON/XG){suffix}"
         return result
     except Exception as exc:
@@ -5954,13 +5992,25 @@ def fetch_configured_onus_snapshot(olt):
         _close_telnet_session(tn)
 
 
-def fetch_configured_onu_status_rows(olt, slots):
+def fetch_configured_onu_status_rows(olt, slots, *, max_seconds=None):
     """Fetch configured ONU status rows for selected slots without optical reads."""
     result = {"status": "ONU status inventory unavailable", "rows": []}
     slots = sorted({int(slot) for slot in (slots or [])})
     if not slots:
         result["status"] = "No slots requested."
         return result
+
+    deadline_ts = None
+    if max_seconds and float(max_seconds) > 0:
+        deadline_ts = time.monotonic() + float(max_seconds)
+
+    def _remaining_wait(default_seconds):
+        if deadline_ts is None:
+            return default_seconds
+        remaining = deadline_ts - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("ONU status inventory fetch timed out.")
+        return max(1.0, min(float(default_seconds), remaining))
 
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
@@ -5980,7 +6030,7 @@ def fetch_configured_onu_status_rows(olt, slots):
 
             best_rows = []
             for command in commands_to_try:
-                output = _run_telnet_bulk_command(tn, command, max_wait_seconds=60)
+                output = _run_telnet_bulk_command(tn, command, max_wait_seconds=_remaining_wait(60))
                 parsed_rows = _parse_ont_inventory_rows(output)
                 if len(parsed_rows) > len(best_rows):
                     best_rows = parsed_rows
@@ -11900,7 +11950,15 @@ def get_onu_status_sync_progress():
     return snapshot
 
 
-def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_pk=None, write_samples=True, on_progress=None):
+def sync_runtime_statuses_for_olt(
+    olt,
+    only_non_online=True,
+    limit=None,
+    start_pk=None,
+    write_samples=True,
+    on_progress=None,
+    max_seconds=None,
+):
     from django.utils import timezone
     from .models import ConfiguredONU
     if write_samples:
@@ -11958,15 +12016,31 @@ def sync_runtime_statuses_for_olt(olt, only_non_online=True, limit=None, start_p
     status_samples = []
     status_changed = 0
     now = timezone.now()
+    deadline_ts = None
+    if max_seconds and float(max_seconds) > 0:
+        deadline_ts = time.monotonic() + float(max_seconds)
+
+    def _remaining_seconds():
+        if deadline_ts is None:
+            return None
+        remaining = deadline_ts - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"ONU status sync timed out after {int(float(max_seconds))} seconds.")
+        return max(0.5, remaining)
+
     try:
         if on_progress:
             on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
-        snmp_result = {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status walk for EPON batch."} if all_records_are_epon else fetch_olt_snmp_status_map(olt)
+        snmp_result = (
+            {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status walk for EPON batch."}
+            if all_records_are_epon
+            else fetch_olt_snmp_status_map(olt, max_seconds=_remaining_seconds())
+        )
         snmp_status_map = snmp_result.get("items") or {}
         epon_inventory_map = {}
         if epon_slots:
-            inventory_result = fetch_configured_onu_status_rows(olt, epon_slots)
+            inventory_result = fetch_configured_onu_status_rows(olt, epon_slots, max_seconds=_remaining_seconds())
             for row in inventory_result.get("rows") or []:
                 try:
                     key = (int(row.get("slot") or 0), int(row.get("port") or 0), int(row.get("ont_id") or 0))

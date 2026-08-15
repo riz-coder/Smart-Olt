@@ -29,6 +29,7 @@ SNMP_MONITOR_MAX_WORKERS = max(1, int(getattr(settings, "SNMP_MONITOR_MAX_WORKER
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
+ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 90) or 90))
 ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600) or 3600))
 ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1) or 1))
 ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1) or 1))
@@ -194,7 +195,11 @@ def _onu_inventory_sync_loop():
 
         close_old_connections()
         try:
-            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only("id", "name", "snmp_last_status").first()
+            # Do not defer SNMP fields here. The status walk reads OLT connection
+            # values inside pysnmp asyncio coroutines; a deferred-field DB fetch
+            # from that async context raises Django's SynchronousOnlyOperation and
+            # leaves dashboard counts stale.
+            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
             if not olt:
                 return
 
@@ -488,7 +493,10 @@ def _onu_status_sync_loop():
 
         close_old_connections()
         try:
-            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).only("id", "name", "snmp_last_status").first()
+            # Do not defer SNMP fields here. The status walk reads OLT
+            # connection values inside pysnmp asyncio coroutines; deferred-field
+            # DB fetches from that async context make the entire OLT status sync fail.
+            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
             if not olt:
                 return
             update_onu_status_sync_progress(
@@ -508,6 +516,7 @@ def _onu_status_sync_loop():
                 only_non_online=False,
                 limit=None,
                 write_samples=False,
+                max_seconds=ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS,
                 on_progress=_progress,
             )
         finally:
@@ -552,6 +561,11 @@ def _onu_status_sync_loop():
                                 result.get("updated"),
                                 result.get("status"),
                             )
+                            try:
+                                record_dashboard_status_samples(force=True, bypass_force_throttle=True)
+                            except Exception:
+                                logger.exception("Dashboard status sample write failed after OLT status sync.")
+                                close_old_connections()
                     except Exception as exc:
                         logger.exception("OLT %s ONU status sync failed.", olt_id)
                         try:
