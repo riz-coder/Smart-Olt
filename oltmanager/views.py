@@ -4178,6 +4178,26 @@ def _build_onu_signal_graph_data(olt, slot, port, ont_id, range_key="1h"):
         .values("sampled_at", "onu_rx", "olt_rx", "tx_power", "sample_source")
     )
     if not rows:
+        latest_sample = (
+            ONUOpticalSample.objects.filter(
+                olt=olt,
+                slot=slot,
+                port=port,
+                ont_id=ont_id,
+            )
+            .order_by("-sampled_at")
+            .values("sampled_at", "onu_rx", "olt_rx", "tx_power", "sample_source")
+            .first()
+        )
+        if latest_sample:
+            rows = [{
+                "sampled_at": latest_sample.get("sampled_at"),
+                "onu_rx": latest_sample.get("onu_rx") or "",
+                "olt_rx": latest_sample.get("olt_rx") or "",
+                "tx_power": latest_sample.get("tx_power") or "",
+                "sample_source": "stale",
+            }]
+    if not rows:
         current = (
             ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id)
             .values("onu_rx", "olt_rx", "tx_power", "status_updated_at", "synced_at")

@@ -2393,6 +2393,7 @@
         if (!visibleHistory.length || !allValues.length) {
             chartNode.innerHTML = '';
             chartEmptyNode.style.display = 'block';
+            chartEmptyNode.textContent = 'No signal history captured yet.';
             currentOltNode.textContent = '--';
             maximumOltNode.textContent = '--';
             return;
@@ -2515,7 +2516,14 @@
         }
         try {
             const response = await fetch(`${signalGraphUrl}?range=${encodeURIComponent(rangeKey)}&_=${Date.now()}`, { cache: 'no-store' });
-            if (!response.ok) return;
+            if (!response.ok) {
+                if (!silent) {
+                    chartNode.innerHTML = '';
+                    chartEmptyNode.style.display = 'block';
+                    chartEmptyNode.textContent = 'Signal history unavailable.';
+                }
+                return;
+            }
             const data = await response.json();
             signalGraphHistory = (data.points || []).map(parseSignalPoint).filter(Boolean);
             if (signalHistoryNoteNode) {
