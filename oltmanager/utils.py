@@ -6333,6 +6333,258 @@ def sync_configured_onus_inventory(olt):
     }
 
 
+def _parse_single_ont_inventory_snapshot(output, frame, slot, port, ont_id):
+    text = str(output or "")
+    row_matches = [
+        row for row in _parse_ont_inventory_rows(text)
+        if int(row.get("frame", -1)) == int(frame or 0)
+        and int(row.get("slot", -1)) == int(slot)
+        and int(row.get("port", -1)) == int(port)
+        and int(row.get("ont_id", -1)) == int(ont_id)
+    ]
+    if row_matches:
+        return row_matches[0]
+
+    runtime = _parse_ont_runtime_snapshot(text) or {}
+
+    def _pick(patterns):
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+            if match:
+                return " ".join(match.group(1).strip().split())
+        return ""
+
+    sn = _pick((
+        r"^\s*SN\s*:\s*([^\s(]+)",
+        r"^\s*(?:ONT|ONU)\s+SN\s*:\s*([^\s(]+)",
+        r"^\s*(?:Serial|Serial\s+number)\s*:\s*([^\s(]+)",
+    ))
+    description = ""
+    desc_match = re.search(
+        r"(?ims)^\s*Description\s*:\s*(.+?)(?=^\s*(?:Last\s+down\s+cause|Last\s+up\s+time|Line\s+profile|FEC\s+upstream|Type\s+C|Interoperability|[-]{5,})\b)",
+        text,
+    )
+    if desc_match:
+        description = " ".join(desc_match.group(1).strip().split())
+    if not description:
+        description = _pick((r"^\s*Description\s*:\s*(.+)$",))
+
+    if not sn and not any((runtime.get("run_state"), runtime.get("config_state"), runtime.get("control_flag"))):
+        return None
+
+    return {
+        "frame": int(frame or 0),
+        "slot": int(slot),
+        "port": int(port),
+        "fsp": f"{int(frame or 0)}/{int(slot)}/{int(port)}",
+        "ont_id": int(ont_id),
+        "sn": sn,
+        "control_flag": (runtime.get("control_flag") or "").lower(),
+        "run_state": (runtime.get("run_state") or "").lower(),
+        "config_state": (runtime.get("config_state") or "").lower(),
+        "match_state": _pick((r"^\s*Match\s+state\s*:\s*(.+)$",)).lower(),
+        "protect_side": _pick((r"^\s*Protect\s+side\s*:\s*(.+)$",)).lower(),
+        "description": description,
+        "ont_distance_m": (runtime.get("ont_distance_m") or "").strip(),
+        "online_duration_cache": (runtime.get("online_duration") or "").strip(),
+        "last_up_time_cache": (runtime.get("last_up_time") or "").strip(),
+        "last_down_time_cache": (runtime.get("last_down_time") or "").strip(),
+        "last_down_cause_cache": (runtime.get("last_down_cause") or "").strip(),
+        "battery_state_cache": (runtime.get("battery_state") or "").strip(),
+        "onu_type_cache": (runtime.get("ont_equipment_id") or "").strip(),
+        "raw_line": "\n".join(line.rstrip() for line in text.splitlines() if line.strip())[:2000],
+    }
+
+
+def sync_detected_onu_keys_inventory(olt, target_keys):
+    """Import only the SNMP-detected new ONU keys.
+
+    This is the fast path for ONUs configured outside OptiVerse. Full inventory
+    sync remains available, but a new ONU should not have to wait for a 1000+
+    row Telnet dump to complete before it appears in the app.
+    """
+    from django.db import transaction
+    from .models import ConfiguredONU
+
+    keys = []
+    seen = set()
+    for raw in target_keys or []:
+        try:
+            parts = list(raw or [])
+            if len(parts) == 4:
+                key = (int(parts[0] or 0), int(parts[1]), int(parts[2]), int(parts[3]))
+            elif len(parts) == 3:
+                key = (0, int(parts[0]), int(parts[1]), int(parts[2]))
+            else:
+                continue
+        except (TypeError, ValueError):
+            continue
+        if key not in seen:
+            keys.append(key)
+            seen.add(key)
+    if not keys:
+        return {"status": "No detected ONU keys to import.", "count": 0, "new_count": 0, "new_onus": []}
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        return {"status": status or "Telnet session could not be opened.", "count": 0, "new_count": 0, "new_onus": []}
+
+    rows = []
+    failed = []
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        for frame, slot, port, ont_id in keys:
+            commands = (
+                f"display ont info {int(frame or 0)}/{int(slot)} {int(port)} {int(ont_id)}",
+                f"display ont info {int(frame or 0)} {int(slot)} {int(port)} {int(ont_id)}",
+                f"display ont info {int(frame or 0)}/{int(slot)}/{int(port)} {int(ont_id)}",
+            )
+            parsed = None
+            last_output = ""
+            for command in commands:
+                output = _run_telnet_bulk_command(tn, command, max_wait_seconds=45)
+                last_output = str(output or "")
+                if _is_cli_error_text(last_output) and "system is busy" not in last_output.lower():
+                    continue
+                parsed = _parse_single_ont_inventory_snapshot(last_output, frame, slot, port, ont_id)
+                if parsed and (parsed.get("sn") or parsed.get("run_state") or parsed.get("config_state")):
+                    break
+            if parsed:
+                rows.append(parsed)
+            else:
+                failed.append((frame, slot, port, ont_id))
+
+        optical_map = {}
+        if rows:
+            row_keys = [(int(row["slot"]), int(row["port"]), int(row["ont_id"])) for row in rows]
+            slot_ports = sorted({(slot, port) for slot, port, _ in row_keys})
+            optical_map, _ = _fetch_ont_optical_map_in_context(tn, slot_ports, row_keys, olt=olt)
+    except (socket.timeout, TimeoutError):
+        return {"status": "Telnet timeout while importing detected ONUs.", "count": 0, "new_count": 0, "new_onus": [], "failed_keys": failed}
+    except (EOFError, OSError) as exc:
+        return {"status": f"Telnet error while importing detected ONUs: {exc}", "count": 0, "new_count": 0, "new_onus": [], "failed_keys": failed}
+    finally:
+        _close_telnet_session(tn)
+
+    if not rows:
+        return {"status": f"No detected ONU details imported. Failed keys: {len(failed)}", "count": 0, "new_count": 0, "new_onus": [], "failed_keys": failed}
+
+    now = timezone.now()
+    trap_status_map = get_active_onu_trap_status_map(olt)
+    existing_map = {
+        (item.frame, item.slot, item.port, item.ont_id): item
+        for item in ConfiguredONU.objects.filter(olt=olt)
+    }
+    to_create = []
+    to_update = []
+    new_onu_rows = []
+    for row in rows:
+        key = (int(row.get("frame", 0) or 0), int(row["slot"]), int(row["port"]), int(row["ont_id"]))
+        power = optical_map.get((key[1], key[2], key[3])) or {}
+        onu_rx = power.get("onu_rx") or row.get("onu_rx") or "--"
+        tx_power = power.get("tx_power") or row.get("tx_power") or "--"
+        olt_rx = power.get("olt_rx") or row.get("olt_rx") or "--"
+        signal_bucket = _signal_bucket_from_dbm_text(olt_rx if olt_rx != "--" else onu_rx)
+        trap_key = (key[1], key[2], key[3])
+        derived_status = trap_status_map.get(trap_key) or derive_inventory_onu_status(row)
+        status_source = "trap" if trap_key in trap_status_map else "targeted_inventory"
+        if derived_status == "offline" and signal_bucket in {"good", "warn", "bad"}:
+            derived_status = "online"
+            status_source = "targeted_signal_inventory"
+        payload = {
+            "sn": (row.get("sn") or "")[:64],
+            "control_flag": (row.get("control_flag") or "")[:32],
+            "run_state": (row.get("run_state") or "")[:32],
+            "config_state": (row.get("config_state") or "")[:32],
+            "match_state": (row.get("match_state") or "")[:32],
+            "protect_side": (row.get("protect_side") or "")[:32],
+            "description": (row.get("description") or "")[:255],
+            "onu_rx": str(onu_rx or "")[:32],
+            "olt_rx": str(olt_rx or "")[:32],
+            "tx_power": str(tx_power or "")[:32],
+            "signal_bucket": signal_bucket[:16],
+            "derived_status": derived_status[:32],
+            "status_source": status_source[:32],
+            "status_first_seen_at": now,
+            "status_updated_at": now,
+            "onu_mode_cache": "routing",
+            "online_duration_cache": (row.get("online_duration_cache") or "")[:64],
+            "last_up_time_cache": (row.get("last_up_time_cache") or "")[:64],
+            "last_down_time_cache": (row.get("last_down_time_cache") or "")[:64],
+            "last_down_cause_cache": (row.get("last_down_cause_cache") or "")[:128],
+            "battery_state_cache": (row.get("battery_state_cache") or "")[:64],
+            "ont_distance_m": (row.get("ont_distance_m") or "")[:32],
+            "onu_type_cache": (row.get("onu_type_cache") or "")[:128],
+            "raw_line": (row.get("raw_line") or "")[:2000],
+            "synced_at": now,
+        }
+        existing = existing_map.get(key)
+        if existing is None:
+            new_onu_rows.append({
+                "frame": key[0],
+                "slot": key[1],
+                "port": key[2],
+                "ont_id": key[3],
+                "sn": payload.get("sn") or "",
+                "name": payload.get("description") or "",
+                "status": derived_status or "",
+                "signal": payload.get("olt_rx") or payload.get("onu_rx") or "",
+            })
+            to_create.append(ConfiguredONU(olt=olt, frame=key[0], slot=key[1], port=key[2], ont_id=key[3], **payload))
+            continue
+        if existing.derived_status == derived_status and existing.status_source == status_source and existing.status_first_seen_at:
+            payload["status_first_seen_at"] = existing.status_first_seen_at
+        for field, value in payload.items():
+            setattr(existing, field, value)
+        to_update.append(existing)
+
+    with transaction.atomic():
+        if to_create:
+            ConfiguredONU.objects.bulk_create(to_create, batch_size=100)
+        if to_update:
+            ConfiguredONU.objects.bulk_update(
+                to_update,
+                [
+                    "sn",
+                    "control_flag",
+                    "run_state",
+                    "config_state",
+                    "match_state",
+                    "protect_side",
+                    "description",
+                    "onu_rx",
+                    "olt_rx",
+                    "tx_power",
+                    "signal_bucket",
+                    "derived_status",
+                    "status_source",
+                    "status_first_seen_at",
+                    "status_updated_at",
+                    "onu_mode_cache",
+                    "online_duration_cache",
+                    "last_up_time_cache",
+                    "last_down_time_cache",
+                    "last_down_cause_cache",
+                    "battery_state_cache",
+                    "ont_distance_m",
+                    "onu_type_cache",
+                    "raw_line",
+                    "synced_at",
+                ],
+                batch_size=100,
+            )
+
+    refresh_saved_pon_counts_from_inventory(olt)
+    reconcile_offline_onus_with_signal(olt=olt)
+    return {
+        "status": f"Detected ONU targeted import: {len(rows)} checked, {len(to_create)} new, {len(to_update)} updated, {len(failed)} failed.",
+        "count": len(rows),
+        "new_count": len(to_create),
+        "new_onus": new_onu_rows,
+        "failed_keys": failed,
+    }
+
+
 def reconcile_offline_onus_with_signal(olt=None, limit=None):
     from .models import ConfiguredONU
 

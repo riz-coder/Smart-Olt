@@ -60,8 +60,10 @@ NEW_ONU_CHECK_SECONDS = 60
 AUTO_IMMEDIATE_INVENTORY_SYNC = True
 # Tracks OLT IDs for which an immediate inventory sync thread is already running
 # so we never stack concurrent Telnet syncs for the same OLT.
-_IMMEDIATE_SYNC_RUNNING = set()
+_IMMEDIATE_SYNC_RUNNING = {}
 _IMMEDIATE_SYNC_LOCK = threading.Lock()
+IMMEDIATE_SYNC_STALE_SECONDS = 900
+IMMEDIATE_SYNC_RETRIES = 2
 _SAMPLE_RETENTION_CLEANUP_LAST_TS = 0.0
 _SAMPLE_RETENTION_CLEANUP_LOCK = threading.Lock()
 
@@ -99,11 +101,54 @@ def _run_sample_retention_cleanup_if_due():
         _SAMPLE_RETENTION_CLEANUP_LOCK.release()
 
 
-def _run_immediate_inventory_sync(olt_id):
+def _normalize_immediate_sync_keys(target_keys):
+    keys = []
+    seen = set()
+    for raw in target_keys or []:
+        try:
+            parts = list(raw or [])
+            if len(parts) == 4:
+                key = (int(parts[0] or 0), int(parts[1]), int(parts[2]), int(parts[3]))
+            elif len(parts) == 3:
+                key = (0, int(parts[0]), int(parts[1]), int(parts[2]))
+            else:
+                continue
+        except (TypeError, ValueError):
+            continue
+        if key not in seen:
+            keys.append(key)
+            seen.add(key)
+    return keys
+
+
+def _missing_immediate_sync_keys(olt, target_keys):
+    from .models import ConfiguredONU
+
+    keys = _normalize_immediate_sync_keys(target_keys)
+    if not keys:
+        return []
+    existing = set(ConfiguredONU.objects.filter(olt=olt).values_list("frame", "slot", "port", "ont_id"))
+    return [key for key in keys if key not in existing]
+
+
+def _set_immediate_sync_status(olt_id, message):
+    from .models import OLT
+
+    try:
+        OLT.objects.filter(pk=olt_id).update(
+            autofind_status=str(message or "")[:300],
+            autofind_refreshed_at=timezone.now(),
+        )
+    except Exception:
+        close_old_connections()
+
+
+def _run_immediate_inventory_sync(olt_id, target_keys=None):
     """Background thread: run a full inventory sync for one OLT right now."""
     from .models import OLT
     from .utils import (
         olt_background_enabled_q,
+        sync_detected_onu_keys_inventory,
         sync_configured_onus_inventory,
         sync_onu_attached_vlans_for_olt,
     )
@@ -113,44 +158,114 @@ def _run_immediate_inventory_sync(olt_id):
         olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
         if not olt:
             return
-        result = sync_configured_onus_inventory(olt)
-        if result.get("incomplete"):
+        normalized_keys = _normalize_immediate_sync_keys(target_keys)
+        _set_immediate_sync_status(olt_id, f"Auto-import running for {len(normalized_keys) or 'new'} ONU(s).")
+        last_result = {}
+        if normalized_keys:
+            targeted_result = sync_detected_onu_keys_inventory(olt, normalized_keys)
+            last_result = targeted_result
+            missing_keys = _missing_immediate_sync_keys(olt, normalized_keys)
+            if not missing_keys:
+                logger.info("OLT %s targeted immediate import done: %s", olt.name, targeted_result.get("status", ""))
+                config_result = sync_onu_attached_vlans_for_olt(
+                    olt,
+                    fallback_missing=True,
+                    only_missing=True,
+                    imported_only=True,
+                    target_keys=normalized_keys,
+                )
+                logger.info(
+                    "OLT %s immediate imported ONU config sync done: %s",
+                    olt.name,
+                    config_result.get("status", ""),
+                )
+                _set_immediate_sync_status(
+                    olt_id,
+                    f"Auto-import completed: {int(targeted_result.get('new_count') or 0)} new ONU(s).",
+                )
+                return
             logger.warning(
-                "OLT %s immediate sync incomplete: %s/%s ONUs fetched.",
+                "OLT %s targeted immediate import missed %s/%s key(s); falling back to full inventory.",
                 olt.name,
-                result.get("actual_count"),
-                result.get("expected_count"),
+                len(missing_keys),
+                len(normalized_keys),
             )
-        else:
+
+        for attempt in range(1, IMMEDIATE_SYNC_RETRIES + 1):
+            result = sync_configured_onus_inventory(olt)
+            last_result = result
+            if result.get("incomplete"):
+                logger.warning(
+                    "OLT %s immediate sync incomplete on attempt %s/%s: %s/%s ONUs fetched.",
+                    olt.name,
+                    attempt,
+                    IMMEDIATE_SYNC_RETRIES,
+                    result.get("actual_count"),
+                    result.get("expected_count"),
+                )
+                if attempt < IMMEDIATE_SYNC_RETRIES:
+                    time.sleep(5)
+                    continue
+                _set_immediate_sync_status(olt_id, f"Auto-import incomplete: {result.get('status', '')}")
+                return
+
+            missing_keys = _missing_immediate_sync_keys(olt, normalized_keys)
+            if missing_keys and attempt < IMMEDIATE_SYNC_RETRIES:
+                logger.warning(
+                    "OLT %s immediate sync missed %s detected ONU key(s) on attempt %s/%s; retrying.",
+                    olt.name,
+                    len(missing_keys),
+                    attempt,
+                    IMMEDIATE_SYNC_RETRIES,
+                )
+                time.sleep(5)
+                continue
+
             logger.info("OLT %s immediate sync done: %s", olt.name, result.get("status", ""))
             config_result = sync_onu_attached_vlans_for_olt(
                 olt,
                 fallback_missing=True,
                 only_missing=True,
                 imported_only=True,
+                target_keys=normalized_keys or None,
             )
             logger.info(
                 "OLT %s immediate imported ONU config sync done: %s",
                 olt.name,
                 config_result.get("status", ""),
             )
+            if missing_keys:
+                _set_immediate_sync_status(
+                    olt_id,
+                    f"Auto-import partial: {len(missing_keys)} detected ONU(s) still missing.",
+                )
+            else:
+                _set_immediate_sync_status(
+                    olt_id,
+                    f"Auto-import completed: {int(result.get('new_count') or 0)} new ONU(s).",
+                )
+            return
+        _set_immediate_sync_status(olt_id, f"Auto-import failed: {last_result.get('status', '')}")
     except Exception as exc:
         logger.exception("OLT %s immediate sync error: %s", olt_id, exc)
+        _set_immediate_sync_status(olt_id, f"Auto-import error: {exc}")
     finally:
         close_old_connections()
         with _IMMEDIATE_SYNC_LOCK:
-            _IMMEDIATE_SYNC_RUNNING.discard(olt_id)
+            _IMMEDIATE_SYNC_RUNNING.pop(olt_id, None)
 
 
-def _schedule_immediate_inventory_sync(olt_id):
+def _schedule_immediate_inventory_sync(olt_id, target_keys=None):
     """Start an immediate inventory sync thread for olt_id (no-op if one is already running)."""
+    now_ts = time.time()
     with _IMMEDIATE_SYNC_LOCK:
-        if olt_id in _IMMEDIATE_SYNC_RUNNING:
+        started_at = _IMMEDIATE_SYNC_RUNNING.get(olt_id)
+        if started_at and (now_ts - float(started_at)) < IMMEDIATE_SYNC_STALE_SECONDS:
             return False
-        _IMMEDIATE_SYNC_RUNNING.add(olt_id)
+        _IMMEDIATE_SYNC_RUNNING[olt_id] = now_ts
     threading.Thread(
         target=_run_immediate_inventory_sync,
-        args=(olt_id,),
+        args=(olt_id, target_keys),
         name=f"onu-immediate-sync-{olt_id}",
         daemon=True,
     ).start()
@@ -403,11 +518,9 @@ def _snmp_monitor_loop():
                                 except Exception:
                                     close_old_connections()
 
-                                # New ONU detection can be used to trigger an immediate
-                                # Telnet inventory sync, but that is intentionally disabled
-                                # by default. Config inventory sync is now manual from the
-                                # OLT Advanced -> Sync Config button to avoid surprise Telnet
-                                # load while users are browsing.
+                                # New ONU detection triggers an immediate Telnet inventory
+                                # import. The worker verifies the detected keys after sync
+                                # and retries once if the OLT returned a partial dump.
                                 last_new_check = _LAST_NEW_ONU_CHECK_AT.get(olt_id, 0.0)
                                 if AUTO_IMMEDIATE_INVENTORY_SYNC and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
                                     _LAST_NEW_ONU_CHECK_AT[olt_id] = now_ts
@@ -422,7 +535,11 @@ def _snmp_monitor_loop():
                                                 len(detection["new_keys"]),
                                                 detection.get("status", ""),
                                             )
-                                            _schedule_immediate_inventory_sync(olt_id)
+                                            if not _schedule_immediate_inventory_sync(olt_id, detection.get("new_keys")):
+                                                logger.info(
+                                                    "OLT %s immediate inventory sync already running; detected keys will be retried.",
+                                                    olt.name,
+                                                )
                                     except Exception:
                                         close_old_connections()
                             continue
