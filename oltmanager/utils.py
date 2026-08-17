@@ -2543,6 +2543,8 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
         base_ifname_oid = "1.3.6.1.2.1.31.1.1.1.1"
         base_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15"
         base_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16"
+        base_epon_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1.15"
+        base_epon_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1.16"
         ifname_limit, status_limit = _configured_onu_snmp_walk_limits(
             olt,
             ifname_limit=ifname_limit,
@@ -2603,8 +2605,12 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
             return result
 
         gpon_indexes = {}
+        has_epon_ports = False
         for oid_text, if_name in (ifname_rows or {}).items():
             idx = oid_text.split(".")[-1]
+            normalized_if_name = _snmp_normalize_ifname(if_name)
+            if "EPON" in normalized_if_name:
+                has_epon_ports = True
             fsp = _parse_snmp_gpon_fsp_from_ifname(if_name)
             if not fsp:
                 continue
@@ -2614,17 +2620,64 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
             with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
                 _ONU_TRAFFIC_IFINDEX_CACHE[cache_key] = str(idx)
 
+        if not has_epon_ports:
+            for group in list(getattr(olt, "pon_ports_cache", []) or []):
+                if _pon_tech_from_board_type((group or {}).get("board_type") or (group or {}).get("type") or "") == "EPON":
+                    has_epon_ports = True
+                    break
+            if not has_epon_ports:
+                for card in list(getattr(olt, "olt_cards_cache", []) or []):
+                    if _pon_tech_from_board_type((card or {}).get("real_type") or (card or {}).get("model_type") or (card or {}).get("type") or "") == "EPON":
+                        has_epon_ports = True
+                        break
+
         gpon_items = _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, gpon_indexes)
         items = dict(gpon_items)
+        epon_rows = {}
+        epon_config_rows = {}
+        if has_epon_ports:
+            try:
+                epon_rows = _snmp_walk_rows(
+                    olt,
+                    base_epon_run_oid,
+                    limit=status_limit,
+                    mp_model=mp_model,
+                    operation_timeout=_remaining_timeout(),
+                )
+                try:
+                    epon_config_rows = _snmp_walk_rows(
+                        olt,
+                        base_epon_config_oid,
+                        limit=status_limit,
+                        mp_model=mp_model,
+                        operation_timeout=_remaining_timeout(),
+                    )
+                except Exception as exc:
+                    walk_incomplete = True
+                    last_error = str(exc)
+                    epon_config_rows = {}
+                epon_items = _snmp_status_rows_to_key_map(
+                    epon_rows,
+                    epon_config_rows,
+                    base_epon_run_oid,
+                    base_epon_config_oid,
+                    gpon_indexes,
+                    allow_direct_index=True,
+                )
+                items.update(epon_items)
+            except Exception as exc:
+                walk_incomplete = True
+                last_error = str(exc)
         truncated = (
             len(ifname_rows or {}) >= ifname_limit
             or len(run_rows or {}) >= status_limit
+            or len(epon_rows or {}) >= status_limit
             or walk_incomplete
         )
         result["items"] = items
         result["truncated"] = truncated
         suffix = " (walk incomplete)" if walk_incomplete else " (walk limit reached)" if truncated else ""
-        result["status"] = f"SNMP ONU status map fetched: {len(items)} (GPON/XG){suffix}"
+        result["status"] = f"SNMP ONU status map fetched: {len(items)} (GPON/XG+EPON){suffix}"
         return result
     except Exception as exc:
         result["status"] = f"SNMP ONU status map fetch failed: {exc}"
