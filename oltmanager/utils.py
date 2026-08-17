@@ -7931,7 +7931,7 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
     check. Idempotent: a service-port that is already absent counts as success.
     Caller should re-sync the ONU afterwards so the attached-VLAN list updates.
     """
-    result = {"ok": False, "message": "Service-port delete failed.", "transcript": ""}
+    result = {"ok": False, "message": "Service-port delete failed.", "transcript": "", "not_found": False}
     sp_id = str(service_port_id or "").strip()
     if not sp_id.isdigit():
         result["message"] = "Invalid service-port ID."
@@ -7958,6 +7958,11 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
         _append_authorize_transcript(transcript, undo_command, undo_output)
         lowered = str(undo_output or "").lower()
         already_gone = ("does not exist" in lowered or "not exist" in lowered)
+        if already_gone:
+            result["ok"] = True
+            result["not_found"] = True
+            result["message"] = f"Profile not found on OLT for service-port {sp_id}. Removed from app."
+            return result
         if _authorize_cli_has_failure(undo_output) and not already_gone:
             result["message"] = _clean_cli_response_text(undo_command, undo_output) or f"Service-port {sp_id} delete failed."
             return result
@@ -13616,6 +13621,41 @@ def record_uplink_port_traffic_sample_for_olt(olt, force=False, min_interval_sec
     return samples[0]
 
 
+def _onu_traffic_cap_bps_for_record(olt, slot, port, ont_id, direction):
+    from .models import ConfiguredONU, SpeedProfile
+
+    profile_field = "upload_profile_index_cache" if direction == "up" else "download_profile_index_cache"
+    record = (
+        ConfiguredONU.objects.filter(olt=olt, slot=int(slot), port=int(port), ont_id=int(ont_id))
+        .values(profile_field)
+        .first()
+    )
+    match = re.search(r"\d+", str((record or {}).get(profile_field) or ""))
+    if match:
+        speed = (
+            SpeedProfile.objects.filter(index_number=int(match.group(0)), is_active=True)
+            .values_list("speed_mbps_value", flat=True)
+            .first()
+        )
+        try:
+            speed_mbps = float(speed or 0)
+        except (TypeError, ValueError):
+            speed_mbps = 0.0
+        if speed_mbps > 0:
+            return speed_mbps * 1_000_000 * 1.25
+    return 1_250_000_000.0
+
+
+def _sanitize_onu_traffic_bps(value, cap_bps):
+    try:
+        bps = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if bps < 0 or bps > cap_bps:
+        return 0.0
+    return bps
+
+
 def record_onu_traffic_sample(olt, slot, port, ont_id):
     from .models import ONUTrafficSample
 
@@ -13644,6 +13684,8 @@ def record_onu_traffic_sample(olt, slot, port, ont_id):
             up_bps = ((up_bytes - int(previous.up_bytes or 0)) * 8) / seconds
         if down_bytes >= int(previous.down_bytes or 0):
             down_bps = ((down_bytes - int(previous.down_bytes or 0)) * 8) / seconds
+    up_bps = _sanitize_onu_traffic_bps(up_bps, _onu_traffic_cap_bps_for_record(olt, slot, port, ont_id, "up"))
+    down_bps = _sanitize_onu_traffic_bps(down_bps, _onu_traffic_cap_bps_for_record(olt, slot, port, ont_id, "down"))
 
     sample = ONUTrafficSample.objects.create(
         olt=olt,

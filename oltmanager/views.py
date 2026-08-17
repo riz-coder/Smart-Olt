@@ -3974,6 +3974,40 @@ def _get_onu_signal_history(olt, slot, port, ont_id, hours=24):
     return history
 
 
+def _onu_traffic_cap_bps(olt, slot, port, ont_id, direction):
+    profile_field = "upload_profile_index_cache" if direction == "up" else "download_profile_index_cache"
+    record = (
+        ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id)
+        .values(profile_field)
+        .first()
+    )
+    index_text = str((record or {}).get(profile_field) or "")
+    match = re.search(r"\d+", index_text)
+    if match:
+        speed = (
+            SpeedProfile.objects.filter(index_number=int(match.group(0)), is_active=True)
+            .values_list("speed_mbps_value", flat=True)
+            .first()
+        )
+        try:
+            speed_mbps = float(speed or 0)
+        except (TypeError, ValueError):
+            speed_mbps = 0.0
+        if speed_mbps > 0:
+            return speed_mbps * 1_000_000 * 1.25
+    return 1_250_000_000.0
+
+
+def _sanitize_onu_traffic_bps(value, cap_bps):
+    try:
+        bps = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if bps < 0 or bps > cap_bps:
+        return 0.0
+    return bps
+
+
 def _record_onu_traffic_sample(olt, slot, port, ont_id):
     counters = fetch_single_onu_snmp_traffic_counters(olt, slot, port, ont_id)
     if not counters.get("ok"):
@@ -3997,6 +4031,8 @@ def _record_onu_traffic_sample(olt, slot, port, ont_id):
             up_bps = ((up_bytes - previous.up_bytes) * 8) / seconds
         if down_bytes >= previous.down_bytes:
             down_bps = ((down_bytes - previous.down_bytes) * 8) / seconds
+    up_bps = _sanitize_onu_traffic_bps(up_bps, _onu_traffic_cap_bps(olt, slot, port, ont_id, "up"))
+    down_bps = _sanitize_onu_traffic_bps(down_bps, _onu_traffic_cap_bps(olt, slot, port, ont_id, "down"))
 
     sample = ONUTrafficSample.objects.create(
         olt=olt,
@@ -4081,6 +4117,8 @@ def _schedule_onu_traffic_samples(olt_id, onu_keys, min_interval_seconds=ONU_TRA
 
 def _get_onu_traffic_history(olt, slot, port, ont_id, hours=1):
     since = timezone.now() - timezone.timedelta(hours=hours)
+    up_cap_bps = _onu_traffic_cap_bps(olt, slot, port, ont_id, "up")
+    down_cap_bps = _onu_traffic_cap_bps(olt, slot, port, ont_id, "down")
     rows = (
         ONUTrafficSample.objects.filter(
             olt=olt,
@@ -4099,8 +4137,8 @@ def _get_onu_traffic_history(olt, slot, port, ont_id, hours=1):
             {
                 "sampled_at": local_dt.isoformat(),
                 "label": local_dt.strftime("%H:%M"),
-                "up_bps": round(float(row.get("up_bps") or 0), 2),
-                "down_bps": round(float(row.get("down_bps") or 0), 2),
+                "up_bps": round(_sanitize_onu_traffic_bps(row.get("up_bps"), up_cap_bps), 2),
+                "down_bps": round(_sanitize_onu_traffic_bps(row.get("down_bps"), down_cap_bps), 2),
                 "up_bytes": int(row.get("up_bytes") or 0),
                 "down_bytes": int(row.get("down_bytes") or 0),
             }
@@ -6660,6 +6698,59 @@ def _run_add_vlan_bg_task(task_id, olt, vlan_kwargs, redirect_url, duplicate_vla
         close_old_connections()
 
 
+def _remove_service_port_cache_row(record, service_port_id):
+    if record is None:
+        return False
+
+    sp_id = str(service_port_id or "").strip()
+    if not sp_id:
+        return False
+
+    cache_fields = [
+        "service_port_id_cache",
+        "attached_vlans_cache",
+        "user_vlan_cache",
+        "download_profile_index_cache",
+        "upload_profile_index_cache",
+        "download_profile_name_cache",
+        "upload_profile_name_cache",
+    ]
+
+    def _split(value):
+        text = str(value or "")
+        if not text.strip():
+            return []
+        return [part.strip() for part in text.split(",")]
+
+    values_by_field = {field: _split(getattr(record, field, "")) for field in cache_fields}
+    service_ports = values_by_field["service_port_id_cache"]
+    try:
+        row_index = service_ports.index(sp_id)
+    except ValueError:
+        return False
+
+    row_count = max([len(values) for values in values_by_field.values()] + [row_index + 1])
+    for field, values in values_by_field.items():
+        if len(values) < row_count:
+            values.extend([""] * (row_count - len(values)))
+        values.pop(row_index)
+
+    while any(values_by_field.values()):
+        last_index = max(len(values) for values in values_by_field.values()) - 1
+        if last_index < 0:
+            break
+        if any((values[last_index] if last_index < len(values) else "").strip() for values in values_by_field.values()):
+            break
+        for values in values_by_field.values():
+            if last_index < len(values):
+                values.pop()
+
+    for field, values in values_by_field.items():
+        setattr(record, field, ",".join(values)[:255])
+    record.save(update_fields=cache_fields)
+    return True
+
+
 @login_required
 @admin_required
 @require_POST
@@ -6686,12 +6777,14 @@ def configured_onu_service_port_delete(request, olt_pk, slot, port, ont_id):
     )
     message = _ui_telnet_error_message(snapshot.get("message"))
     if snapshot.get("ok"):
+        _remove_service_port_cache_row(record, sp_id)
         # Re-read the ONU so the service-port row and the attached-VLAN list both
         # drop accurately (the deleted VLAN disappears when nothing else uses it).
-        try:
-            sync_single_onu_attached_vlans(olt, slot, port, ont_id, record=record, allow_empty_overwrite=True)
-        except Exception:
-            pass
+        if not snapshot.get("not_found"):
+            try:
+                sync_single_onu_attached_vlans(olt, slot, port, ont_id, record=record, allow_empty_overwrite=True)
+            except Exception:
+                pass
         _record_olt_login(
             olt, request.user, "delete_service_port",
             f"Service-port {sp_id} deleted: 0/{int(slot)}/{int(port)} ont {int(ont_id)}",
