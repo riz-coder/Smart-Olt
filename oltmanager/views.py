@@ -54,6 +54,7 @@ from .utils import (
     fetch_olt_snmp_status_map,
     fetch_olt_snmp_onu_type_map,
     fetch_olt_snmp_onu_type_distance_maps,
+    fetch_uplink_mac_addresses,
     fetch_single_onu_snmp_distance,
     fetch_single_onu_snmp_type,
     execute_onu_cli_delete_action,
@@ -8723,6 +8724,25 @@ def olt_uplink_refresh_data(request, pk):
         "status": status_text,
         "refreshed_at": refreshed_display,
     })
+
+
+@login_required
+def olt_uplink_mac_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    port_name = str(request.GET.get("port") or "").strip()
+    rows = list(getattr(olt, "uplink_cache", []) or [])
+    valid_ports = {str((row or {}).get("port") or "").strip() for row in rows}
+    if not port_name or port_name not in valid_ports:
+        return JsonResponse({
+            "ok": False,
+            "port": port_name,
+            "status": "Select a valid uplink port.",
+            "output": "",
+            "total": 0,
+        }, status=400)
+
+    result = fetch_uplink_mac_addresses(olt, port_name, timeout_seconds=120)
+    return JsonResponse(result)
 
 
 @login_required

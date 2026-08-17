@@ -13390,6 +13390,126 @@ def _parse_display_port_vlan_snapshot(output_text):
     }
 
 
+def _parse_uplink_mac_snapshot(command, output_text):
+    raw_text = str(output_text or "")
+    rows = []
+    command_text = str(command or "").strip().lower()
+    mac_pattern = re.compile(r"(?i)\b[0-9a-f]{4}[-:][0-9a-f]{4}[-:][0-9a-f]{4}\b")
+    command_pattern = re.compile(
+        r"(?i)display\s+mac-address\s+all\s+\|\s+include\s+\d+\s*/\s*\d+\s*/\s*\d+"
+    )
+    for raw_line in raw_text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lowered = stripped.lower()
+        if command_text and command_text in lowered:
+            stripped = command_pattern.sub("", stripped).strip()
+            lowered = stripped.lower()
+        if lowered.startswith("display mac-address") and not mac_pattern.search(stripped):
+            continue
+        if PROMPT_LINE_PATTERN.match(stripped):
+            continue
+        if "will take a long time" in lowered:
+            continue
+        mac_match = mac_pattern.search(stripped)
+        if not mac_match:
+            continue
+        row_text = stripped[mac_match.start():]
+        vlan_candidates = []
+        for match in re.finditer(r"(?<![/\w-])(\d{1,4})(?![/\w-])", row_text):
+            value = int(match.group(1))
+            if 1 <= value <= 4094:
+                vlan_candidates.append(match.group(1))
+        uplink_match = re.search(r"\b(\d+\s*/\s*\d+\s*/\s*\d+)\b", row_text)
+        if not uplink_match:
+            uplink_match = re.search(r"\b(?:eth|ethernet)\s+(\d+\s*/\s*\d+\s*/\s*\d+)\b", row_text, re.IGNORECASE)
+        rows.append({
+            "mac": mac_match.group(0),
+            "uplink": re.sub(r"\s+", "", uplink_match.group(1)) if uplink_match else "-",
+            "vlan": vlan_candidates[-1] if vlan_candidates else "-",
+        })
+
+    cleaned = "\n".join(
+        f"{row['mac']}\t{row['uplink']}\t{row['vlan']}" for row in rows
+    ).strip()
+    total = None
+    for pattern in (
+        r"(?i)\btotal\s+(?:mac\s+address(?:es)?|macs?)\s*[:=]?\s*(\d+)",
+        r"(?i)\btotal\s*[:=]\s*(\d+)",
+        r"(?i)\b(\d+)\s+mac\s+address(?:es)?\s+found\b",
+    ):
+        match = re.search(pattern, raw_text)
+        if match:
+            total = int(match.group(1))
+            break
+
+    mac_count = len({row["mac"].lower() for row in rows})
+    if total is None:
+        total = mac_count
+
+    return {
+        "output": cleaned or "No MAC addresses returned for this uplink.",
+        "rows": rows,
+        "total": total,
+        "mac_count": mac_count,
+    }
+
+
+def fetch_uplink_mac_addresses(olt, uplink_port, *, timeout_seconds=120):
+    result = {
+        "ok": False,
+        "port": str(uplink_port or "").strip(),
+        "command": "",
+        "output": "",
+        "total": 0,
+        "mac_count": 0,
+        "status": "MAC fetch failed.",
+    }
+    parsed_port = _parse_uplink_port_command_parts(uplink_port)
+    if not parsed_port:
+        result["status"] = "Invalid uplink port."
+        return result
+
+    frame, slot, port = parsed_port
+    command = f"display mac-address all | include {frame} /{slot} /{port}"
+    result["command"] = command
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["status"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        output = _run_telnet_bulk_command(
+            tn,
+            command,
+            max_wait_seconds=int(timeout_seconds or 120),
+            idle_poke=b" ",
+            poll_seconds=0.15,
+        )
+        snapshot = _parse_uplink_mac_snapshot(command, output)
+        result.update({
+            "ok": True,
+            "output": snapshot["output"],
+            "rows": snapshot["rows"],
+            "total": snapshot["total"],
+            "mac_count": snapshot["mac_count"],
+            "status": f"{snapshot['total']} MAC(s) fetched.",
+        })
+        return result
+    except (socket.timeout, TimeoutError):
+        result["status"] = "Telnet timeout while fetching uplink MACs."
+        return result
+    except (EOFError, OSError) as exc:
+        result["status"] = f"Telnet error while fetching uplink MACs: {exc}"
+        return result
+    finally:
+        _close_telnet_session(tn)
+
+
 def refresh_uplink_vlan_snapshot(olt):
     result = {
         "ok": False,

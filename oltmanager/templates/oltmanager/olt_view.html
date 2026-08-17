@@ -240,15 +240,31 @@
         display: none;
     }
     .uplink-vlan-cell {
-        max-width: 520px;
+        min-width: 220px;
+        max-width: 320px;
         white-space: normal;
         line-height: 1.45;
+        vertical-align: top;
     }
     .uplink-vlan-list {
         display: flex;
         flex-wrap: wrap;
         gap: 5px;
-        padding: 2px 0;
+        max-height: 96px;
+        overflow: auto;
+        padding: 8px;
+        border: 1px solid rgba(88, 139, 215, 0.22);
+        border-radius: 10px;
+        background: rgba(8, 17, 32, 0.35);
+    }
+    .uplink-vlan-list.is-empty {
+        display: inline-flex;
+        max-height: none;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #8ea5ca;
+        font-weight: 800;
     }
     .vlan-chip {
         display: inline-block;
@@ -262,6 +278,14 @@
         white-space: nowrap;
     }
     html[data-theme="light"] .vlan-chip { background: #eaf2ff; color: #1d5fd6; }
+    html[data-theme="light"] .uplink-vlan-list {
+        background: #f8fbff;
+        border-color: #cfe0f8;
+    }
+    html[data-theme="light"] .uplink-vlan-list.is-empty {
+        background: transparent;
+        color: #50647f;
+    }
     .uplink-mode {
         display: inline-block;
         padding: 2px 9px;
@@ -302,6 +326,156 @@
         font-size: 11px;
         font-weight: 800;
     }
+    .uplink-mac-cell {
+        min-width: 280px;
+        max-width: 360px;
+        vertical-align: top;
+    }
+    .uplink-mac-fetch-btn {
+        min-width: 110px;
+        padding: 7px 10px;
+        font-size: 11px;
+        font-weight: 900;
+        margin-bottom: 7px;
+    }
+    .uplink-mac-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .uplink-mac-placeholder {
+        color: #8ea5ca;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .uplink-mac-lag-note {
+        display: block;
+        max-width: 220px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255, 179, 71, 0.35);
+        border-radius: 10px;
+        background: rgba(255, 179, 71, 0.1);
+        color: #ffca75;
+        font-size: 11px;
+        font-weight: 900;
+        line-height: 1.35;
+    }
+    .uplink-mac-total {
+        margin: 0;
+        color: #45db87;
+        font-size: 12px;
+        font-weight: 900;
+    }
+    .uplink-mac-search {
+        width: 100%;
+        min-height: 32px;
+        margin: 0 0 8px;
+        padding: 7px 9px;
+        border: 1px solid rgba(88, 139, 215, 0.55);
+        border-radius: 9px;
+        background: #0a172a;
+        color: #eaf2ff;
+        font-size: 12px;
+        font-weight: 700;
+        outline: none;
+    }
+    .uplink-mac-search::placeholder {
+        color: #6f86aa;
+    }
+    .uplink-mac-output {
+        max-height: 180px;
+        overflow: auto;
+        margin: 0;
+        padding: 9px 10px;
+        border: 1px solid rgba(88, 139, 215, 0.45);
+        border-radius: 10px;
+        background: #081120;
+        color: #b9d3ff;
+        font-size: 11px;
+        line-height: 1.45;
+        white-space: pre;
+    }
+    .uplink-mac-output.is-loading {
+        color: #7db5ff;
+    }
+    .uplink-mac-output.is-error {
+        border-color: rgba(255, 91, 111, 0.55);
+        color: #ff9aa8;
+    }
+    .uplink-mac-table {
+        max-height: 180px;
+        overflow: auto;
+        border: 1px solid rgba(88, 139, 215, 0.45);
+        border-radius: 10px;
+        background: #081120;
+    }
+    .uplink-mac-row {
+        display: grid;
+        grid-template-columns: minmax(120px, 1.5fr) minmax(78px, 0.8fr) minmax(54px, 0.6fr);
+        gap: 8px;
+        padding: 6px 9px;
+        border-bottom: 1px solid rgba(88, 139, 215, 0.2);
+        color: #b9d3ff;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 11px;
+        line-height: 1.35;
+        white-space: nowrap;
+    }
+    .uplink-mac-row:last-child {
+        border-bottom: 0;
+    }
+    .uplink-mac-row.head {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #10213b;
+        color: #7db5ff;
+        font-family: inherit;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .uplink-mac-empty {
+        padding: 10px;
+        color: #8ea5ca;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    html[data-theme="light"] .uplink-mac-placeholder { color: #50647f; }
+    html[data-theme="light"] .uplink-mac-lag-note {
+        background: #fff7e8;
+        border-color: #f4c56f;
+        color: #9a5b00;
+    }
+    html[data-theme="light"] .uplink-mac-total { color: #128a4d; }
+    html[data-theme="light"] .uplink-mac-search {
+        background: #ffffff;
+        color: #10233f;
+        border-color: #9dbbe9;
+    }
+    html[data-theme="light"] .uplink-mac-search::placeholder { color: #64748b; }
+    html[data-theme="light"] .uplink-mac-output {
+        background: #f5f9ff;
+        color: #10233f;
+        border-color: #bdd2f2;
+    }
+    html[data-theme="light"] .uplink-mac-output.is-loading { color: #1d5fd6; }
+    html[data-theme="light"] .uplink-mac-output.is-error { color: #b42335; border-color: #ffb3bf; }
+    html[data-theme="light"] .uplink-mac-table {
+        background: #f5f9ff;
+        border-color: #bdd2f2;
+    }
+    html[data-theme="light"] .uplink-mac-row {
+        color: #10233f;
+        border-bottom-color: #d5e2f5;
+    }
+    html[data-theme="light"] .uplink-mac-row.head {
+        background: #eaf2ff;
+        color: #1d5fd6;
+    }
+    html[data-theme="light"] .uplink-mac-empty { color: #50647f; }
     .vlan-cli-output {
         margin-top: 12px;
         border: 1px solid #3f5f8f;
@@ -1381,12 +1555,12 @@
                                     <th>Aggregate</th>
                                     <th>VLANs</th>
                                     <th>Mode</th>
-                                    <th>MTU</th>
+                                    <th>MACs</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for row in uplink_data.rows %}
-                                <tr>
+                                <tr data-uplink-port="{{ row.port }}">
                                     <td>{{ row.port }}</td>
                                     <td>{{ row.description }}</td>
                                     <td>{{ row.admin_status }}</td>
@@ -1409,7 +1583,23 @@
                                     <td>
                                         {% if row.tagged_vlans and row.tagged_vlans != "-" %}{% if row.pvid_untag and row.pvid_untag != "-" %}<span class="uplink-mode mode-hybrid">Hybrid</span>{% else %}<span class="uplink-mode mode-trunk">Trunk</span>{% endif %}{% elif row.pvid_untag and row.pvid_untag != "-" %}<span class="uplink-mode mode-access">Access</span>{% else %}-{% endif %}
                                     </td>
-                                    <td>{{ row.mtu }}</td>
+                                    <td class="uplink-mac-cell" data-mac-cell>
+                                        {% if row.aggregate.master and not row.aggregate.is_master %}
+                                        <span class="uplink-mac-lag-note">MACs are shown on the LAG master only, not on member ports.</span>
+                                        {% else %}
+                                        <button
+                                            type="button"
+                                            class="btn btn-primary uplink-mac-fetch-btn"
+                                            data-uplink-mac-fetch
+                                            data-url="{% url 'olt_uplink_mac_data' olt.pk %}"
+                                            data-port="{{ row.port }}">
+                                            Fetch Uplink MAC
+                                        </button>
+                                        <div class="uplink-mac-result" data-mac-result>
+                                            <span class="uplink-mac-placeholder">Not fetched</span>
+                                        </div>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -2297,10 +2487,96 @@ terminal.addEventListener('click', () => terminal.focus());
     // Render uplink tagged-VLAN lists as compact chips instead of a long column.
     document.querySelectorAll('.uplink-vlan-list').forEach((el) => {
         const raw = (el.textContent || '').trim();
-        if (!raw || raw === '-') return;
+        if (!raw || raw === '-') {
+            el.classList.add('is-empty');
+            el.textContent = '-';
+            return;
+        }
         const vlans = raw.split(',').map((v) => v.trim()).filter(Boolean);
-        if (!vlans.length) return;
+        if (!vlans.length) {
+            el.classList.add('is-empty');
+            el.textContent = '-';
+            return;
+        }
         el.innerHTML = vlans.map((v) => `<span class="vlan-chip">${v.replace(/[<>&]/g, '')}</span>`).join('');
+    });
+
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const renderMacCell = (cell, payload, state = 'ok') => {
+        if (!cell) return;
+        const resultNode = cell.querySelector('[data-mac-result]') || cell;
+        const output = payload?.output || payload?.status || 'No MAC addresses returned for this uplink.';
+        const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+        const total = payload?.total ?? 0;
+        const classes = ['uplink-mac-output'];
+        if (state === 'loading') classes.push('is-loading');
+        if (state === 'error') classes.push('is-error');
+        const renderRows = (visibleRows) => {
+            if (!visibleRows.length) {
+                return '<div class="uplink-mac-empty">No matching MAC found.</div>';
+            }
+            return `
+                <div class="uplink-mac-row head">
+                    <span>MAC</span>
+                    <span>UPLINK</span>
+                    <span>VLAN</span>
+                </div>
+                ${visibleRows.map((row) => `
+                    <div class="uplink-mac-row">
+                        <span>${escapeHtml(row.mac || '-')}</span>
+                        <span>${escapeHtml(row.uplink || '-')}</span>
+                        <span>${escapeHtml(row.vlan || '-')}</span>
+                    </div>
+                `).join('')}
+            `;
+        };
+        resultNode.innerHTML = `
+            <div class="uplink-mac-head">
+                <div class="uplink-mac-total">Total MACs: ${escapeHtml(total)}</div>
+            </div>
+            ${state === 'ok' ? '<input type="search" class="uplink-mac-search" placeholder="Search MAC..." data-mac-search>' : ''}
+            ${state === 'ok' ? `<div class="uplink-mac-table" data-mac-table>${renderRows(rows)}</div>` : `<pre class="${classes.join(' ')}" data-mac-output>${escapeHtml(output)}</pre>`}
+        `;
+        const table = resultNode.querySelector('[data-mac-table]');
+        const search = resultNode.querySelector('[data-mac-search]');
+        if (search && table) {
+            search.addEventListener('input', () => {
+                const query = search.value.trim().toLowerCase();
+                const visibleRows = query
+                    ? rows.filter((row) => `${row.mac || ''} ${row.uplink || ''} ${row.vlan || ''}`.toLowerCase().includes(query))
+                    : rows;
+                table.innerHTML = renderRows(visibleRows);
+            });
+        }
+    };
+    document.querySelectorAll('[data-uplink-mac-fetch]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const baseUrl = button.dataset.url || '';
+            const port = button.dataset.port || '';
+            const row = button.closest('tr[data-uplink-port]');
+            const cell = row ? row.querySelector('[data-mac-cell]') : button.closest('[data-mac-cell]');
+            if (!baseUrl || !port || !cell) return;
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Fetching...';
+            renderMacCell(cell, { total: '-', output: `Fetching MACs for ${port}...` }, 'loading');
+            try {
+                const url = `${baseUrl}?port=${encodeURIComponent(port)}&t=${Date.now()}`;
+                const response = await fetch(url, { credentials: 'same-origin' });
+                const payload = await response.json();
+                renderMacCell(cell, payload, payload.ok ? 'ok' : 'error');
+            } catch (error) {
+                renderMacCell(cell, { total: 0, output: `MAC fetch failed for ${port}.` }, 'error');
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText || 'Fetch Uplink MAC';
+            }
+        });
     });
 
     // CLI: open the interactive telnet terminal in a PuTTY-like popup window.

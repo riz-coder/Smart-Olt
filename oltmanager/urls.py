@@ -56,6 +56,7 @@ urlpatterns = [
     path('view/<int:pk>/refresh-uplink/', views.olt_refresh_uplink, name='olt_refresh_uplink'),
     path('view/<int:pk>/refresh-uplink-vlans/', views.olt_refresh_uplink_vlans, name='olt_refresh_uplink_vlans'),
     path('view/<int:pk>/refresh-uplink-data/', views.olt_uplink_refresh_data, name='olt_uplink_refresh_data'),
+    path('view/<int:pk>/uplink-macs/', views.olt_uplink_mac_data, name='olt_uplink_mac_data'),
     path('view/<int:pk>/uplink-traffic-graph/', views.olt_uplink_traffic_graph_data, name='olt_uplink_traffic_graph_data'),
     path('view/<int:pk>/refresh-vlans/', views.olt_refresh_vlans, name='olt_refresh_vlans'),
     path('view/<int:pk>/add-vlan/', views.olt_add_vlan, name='olt_add_vlan'),
