@@ -627,6 +627,42 @@
         font-weight: 800;
         word-break: break-word;
     }
+    .mapping-badge {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 8px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid rgba(47, 128, 255, 0.48);
+        background: rgba(47, 128, 255, 0.15);
+        color: #b9d8ff;
+        font-size: 11px;
+        font-weight: 900;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+    .vlan-mapping-limit-note {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 8px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 58, 84, 0.72);
+        background: rgba(54, 5, 15, 0.78);
+        color: #ff4964;
+        font-size: 11px;
+        font-weight: 950;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+        text-shadow: 0 0 8px rgba(255, 45, 74, 0.95), 0 0 18px rgba(255, 45, 74, 0.55);
+        box-shadow: 0 0 15px rgba(255, 45, 74, 0.32), inset 0 0 10px rgba(255, 45, 74, 0.16);
+        animation: vlanLimitHeartbeat 1.15s ease-in-out infinite;
+    }
+    @keyframes vlanLimitHeartbeat {
+        0%, 100% { transform: scale(1); filter: brightness(1); }
+        35% { transform: scale(1.06); filter: brightness(1.28); }
+        55% { transform: scale(0.98); filter: brightness(0.95); }
+    }
     .detail-edit {
         color: #79b8ff;
         text-decoration: none;
@@ -1311,6 +1347,17 @@
     html[data-theme="light"] .snapshot-meta strong,
     html[data-theme="light"] .onu-config-table-label { color: #16233c; }
     html[data-theme="light"] .detail-value { color: #1f4f8f; }
+    html[data-theme="light"] .mapping-badge {
+        border-color: #8db6f0;
+        background: #eaf3ff;
+        color: #174b91;
+    }
+    html[data-theme="light"] .vlan-mapping-limit-note {
+        background: #fff1f3;
+        border-color: #ff6b82;
+        color: #c1122f;
+        text-shadow: 0 0 6px rgba(255, 64, 94, 0.34);
+    }
     html[data-theme="light"] .snapshot-meta span,
     html[data-theme="light"] .signal-line { color: #2b3a57; }
     html[data-theme="light"] .detail-link,
@@ -1605,7 +1652,12 @@
                 <div class="detail-row">
                     <strong>SN</strong>
                     <span></span>
-                    <div class="detail-value">{{ onu.sn|default:"-" }}</div>
+                    <div class="detail-value">
+                        {{ onu.sn|default:"-" }}
+                        {% if onu.mapping_label %}
+                        <span class="mapping-badge">{{ onu.mapping_label }}</span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="detail-row">
                     <strong>Name</strong>
@@ -1693,6 +1745,9 @@
                         <strong>Attached VLANs</strong>
                         <span class="vlan-value-row">
                             <span data-detail-attached-vlans>{{ onu.attached_vlans|default:"-" }}</span>
+                            {% if onu.is_vlan_mapping %}
+                            <span class="vlan-mapping-limit-note">Max 7 VLANs allowed</span>
+                            {% endif %}
                             {% if user.is_staff or user.is_superuser %}
                             <a href="{{ onu_add_vlan_url }}" class="onu-add-vlan-btn" title="Add VLAN">+</a>
                             {% endif %}

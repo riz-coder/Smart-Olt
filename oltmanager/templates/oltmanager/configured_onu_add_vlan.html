@@ -63,6 +63,34 @@
         height: 14px;
         accent-color: #2f83ff;
     }
+    .vlan-limit-note {
+        display: inline-flex;
+        align-items: center;
+        width: max-content;
+        max-width: 100%;
+        margin: 0 0 4px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 58, 84, 0.74);
+        background: rgba(54, 5, 15, 0.78);
+        color: #ff4964;
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: 0.035em;
+        text-transform: uppercase;
+        text-shadow: 0 0 8px rgba(255, 45, 74, 0.95), 0 0 18px rgba(255, 45, 74, 0.55);
+        box-shadow: 0 0 15px rgba(255, 45, 74, 0.32), inset 0 0 10px rgba(255, 45, 74, 0.16);
+        animation: vlanLimitHeartbeat 1.15s ease-in-out infinite;
+    }
+    .vlan-limit-note.is-muted {
+        color: #ff9aac;
+        animation: none;
+    }
+    @keyframes vlanLimitHeartbeat {
+        0%, 100% { transform: scale(1); filter: brightness(1); }
+        35% { transform: scale(1.05); filter: brightness(1.25); }
+        55% { transform: scale(0.98); filter: brightness(0.95); }
+    }
     html[data-theme="light"] .vlan-picker-button {
         background: #f7faff;
         border-color: #cdd9ec;
@@ -76,6 +104,12 @@
     html[data-theme="light"] .vlan-picker-option,
     html[data-theme="light"] .vlan-picker-option span {
         color: #f1f7ff !important;
+    }
+    html[data-theme="light"] .vlan-limit-note {
+        background: #fff1f3;
+        border-color: #ff6b82;
+        color: #c1122f;
+        text-shadow: 0 0 6px rgba(255, 64, 94, 0.34);
     }
 </style>
 {% endblock %}
@@ -101,7 +135,12 @@
             {% csrf_token %}
             <div class="form-row">
                 <label>VLANs</label>
-                <div class="vlan-picker" data-vlan-picker>
+                <div class="vlan-picker" data-vlan-picker{% if is_vlan_mapping %} data-max-select="{{ vlan_mapping_remaining }}"{% endif %}>
+                    {% if is_vlan_mapping %}
+                    <div class="vlan-limit-note{% if vlan_mapping_remaining == 0 %} is-muted{% endif %}" data-vlan-limit-note>
+                        Max 7 VLANs allowed. {{ vlan_mapping_existing_count }}/{{ vlan_mapping_max_vlans }} already used.
+                    </div>
+                    {% endif %}
                     <button type="button" class="vlan-picker-button" data-vlan-picker-button>No VLAN selected</button>
                     <div class="vlan-picker-menu" data-vlan-picker-menu hidden>
                         <div class="vlan-picker-list">
@@ -174,6 +213,9 @@
     const selectAll = picker.querySelector('[data-vlan-select-all]');
     const options = Array.from(picker.querySelectorAll('[data-vlan-option]'));
     const boxes = Array.from(picker.querySelectorAll('[data-vlan-checkbox]'));
+    const maxSelect = Number(picker.getAttribute('data-max-select') || '0') || 0;
+    const hasMaxLimit = picker.hasAttribute('data-max-select') && maxSelect >= 0;
+    const limitNote = picker.querySelector('[data-vlan-limit-note]');
 
     const visibleBoxes = () => options
         .filter((option) => !option.hidden)
@@ -184,6 +226,19 @@
         button.textContent = selected.length ? `${selected.length} selected: ${selected.slice(0, 4).join(', ')}${selected.length > 4 ? '...' : ''}` : 'No VLAN selected';
         const visible = visibleBoxes();
         selectAll.checked = visible.length > 0 && visible.every((box) => box.checked);
+        if (hasMaxLimit) {
+            const limitReached = selected.length >= maxSelect;
+            boxes.forEach((box) => {
+                box.disabled = !box.checked && limitReached;
+            });
+            if (selectAll) {
+                selectAll.disabled = maxSelect <= 0;
+                selectAll.checked = selected.length > 0 && selected.length >= Math.min(maxSelect, visible.length);
+            }
+            if (limitNote && maxSelect <= 0) {
+                limitNote.textContent = 'Max 7 VLANs allowed. No more VLANs can be added.';
+            }
+        }
     };
 
     button.addEventListener('click', () => {
@@ -193,10 +248,24 @@
         if (!picker.contains(event.target)) menu.hidden = true;
     });
     selectAll.addEventListener('change', () => {
-        visibleBoxes().forEach((box) => box.checked = selectAll.checked);
+        const visible = visibleBoxes();
+        if (hasMaxLimit) {
+            visible.forEach((box) => box.checked = false);
+            if (selectAll.checked) {
+                visible.slice(0, maxSelect).forEach((box) => box.checked = true);
+            }
+        } else {
+            visible.forEach((box) => box.checked = selectAll.checked);
+        }
         updateButton();
     });
-    boxes.forEach((box) => box.addEventListener('change', updateButton));
+    boxes.forEach((box) => box.addEventListener('change', () => {
+        if (hasMaxLimit && box.checked && boxes.filter((item) => item.checked).length > maxSelect) {
+            box.checked = false;
+            window.alert(`VLAN Mapping allows maximum 7 VLANs. You can select ${maxSelect} more.`);
+        }
+        updateButton();
+    }));
     updateButton();
 })();
 </script>

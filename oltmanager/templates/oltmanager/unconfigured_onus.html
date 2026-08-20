@@ -345,6 +345,39 @@
         margin: 0;
         accent-color: #2f80ff;
     }
+    .authorize-mapping-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+    .authorize-mapping-tabs label {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(88, 126, 194, 0.38);
+        background: rgba(15, 34, 67, 0.84);
+        color: #bcd5ff;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+    .authorize-mapping-tabs input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .authorize-mapping-tabs label:has(input:checked) {
+        border-color: rgba(47, 128, 255, 0.92);
+        background: linear-gradient(135deg, rgba(47, 128, 255, 0.92), rgba(20, 184, 166, 0.72));
+        color: #ffffff;
+        box-shadow: 0 10px 24px rgba(47, 128, 255, 0.18);
+    }
     .authorize-vlan-stack {
         gap: 10px;
     }
@@ -664,6 +697,16 @@
     }
     html[data-theme="light"] .authorize-panel-head h4 { color: #16233c; }
     html[data-theme="light"] .authorize-panel-note { color: #5a6b86; }
+    html[data-theme="light"] .authorize-mapping-tabs label {
+        background: #ffffff;
+        border-color: #b6cff5;
+        color: #1b3763;
+    }
+    html[data-theme="light"] .authorize-mapping-tabs label:has(input:checked) {
+        background: linear-gradient(135deg, #1f70f2, #0ea5a8);
+        border-color: #1f70f2;
+        color: #ffffff;
+    }
 </style>
 {% endblock %}
 

@@ -112,6 +112,19 @@
                                     </select>
                                 </div>
                                 <div class="authorize-field">
+                                    <label>Mapping</label>
+                                    <div class="authorize-mapping-tabs" role="radiogroup" aria-label="ONU mapping mode">
+                                        <label>
+                                            <input type="radio" name="mapping_mode" value="priority"{% if row.authorize_mapping_mode != 'vlan' %} checked{% endif %}>
+                                            <span>Priority Mapping</span>
+                                        </label>
+                                        <label>
+                                            <input type="radio" name="mapping_mode" value="vlan"{% if row.authorize_mapping_mode == 'vlan' %} checked{% endif %}>
+                                            <span>VLAN Mapping</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="authorize-field">
                                     <label>Name</label>
                                     <input type="text" name="subscriber_name" value="{{ row.authorize_subscriber_name }}" placeholder="Client name" required>
                                 </div>

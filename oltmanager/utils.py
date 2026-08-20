@@ -8772,6 +8772,23 @@ def _format_solt_onu_type_name(value):
     return f"{text}_SOLT"
 
 
+def _sanitize_profile_name_token(value):
+    text = re.sub(r"[^A-Za-z0-9_-]+", "", str(value or "").strip())
+    return text[:48] or "ONU"
+
+
+def _unique_profile_name(items, base_name):
+    base = str(base_name or "").strip() or "SOLT_PROFILE"
+    existing = {str(item.get("name") or "").strip().upper() for item in (items or [])}
+    if base.upper() not in existing:
+        return base
+    for index in range(1, 100):
+        candidate = f"{base}({index})"
+        if candidate.upper() not in existing:
+            return candidate
+    return f"{base}_{int(time.time())}"
+
+
 def _is_xgpon_bandwidth_failure(output_text):
     return "xgpon bandwidth must be the multiply of 256 kbps" in str(output_text or "").lower()
 
@@ -8834,6 +8851,7 @@ def _ensure_srvprofile(
     *,
     profile_name,
     generic_mode,
+    vlan_mapping_mode=False,
     vlan_id,
     pots_ports,
     eth_ports,
@@ -8859,7 +8877,9 @@ def _ensure_srvprofile(
         if _authorize_cli_has_failure(output):
             return {"ok": False, "message": _clean_cli_response_text(command, output) or "OLT rejected service profile creation."}
 
-        if generic_mode:
+        if vlan_mapping_mode:
+            commands = ["ont-port pots adaptive eth adaptive catv adaptive"]
+        elif generic_mode:
             commands = ["ont-port pots adaptive eth adaptive catv adaptive"]
             for eth_port in range(1, 9):
                 commands.append(f"port vlan eth {eth_port} translation {vlan_id} user-vlan {vlan_id}")
@@ -8892,6 +8912,8 @@ def _ensure_lineprofile(
     *,
     profile_name,
     generic_mode,
+    vlan_mapping_mode=False,
+    force_new=False,
     vlan_id,
     dba_profile_id,
     transcript,
@@ -8903,13 +8925,14 @@ def _ensure_lineprofile(
 
     items, _ = _load_display_profile_items(tn, f"display ont-lineprofile {pt} all", transcript)
     existing_id = _find_profile_id_by_name(items, profile_name)
-    if existing_id is not None:
+    if existing_id is not None and not force_new:
         return {"ok": True, "profile_id": int(existing_id), "reused": True}
+    effective_profile_name = _unique_profile_name(items, profile_name) if force_new else profile_name
 
     candidate = _next_free_profile_id(items, min_id=min_id)
     max_candidate = candidate + 120
     while candidate <= max_candidate:
-        command = f'ont-lineprofile {pt} profile-id {candidate} profile-name "{profile_name}"'
+        command = f'ont-lineprofile {pt} profile-id {candidate} profile-name "{effective_profile_name}"'
         output = _run_telnet_authorize_command(tn, command, enter_until_prompt=True)
         _append_authorize_transcript(transcript, command, output)
         if _authorize_cli_profile_id_conflict(output):
@@ -8922,6 +8945,12 @@ def _ensure_lineprofile(
             # EPON line profile: bind LLID to DBA profile only — no tcont/gem/FEC
             commands = [
                 f"llid dba-profile-id {int(dba_profile_id)}",
+            ]
+        elif vlan_mapping_mode:
+            commands = [
+                f"tcont 1 dba-profile-id {int(dba_profile_id)}",
+                "gem add 1 eth tcont 1",
+                f"gem mapping 1 1 vlan {vlan_id}",
             ]
         elif generic_mode:
             commands = [
@@ -8958,7 +8987,7 @@ def _ensure_lineprofile(
 
         quit_output = _run_telnet_authorize_command(tn, "quit", enter_until_prompt=True)
         _append_authorize_transcript(transcript, "quit", quit_output)
-        return {"ok": True, "profile_id": int(candidate), "reused": False}
+        return {"ok": True, "profile_id": int(candidate), "profile_name": effective_profile_name, "reused": False}
 
     return {"ok": False, "message": "No free line profile id available."}
 
@@ -8972,6 +9001,7 @@ def _preflight_authorize_plan(
     upload_profile_index,
     transcript,
     pon_tech="gpon",
+    dba_max_bandwidth=1048000,
 ):
     result = {"ok": False, "message": "Authorize preflight failed."}
     pt = str(pon_tech or "gpon").lower().strip()
@@ -9009,7 +9039,7 @@ def _preflight_authorize_plan(
             "ok": True,
             "dba_profile_id": int(dba_plan["profile_id"]),
             "dba_reused": bool(dba_plan.get("reused")),
-            "dba_existing_max_id": int(_find_dba_profile_id_by_max(dba_items, 1048000) or 0),
+            "dba_existing_max_id": int(_find_dba_profile_id_by_max(dba_items, dba_max_bandwidth) or 0),
             "service_profile_id": int(srv_plan["profile_id"]),
             "service_profile_reused": bool(srv_plan.get("reused")),
             "line_profile_id": int(line_plan["profile_id"]),
@@ -9161,6 +9191,7 @@ def authorize_autofind_onu(
     eth_ports,
     service_vlan="",
     tag_transform="",
+    mapping_mode="priority",
     on_progress=None,
 ):
     from .models import ConfiguredONU
@@ -9199,6 +9230,11 @@ def authorize_autofind_onu(
     if use_svlan and service_tag_transform not in {"default", "translate"}:
         result["message"] = "Invalid tag-transform selected."
         return result
+    mapping_mode_value = str(mapping_mode or "priority").strip().lower()
+    if mapping_mode_value not in {"priority", "vlan"}:
+        result["message"] = "Invalid mapping mode selected."
+        return result
+    vlan_mapping_mode = mapping_mode_value == "vlan"
     effective_eth_ports = _normalize_authorize_eth_ports(eth_ports)
     generic_mode = False
 
@@ -9216,7 +9252,14 @@ def authorize_autofind_onu(
         dba_max_bandwidth = 1048000
         line_profile_name = "SOLT_GPON"
 
-    srv_profile_name = f"Generic_V{primary_vlan}" if generic_mode else _format_solt_onu_type_name(onu_type_name)
+    if vlan_mapping_mode:
+        pon_name_token = "EPON" if is_epon else "GPON"
+        compact_pon_token = "E" if is_epon else "G"
+        srv_profile_name = f"ALL_ONU_SOLT_{pon_name_token}"
+        line_profile_token = _sanitize_profile_name_token(sn_auth if not is_epon else sn)[:16]
+        line_profile_name = f"SOLT_{compact_pon_token}_{line_profile_token}"
+    else:
+        srv_profile_name = f"Generic_V{primary_vlan}" if generic_mode else _format_solt_onu_type_name(onu_type_name)
     srv_profile_seed = 5
     line_profile_seed = 4
     subscriber_desc = _sanitize_onu_authorize_desc(subscriber_name)
@@ -9255,6 +9298,7 @@ def authorize_autofind_onu(
                 upload_profile_index=upload_profile_index,
                 transcript=transcript,
                 pon_tech=pon_tech_cli,
+                dba_max_bandwidth=dba_max_bandwidth,
             )
             if not preflight.get("ok"):
                 result["message"] = preflight.get("message") or "Authorize preflight failed."
@@ -9279,6 +9323,7 @@ def authorize_autofind_onu(
                 tn,
                 profile_name=srv_profile_name,
                 generic_mode=generic_mode,
+                vlan_mapping_mode=vlan_mapping_mode,
                 vlan_id=primary_vlan,
                 pots_ports=pots_ports,
                 eth_ports=effective_eth_ports,
@@ -9295,6 +9340,8 @@ def authorize_autofind_onu(
                 tn,
                 profile_name=line_profile_name,
                 generic_mode=generic_mode,
+                vlan_mapping_mode=vlan_mapping_mode,
+                force_new=vlan_mapping_mode,
                 vlan_id=primary_vlan,
                 dba_profile_id=int(dba_result["profile_id"]),
                 transcript=transcript,
@@ -9305,6 +9352,7 @@ def authorize_autofind_onu(
                 result["message"] = line_profile_result.get("message") or "Line profile creation failed."
                 result["transcript"] = "\n\n".join(transcript)[:16000]
                 return result
+            line_profile_name = str(line_profile_result.get("profile_name") or line_profile_name)
 
             _emit(2, "Preparing traffic tables...")
             traffic_result = _ensure_selected_traffic_tables(
@@ -9416,6 +9464,8 @@ def authorize_autofind_onu(
                             tn,
                             profile_name="SOLT_XGPON",
                             generic_mode=generic_mode,
+                            vlan_mapping_mode=False,
+                            force_new=False,
                             vlan_id=primary_vlan,
                             dba_profile_id=int(xgpon_dba_result["profile_id"]),
                             transcript=transcript,
@@ -9638,6 +9688,7 @@ def authorize_autofind_onu(
                 record.status_first_seen_at = now
             # Mark this ONU as authorized through OptiVerse (not imported).
             record.configured_via_app = True
+            record.mapping_mode_cache = mapping_mode_value
 
             identity_payload = fetch_authorized_onu_snmp_identity(
                 olt,
@@ -14624,4 +14675,3 @@ def push_snmp_config_over_telnet(olt, read_community, write_community=""):
                 _close_telnet_session(tn)
             except OSError:
                 pass
-

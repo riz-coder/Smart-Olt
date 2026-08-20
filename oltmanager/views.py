@@ -2052,6 +2052,9 @@ def _build_unconfigured_group(
         existing_user_vlan = item["authorize_vlan"]
         item["authorize_svlan"] = existing_service_vlan if existing_service_vlan and existing_service_vlan != existing_user_vlan else ""
         item["authorize_tag_transform"] = "default"
+        item["authorize_mapping_mode"] = str(getattr(existing_record, "mapping_mode_cache", "") or "").strip().lower() if existing_record else ""
+        if item["authorize_mapping_mode"] not in {"priority", "vlan"}:
+            item["authorize_mapping_mode"] = "priority"
         item["authorize_download_speed"] = str(getattr(existing_record, "download_profile_index_cache", "") or "").strip() if existing_record else ""
         item["authorize_upload_speed"] = str(getattr(existing_record, "upload_profile_index_cache", "") or "").strip() if existing_record else ""
         if existing_record:
@@ -5382,6 +5385,7 @@ def unconfigured_onu_authorize(request):
     use_svlan = bool(request.POST.get("use_svlan"))
     service_vlan_value = str(request.POST.get("service_vlan") or "").strip() if use_svlan else ""
     tag_transform_value = str(request.POST.get("tag_transform") or "default").strip().lower() if use_svlan else ""
+    mapping_mode = str(request.POST.get("mapping_mode") or "priority").strip().lower()
     download_profile_index = str(request.POST.get("download_speed") or "").strip()
     upload_profile_index = str(request.POST.get("upload_speed") or "").strip()
     subscriber_name = str(request.POST.get("subscriber_name") or "").strip()
@@ -5402,6 +5406,8 @@ def unconfigured_onu_authorize(request):
         tag_transform_value = "default"
     if use_svlan and tag_transform_value not in {"default", "translate"}:
         return _finish_error("Authorize failed: select a valid tag-transform.")
+    if mapping_mode not in {"priority", "vlan"}:
+        return _finish_error("Authorize failed: select a valid mapping mode.")
     if not download_profile_index or not upload_profile_index:
         return _finish_error("Authorize failed: select both download and upload speed profiles.")
     if not subscriber_name:
@@ -5454,6 +5460,7 @@ def unconfigured_onu_authorize(request):
         onu_mode=onu_mode,
         service_vlan=service_vlan_value,
         tag_transform=tag_transform_value,
+        mapping_mode=mapping_mode,
         onu_type_serial=int(onu_type_entry.get("serial_no") or 300),
         pots_ports=str(onu_type_entry.get("voip_ports") or "0").strip() or "0",
         eth_ports=str(onu_type_entry.get("ethernet_ports") or "0").strip() or "0",
@@ -6106,6 +6113,16 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     selected_onu["onu_label"] = f"{_tech}-onu_0/{slot}/{port}:{ont_id}"
     # Imported ONUs (configured outside the app) get a "delete & reconfigure" hint.
     selected_onu["configured_via_app"] = bool(getattr(record, "configured_via_app", False)) if record is not None else True
+    selected_mapping_mode = str(getattr(record, "mapping_mode_cache", "") if record is not None else "").strip().lower()
+    if selected_mapping_mode == "vlan":
+        selected_onu["mapping_label"] = "VLAN Mapping"
+        selected_onu["is_vlan_mapping"] = True
+    elif selected_mapping_mode == "priority" or not selected_onu["configured_via_app"]:
+        selected_onu["mapping_label"] = "PRI Mapping"
+        selected_onu["is_vlan_mapping"] = False
+    else:
+        selected_onu["mapping_label"] = ""
+        selected_onu["is_vlan_mapping"] = False
     need_optical = False
     need_capability = False
     olt_unreachable = _is_olt_snmp_unreachable(getattr(olt, "snmp_last_status", ""))
@@ -6811,6 +6828,12 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
         return locked_response
     record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
     existing_vlans = [item.strip() for item in str(record.attached_vlans_cache or "").split(",") if item.strip()]
+    existing_user_vlans = [item.strip() for item in str(record.user_vlan_cache or "").split(",") if item.strip()]
+    existing_service_ports = [item.strip() for item in str(record.service_port_id_cache or "").split(",") if item.strip()]
+    is_vlan_mapping = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower() == "vlan"
+    vlan_mapping_max_vlans = 7
+    vlan_mapping_existing_count = max(len(existing_vlans), len(existing_user_vlans), len(existing_service_ports))
+    vlan_mapping_remaining = max(vlan_mapping_max_vlans - vlan_mapping_existing_count, 0)
     vlan_options = _olt_vlan_option_values(olt)
     if not vlan_options:
         vlan_options = existing_vlans[:]
@@ -6835,11 +6858,17 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
                 selected_vlans.append(text)
         selected_download = str(request.POST.get("download_speed") or "").strip()
         selected_upload = str(request.POST.get("upload_speed") or "").strip()
-        duplicate_vlans = [item for item in selected_vlans if item in existing_vlans]
-        selected_vlans = [item for item in selected_vlans if item not in existing_vlans]
+        existing_compare_vlans = set(existing_vlans) | set(existing_user_vlans)
+        duplicate_vlans = [item for item in selected_vlans if item in existing_compare_vlans]
+        selected_vlans = [item for item in selected_vlans if item not in existing_compare_vlans]
         detail_redirect = reverse("configured_onu_detail", kwargs={"olt_pk": olt.pk, "slot": slot, "port": port, "ont_id": ont_id})
+        if is_vlan_mapping and len(selected_vlans) > vlan_mapping_remaining:
+            response_message = f"VLAN Mapping supports a maximum of {vlan_mapping_max_vlans} VLANs. You can add {vlan_mapping_remaining} more."
+            if is_ajax:
+                return JsonResponse({"ok": False, "message": response_message, "transcript": ""}, status=400)
+            selected_vlans = []
         if not selected_vlans or not selected_download or not selected_upload:
-            response_message = "Select VLAN and speed profiles."
+            response_message = response_message or "Select VLAN and speed profiles."
             if is_ajax:
                 return JsonResponse({"ok": False, "message": response_message, "transcript": ""}, status=400)
         else:
@@ -6896,6 +6925,10 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
             "vlan_options": vlan_options,
             "download_options": download_options,
             "upload_options": upload_options,
+            "is_vlan_mapping": is_vlan_mapping,
+            "vlan_mapping_max_vlans": vlan_mapping_max_vlans,
+            "vlan_mapping_existing_count": vlan_mapping_existing_count,
+            "vlan_mapping_remaining": vlan_mapping_remaining,
             "response_message": response_message,
             "transcript": transcript,
             "back_url": reverse("configured_onu_detail", kwargs={"olt_pk": olt.pk, "slot": slot, "port": port, "ont_id": ont_id}),
