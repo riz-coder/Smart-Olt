@@ -6686,7 +6686,11 @@ def _run_add_vlan_bg_task(task_id, olt, vlan_kwargs, redirect_url, duplicate_vla
                 _SPEED_PROFILE_TASKS[task_id]["label"] = label
 
     try:
-        snapshot = execute_onu_add_service_vlan_config(olt, on_progress=on_progress, **vlan_kwargs)
+        snapshot = execute_onu_add_service_vlan_config(
+            olt,
+            on_progress=on_progress,
+            **vlan_kwargs,
+        )
         ok = bool(snapshot.get("ok"))
         message = _ui_telnet_error_message(snapshot.get("message"))
         if ok and duplicate_vlans:
@@ -6851,11 +6855,12 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
     transcript = ""
     is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     if request.method == "POST":
-        selected_vlans = []
+        requested_vlans = []
         for item in request.POST.getlist("vlan_ids"):
             text = str(item or "").strip()
-            if text and text not in selected_vlans:
-                selected_vlans.append(text)
+            if text and text not in requested_vlans:
+                requested_vlans.append(text)
+        selected_vlans = requested_vlans[:]
         selected_download = str(request.POST.get("download_speed") or "").strip()
         selected_upload = str(request.POST.get("upload_speed") or "").strip()
         existing_compare_vlans = set(existing_vlans) | set(existing_user_vlans)
@@ -6867,7 +6872,7 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
             if is_ajax:
                 return JsonResponse({"ok": False, "message": response_message, "transcript": ""}, status=400)
             selected_vlans = []
-        if not selected_vlans or not selected_download or not selected_upload:
+        if (not selected_vlans and not (is_vlan_mapping and requested_vlans)) or not selected_download or not selected_upload:
             response_message = response_message or "Select VLAN and speed profiles."
             if is_ajax:
                 return JsonResponse({"ok": False, "message": response_message, "transcript": ""}, status=400)
@@ -6878,6 +6883,7 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
                 port=port,
                 ont_id=ont_id,
                 vlan_ids=selected_vlans,
+                line_profile_vlan_ids=requested_vlans if is_vlan_mapping else selected_vlans,
                 download_profile_index=selected_download,
                 upload_profile_index=selected_upload,
             )

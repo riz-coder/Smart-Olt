@@ -203,8 +203,105 @@
 {% endblock %}
 
 {% block extra_js %}
-{{ block.super }}
 <script>
+(() => {
+    const form = document.querySelector('[data-speed-profile-form]');
+    const overlay = document.querySelector('[data-olt-wait]');
+    const fill = document.querySelector('[data-olt-wait-fill]');
+    const log = document.querySelector('[data-olt-wait-log]');
+    const steps = Array.from(document.querySelectorAll('[data-olt-wait-steps] [data-step-index]'));
+    const PROGRESS_URL = "{% url 'configured_onu_speed_profile_progress' task_id='__TASK__' %}";
+    const STEP_WIDTHS = [20, 45, 70, 92, 100];
+    const STEP_LABELS = [
+        'Opening OLT session...',
+        'Checking traffic tables...',
+        'Preparing service-port...',
+        'Applying configuration...',
+        'Done',
+    ];
+
+    const getCookie = (name) => {
+        const cookieValue = document.cookie.split('; ').find((row) => row.startsWith(name + '='));
+        return cookieValue ? decodeURIComponent(cookieValue.split('=')[1]) : '';
+    };
+
+    const setStep = (stepIndex, labelText, done) => {
+        if (!fill || !log) return;
+        const clamped = Math.max(0, Math.min(stepIndex, STEP_WIDTHS.length - 1));
+        fill.style.width = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
+        log.textContent = labelText || STEP_LABELS[clamped] || 'Working...';
+        steps.forEach((node) => {
+            const index = Number(node.getAttribute('data-step-index') || 0);
+            node.classList.toggle('is-done', done || index < stepIndex);
+            node.classList.toggle('is-active', !done && index === stepIndex);
+        });
+    };
+
+    let pollTimer = null;
+    const stopPoll = () => {
+        if (pollTimer) {
+            window.clearTimeout(pollTimer);
+            pollTimer = null;
+        }
+    };
+
+    const finish = (ok, message, redirectUrl) => {
+        stopPoll();
+        setStep(4, `${ok ? 'OK' : 'FAILED'}: ${message || (ok ? 'Done.' : 'Failed.')}`, true);
+        if (!ok) {
+            window.alert(message || 'VLAN add failed.');
+        }
+        if (ok && redirectUrl) {
+            window.setTimeout(() => { window.location.href = redirectUrl; }, 600);
+        }
+    };
+
+    const pollProgress = (taskId) => {
+        const url = PROGRESS_URL.replace('__TASK__', taskId);
+        const tick = async () => {
+            try {
+                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                const task = await res.json();
+                if (task.done) {
+                    finish(!!task.ok, task.message, task.redirect_url);
+                    return;
+                }
+                setStep(Number(task.step || 0), task.label, false);
+                pollTimer = window.setTimeout(tick, 600);
+            } catch (err) {
+                pollTimer = window.setTimeout(tick, 1000);
+            }
+        };
+        tick();
+    };
+
+    if (form && overlay) {
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            overlay.hidden = false;
+            setStep(0, STEP_LABELS[0], false);
+            try {
+                const response = await fetch(form.action || window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: new FormData(form),
+                });
+                const data = await response.json();
+                if (response.ok && data.ok && data.task_id) {
+                    pollProgress(data.task_id);
+                } else {
+                    finish(false, data.message || 'Unable to start VLAN add.', '');
+                }
+            } catch (err) {
+                finish(false, 'VLAN add request failed.', '');
+            }
+        });
+    }
+})();
+
 (() => {
     const picker = document.querySelector('[data-vlan-picker]');
     if (!picker) return;

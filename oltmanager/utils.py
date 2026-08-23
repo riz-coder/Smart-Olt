@@ -7961,6 +7961,221 @@ def execute_onu_speed_profile_config(
         _close_telnet_session(tn)
 
 
+def _parse_ont_line_profile_id(output_text):
+    match = re.search(r"(?i)\bont[-\s]*lineprofile[-\s]*id\s+(\d+)\b", str(output_text or ""))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _parse_vlan_mapping_line_profile(output_text):
+    text = str(output_text or "")
+    name_match = re.search(r"(?im)\bProfile-name\s*:\s*(.+?)\s*$", text)
+    profile_name = name_match.group(1).strip() if name_match else ""
+    mappings = {}
+    for match in re.finditer(r"(?im)\bgem\s+mapping\s+1\s+(\d+)\s+vlan\s+(\d+)\b", text):
+        try:
+            mappings[int(match.group(1))] = match.group(2).strip()
+        except (TypeError, ValueError):
+            continue
+    for raw_line in text.splitlines():
+        line = " ".join(str(raw_line or "").strip().split())
+        # Huawei display output table:
+        #   Mapping VLAN  Priority ...
+        #   index
+        #   1       948   -        ...
+        # First column is mapping index (1-7), second column is VLAN.
+        row_match = re.match(r"^(\d+)\s+(\d{1,4})(?:\s+|$)", line)
+        if row_match:
+            try:
+                index = int(row_match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= index <= 7:
+                mappings.setdefault(index, row_match.group(2).strip())
+    return {"profile_name": profile_name, "mappings": mappings}
+
+
+def _settle_lineprofile_after_vlan_mapping(tn, transcript):
+    """Huawei line-profile VLAN mapping sometimes needs two blank Enters before commit."""
+    for enter_index in range(1, 3):
+        output = _run_telnet_authorize_command(
+            tn,
+            "",
+            enter_until_prompt=False,
+            busy_retries=0,
+            max_wait_seconds=1.2,
+            step_timeout=0.18,
+            max_loops=6,
+        )
+        _append_authorize_transcript(transcript, f"<enter {enter_index}>", output)
+
+
+def _read_vlan_mapping_line_profile_detail(tn, *, pon_cli, line_profile_id, transcript):
+    display_command = f"display ont-lineprofile {pon_cli} profile-id {int(line_profile_id)}"
+    outputs = []
+    for attempt, options in enumerate(
+        (
+            {"max_wait_seconds": 60, "idle_poke": b" ", "poll_seconds": 0.15},
+            {"max_wait_seconds": 90, "idle_poke": b"\r\n", "poll_seconds": 0.2},
+        ),
+        start=1,
+    ):
+        output = _run_telnet_bulk_command(tn, display_command, **options)
+        outputs.append(output or "")
+        label = display_command if attempt == 1 else f"{display_command} (full retry)"
+        _append_authorize_transcript(transcript, label, output)
+        info = _parse_vlan_mapping_line_profile("\n".join(outputs))
+        if info.get("mappings"):
+            return info
+    return _parse_vlan_mapping_line_profile("\n".join(outputs))
+
+
+def _ensure_vlan_mapping_line_profile_vlans(tn, *, olt, frame, slot, port, ont_id, sn="", vlan_values, transcript):
+    pon_tech = _slot_pon_tech(olt, slot)
+    pon_cli = "epon" if str(pon_tech or "").upper() == "EPON" else "gpon"
+
+    current_command = f"display current-configuration ont {int(frame)}/{int(slot)}/{int(port)} {int(ont_id)}"
+    current_output = _run_telnet_bulk_command(
+        tn,
+        current_command,
+        max_wait_seconds=45,
+        idle_poke=b"\r\n",
+        poll_seconds=0.15,
+    )
+    _append_authorize_transcript(transcript, current_command, current_output)
+    line_profile_id = _parse_ont_line_profile_id(current_output)
+    profile_name = ""
+    if line_profile_id is None:
+        return {"ok": False, "message": "Could not find this ONU VLAN Mapping line profile on the OLT."}
+
+    info = _read_vlan_mapping_line_profile_detail(
+        tn,
+        pon_cli=pon_cli,
+        line_profile_id=line_profile_id,
+        transcript=transcript,
+    )
+    profile_name = info.get("profile_name") or profile_name or f"SOLT_{'E' if pon_cli == 'epon' else 'G'}_{int(line_profile_id)}"
+    mappings = dict(info.get("mappings") or {})
+    existing_vlans = {str(value).strip() for value in mappings.values() if str(value).strip()}
+    next_indexes = [idx for idx in range(1, 8) if idx not in mappings]
+    new_vlans = [str(vlan).strip() for vlan in vlan_values if str(vlan).strip() not in existing_vlans]
+    if new_vlans and not next_indexes:
+        return {"ok": False, "message": "All VLAN Mapping indexes 1-7 are already full in the line profile."}
+    if len(new_vlans) > len(next_indexes):
+        return {"ok": False, "message": "VLAN Mapping supports a maximum of 7 VLANs in the line profile."}
+    if not new_vlans:
+        return {"ok": True, "message": "Line profile already contains selected VLAN mapping(s)."}
+
+    entered_config, config_output = _enter_global_config_mode(tn, transcript=transcript)
+    if not entered_config:
+        return {"ok": False, "message": "Unable to enter configuration mode for line profile VLAN mapping."}
+
+    profile_command = f"ont-lineprofile {pon_cli} profile-id {int(line_profile_id)} profile-name {profile_name}"
+    profile_output = _run_telnet_authorize_command(tn, profile_command, enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, profile_command, profile_output)
+    if _authorize_cli_has_failure(profile_output):
+        return {"ok": False, "message": _clean_cli_response_text(profile_command, profile_output) or "Unable to enter line profile."}
+
+    used_indexes = set(mappings)
+    for vlan_value in new_vlans:
+        vlan_added = False
+        while True:
+            available_indexes = [idx for idx in range(1, 8) if idx not in used_indexes]
+            if not available_indexes:
+                return {"ok": False, "message": "All VLAN Mapping indexes 1-7 are already full in the line profile."}
+            mapping_index = available_indexes[0]
+            map_command = f"gem mapping 1 {int(mapping_index)} vlan {int(vlan_value)}"
+            map_output = _run_telnet_authorize_command(tn, map_command, enter_until_prompt=True, busy_retries=4)
+            _append_authorize_transcript(transcript, map_command, map_output)
+            lowered_output = str(map_output or "").lower()
+            if "mapping index" in lowered_output and "exist" in lowered_output:
+                used_indexes.add(int(mapping_index))
+                continue
+            if _authorize_cli_has_failure(map_output) and not _authorize_cli_is_existing(map_output):
+                return {"ok": False, "message": _clean_cli_response_text(map_command, map_output) or f"Line profile VLAN mapping failed for VLAN {vlan_value}."}
+            used_indexes.add(int(mapping_index))
+            vlan_added = True
+            break
+        if not vlan_added:
+            return {"ok": False, "message": f"Line profile VLAN mapping failed for VLAN {vlan_value}."}
+
+    _settle_lineprofile_after_vlan_mapping(tn, transcript)
+
+    commit_output = _run_telnet_authorize_command(tn, "commit", enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, "commit", commit_output)
+    if _authorize_cli_has_failure(commit_output):
+        return {"ok": False, "message": _clean_cli_response_text("commit", commit_output) or "Line profile VLAN mapping commit failed."}
+
+    quit_output = _run_telnet_authorize_command(tn, "quit", enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, "quit", quit_output)
+    return {"ok": True, "message": f"Line profile VLAN mapping updated for {', '.join(new_vlans)}."}
+
+
+def _delete_vlan_mapping_line_profile_vlan(tn, *, olt, frame, slot, port, ont_id, target_vlan, transcript):
+    target = str(target_vlan or "").strip()
+    if not target.isdigit():
+        return {"ok": False, "message": "Could not identify VLAN Mapping VLAN for this service-port."}
+
+    pon_tech = _slot_pon_tech(olt, slot)
+    pon_cli = "epon" if str(pon_tech or "").upper() == "EPON" else "gpon"
+    current_command = f"display current-configuration ont {int(frame)}/{int(slot)}/{int(port)} {int(ont_id)}"
+    current_output = _run_telnet_bulk_command(
+        tn,
+        current_command,
+        max_wait_seconds=45,
+        idle_poke=b"\r\n",
+        poll_seconds=0.15,
+    )
+    _append_authorize_transcript(transcript, current_command, current_output)
+    line_profile_id = _parse_ont_line_profile_id(current_output)
+    if line_profile_id is None:
+        return {"ok": False, "message": "Could not find this ONU VLAN Mapping line profile on the OLT."}
+
+    info = _read_vlan_mapping_line_profile_detail(
+        tn,
+        pon_cli=pon_cli,
+        line_profile_id=line_profile_id,
+        transcript=transcript,
+    )
+    mappings = dict(info.get("mappings") or {})
+    matched_index = None
+    for mapping_index, vlan_value in mappings.items():
+        if str(vlan_value).strip() == target:
+            matched_index = int(mapping_index)
+            break
+    if matched_index is None:
+        return {"ok": True, "message": f"VLAN {target} mapping already absent from line profile.", "not_found": True}
+
+    profile_name = info.get("profile_name") or f"SOLT_{'E' if pon_cli == 'epon' else 'G'}_{int(line_profile_id)}"
+    entered_config, _cfg = _enter_global_config_mode(tn, transcript=transcript)
+    if not entered_config:
+        return {"ok": False, "message": "Unable to enter configuration mode for line profile VLAN mapping delete."}
+
+    profile_command = f"ont-lineprofile {pon_cli} profile-id {int(line_profile_id)} profile-name {profile_name}"
+    profile_output = _run_telnet_authorize_command(tn, profile_command, enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, profile_command, profile_output)
+    if _authorize_cli_has_failure(profile_output):
+        return {"ok": False, "message": _clean_cli_response_text(profile_command, profile_output) or "Unable to enter line profile."}
+
+    undo_command = f"undo gem mapping 1 {matched_index}"
+    undo_output = _run_telnet_authorize_command(tn, undo_command, enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, undo_command, undo_output)
+    lowered = str(undo_output or "").lower()
+    already_absent = "does not exist" in lowered or "not exist" in lowered
+    if _authorize_cli_has_failure(undo_output) and not already_absent:
+        return {"ok": False, "message": _clean_cli_response_text(undo_command, undo_output) or f"Line profile VLAN mapping delete failed for VLAN {target}."}
+
+    commit_output = _run_telnet_authorize_command(tn, "commit", enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, "commit", commit_output)
+    if _authorize_cli_has_failure(commit_output):
+        return {"ok": False, "message": _clean_cli_response_text("commit", commit_output) or "Line profile VLAN mapping delete commit failed."}
+
+    quit_output = _run_telnet_authorize_command(tn, "quit", enter_until_prompt=True, busy_retries=4)
+    _append_authorize_transcript(transcript, "quit", quit_output)
+    return {"ok": True, "message": f"VLAN {target} mapping removed from line profile."}
+
+
 def execute_onu_add_service_vlan_config(
     olt,
     *,
@@ -7970,6 +8185,7 @@ def execute_onu_add_service_vlan_config(
     ont_id,
     vlan_id=None,
     vlan_ids=None,
+    line_profile_vlan_ids=None,
     download_profile_index,
     upload_profile_index,
     on_progress=None,
@@ -7995,9 +8211,23 @@ def execute_onu_add_service_vlan_config(
         text = str(item or "").strip()
         if text and text.isdigit() and text not in vlan_values:
             vlan_values.append(text)
-    if not vlan_values:
+    line_profile_vlan_values = []
+    for item in (line_profile_vlan_ids if line_profile_vlan_ids is not None else vlan_values):
+        text = str(item or "").strip()
+        if text and text.isdigit() and text not in line_profile_vlan_values:
+            line_profile_vlan_values.append(text)
+    if not vlan_values and not line_profile_vlan_values:
         result["message"] = "Select valid VLANs."
         return result
+
+    record = ConfiguredONU.objects.filter(
+        olt=olt,
+        frame=int(frame or 0),
+        slot=int(slot),
+        port=int(port),
+        ont_id=int(ont_id),
+    ).first()
+    is_vlan_mapping_onu = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower() == "vlan"
 
     _progress(0, "Opening OLT session...")
     tn, status = open_telnet_authenticated_session(olt)
@@ -8031,6 +8261,36 @@ def execute_onu_add_service_vlan_config(
         _progress(2, "Preparing service-port...")
         total_vlans = len(vlan_values)
         frame_i, slot_i, port_i, ont_i = int(frame or 0), int(slot or 0), int(port or 0), int(ont_id)
+        pon_cli = "epon" if str(_slot_pon_tech(olt, slot_i) or "").upper() == "EPON" else "gpon"
+
+        if is_vlan_mapping_onu:
+            _progress(2, "Updating VLAN mapping line profile...")
+            line_result = _ensure_vlan_mapping_line_profile_vlans(
+                tn,
+                olt=olt,
+                frame=frame_i,
+                slot=slot_i,
+                port=port_i,
+                ont_id=ont_i,
+                sn=getattr(record, "sn", "") if record is not None else "",
+                vlan_values=line_profile_vlan_values or vlan_values,
+                transcript=transcript,
+            )
+            if not line_result.get("ok"):
+                result["message"] = line_result.get("message") or "Line profile VLAN mapping update failed."
+                return result
+
+        if not vlan_values:
+            quit_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
+            _append_authorize_transcript(transcript, "quit", quit_output)
+            save_output = _schedule_olt_save_from_command(olt, "ONU VLAN mapping repair")
+            _append_authorize_transcript(transcript, "save", save_output)
+            result.update({
+                "ok": True,
+                "message": "Line profile VLAN mapping updated.",
+                "service_port_id": "",
+            })
+            return result
 
         def _verify_sp(idx):
             """Fast verify with a fallback to the thorough scan when inconclusive."""
@@ -8069,7 +8329,7 @@ def execute_onu_add_service_vlan_config(
 
                 service_port_command = (
                     f"service-port {int(idx)} vlan {int(vlan_value)} "
-                    f"gpon {frame_i}/{slot_i}/{port_i} ont {ont_i} gemport 1 "
+                    f"{pon_cli} {frame_i}/{slot_i}/{port_i} ont {ont_i} gemport 1 "
                     f"multi-service user-vlan {int(vlan_value)} tag-transform translate "
                     f"inbound traffic-table index {int(upload_index)} "
                     f"outbound traffic-table index {int(download_index)}"
@@ -8146,13 +8406,6 @@ def execute_onu_add_service_vlan_config(
                 if int(profile.index_number or 0) + 1 == int(upload_profile_index):
                     upload_name = upload_name or str(profile.upload_name or profile.name or "").strip()
 
-        record = ConfiguredONU.objects.filter(
-            olt=olt,
-            frame=int(frame or 0),
-            slot=int(slot),
-            port=int(port),
-            ont_id=int(ont_id),
-        ).first()
         if record is not None:
             def _split_positional_cache(value):
                 text = str(value or "")
@@ -8242,6 +8495,33 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
         result["message"] = "Invalid service-port ID."
         return result
 
+    record = None
+    is_vlan_mapping_onu = False
+    target_mapping_vlan = ""
+    try:
+        from .models import ConfiguredONU
+
+        record = ConfiguredONU.objects.filter(
+            olt=olt,
+            frame=int(frame or 0),
+            slot=int(slot or 0),
+            port=int(port or 0),
+            ont_id=int(ont_id or 0),
+        ).first()
+        is_vlan_mapping_onu = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower() == "vlan"
+        if record is not None:
+            service_ports = [part.strip() for part in str(record.service_port_id_cache or "").split(",")]
+            service_vlans = [part.strip() for part in str(record.attached_vlans_cache or "").split(",")]
+            user_vlans = [part.strip() for part in str(record.user_vlan_cache or "").split(",")]
+            row_index = service_ports.index(sp_id) if sp_id in service_ports else -1
+            if row_index >= 0:
+                if row_index < len(user_vlans) and user_vlans[row_index].isdigit():
+                    target_mapping_vlan = user_vlans[row_index]
+                elif row_index < len(service_vlans) and service_vlans[row_index].isdigit():
+                    target_mapping_vlan = service_vlans[row_index]
+    except Exception:
+        record = None
+
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
@@ -8254,6 +8534,25 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
         if not entered_config:
             result["message"] = "Unable to enter configuration mode."
             return result
+
+        if is_vlan_mapping_onu:
+            mapping_result = _delete_vlan_mapping_line_profile_vlan(
+                tn,
+                olt=olt,
+                frame=frame,
+                slot=slot,
+                port=port,
+                ont_id=ont_id,
+                target_vlan=target_mapping_vlan,
+                transcript=transcript,
+            )
+            if not mapping_result.get("ok"):
+                result["message"] = mapping_result.get("message") or "Line profile VLAN mapping delete failed."
+                return result
+            entered_config, _cfg = _enter_global_config_mode(tn, transcript=transcript)
+            if not entered_config:
+                result["message"] = "Unable to re-enter configuration mode for service-port delete."
+                return result
 
         undo_command = f"undo service-port {int(sp_id)}"
         undo_output = _run_telnet_authorize_command(
@@ -8579,7 +8878,7 @@ def _parse_profile_listing_items(output_text):
         if id_match and name_match:
             items.append({"id": int(id_match.group(1)), "name": name_match.group(1).strip()})
             continue
-        compact_match = re.match(r"^\s*(\d+)\s+([A-Za-z0-9_.-][A-Za-z0-9_.\-/]*)\b", line)
+        compact_match = re.match(r"^\s*(\d+)\s+([A-Za-z0-9_.()-][A-Za-z0-9_.()/\-]*)\b", line)
         if compact_match and "profile" not in line.lower():
             items.append({"id": int(compact_match.group(1)), "name": compact_match.group(2).strip()})
     deduped = []
@@ -8646,6 +8945,18 @@ def _load_display_profile_items(tn, command, transcript, *, max_wait_seconds=25)
         max_wait_seconds=max_wait_seconds,
         step_timeout=0.45,
         max_loops=max(140, int(max_wait_seconds * 8)),
+    )
+    _append_authorize_transcript(transcript, command, output)
+    return _parse_profile_listing_items(output), output
+
+
+def _load_display_profile_items_bulk(tn, command, transcript, *, max_wait_seconds=90):
+    output = _run_telnet_bulk_command(
+        tn,
+        command,
+        max_wait_seconds=max_wait_seconds,
+        idle_poke=b" ",
+        poll_seconds=0.15,
     )
     _append_authorize_transcript(transcript, command, output)
     return _parse_profile_listing_items(output), output
@@ -8779,14 +9090,79 @@ def _sanitize_profile_name_token(value):
 
 def _unique_profile_name(items, base_name):
     base = str(base_name or "").strip() or "SOLT_PROFILE"
-    existing = {str(item.get("name") or "").strip().upper() for item in (items or [])}
-    if base.upper() not in existing:
+    existing_names = [str(item.get("name") or "").strip() for item in (items or [])]
+    existing = {name.upper() for name in existing_names if name}
+    escaped_base = re.escape(base)
+    suffixes = []
+    base_exists = base.upper() in existing
+    for name in existing_names:
+        match = re.fullmatch(rf"{escaped_base}\((\d+)\)", name, flags=re.IGNORECASE)
+        if match:
+            try:
+                suffixes.append(int(match.group(1)))
+            except (TypeError, ValueError):
+                pass
+    if not base_exists and not suffixes:
         return base
-    for index in range(1, 100):
+    start_index = max(suffixes or [0]) + 1
+    for index in range(start_index, start_index + 100):
         candidate = f"{base}({index})"
         if candidate.upper() not in existing:
             return candidate
     return f"{base}_{int(time.time())}"
+
+
+def _unique_profile_name_from_text(output_text, base_name):
+    base = str(base_name or "").strip() or "SOLT_PROFILE"
+    text = str(output_text or "")
+    escaped_base = re.escape(base)
+    suffixes = []
+    base_exists = False
+    pattern = re.compile(rf"(?<![A-Za-z0-9_-]){escaped_base}(?:\((\d+)\))?(?![A-Za-z0-9_-])", re.IGNORECASE)
+    for match in pattern.finditer(text):
+        suffix = match.group(1)
+        if suffix is None:
+            base_exists = True
+            continue
+        try:
+            suffixes.append(int(suffix))
+        except (TypeError, ValueError):
+            pass
+    if not base_exists and not suffixes:
+        return base
+    return f"{base}({max(suffixes or [0]) + 1})"
+
+
+def _next_suffixed_profile_name(base_name, current_name):
+    base = str(base_name or "").strip() or "SOLT_PROFILE"
+    current = str(current_name or "").strip()
+    escaped_base = re.escape(base)
+    if current.upper() == base.upper():
+        return f"{base}(1)"
+    match = re.fullmatch(rf"{escaped_base}\((\d+)\)", current, flags=re.IGNORECASE)
+    if match:
+        try:
+            return f"{base}({int(match.group(1)) + 1})"
+        except (TypeError, ValueError):
+            pass
+    return f"{base}(1)"
+
+
+def _authorize_cli_profile_name_conflict(text):
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    name_hint = "profile name" in lowered or "profile-name" in lowered or "same name" in lowered
+    profile_hint = "profile" in lowered and "name" in lowered
+    conflict_hint = any(token in lowered for token in (
+        "already exist",
+        "already exists",
+        "has already existed",
+        "exists already",
+        "has been used",
+        "is used",
+    ))
+    return (name_hint or profile_hint) and conflict_hint
 
 
 def _is_xgpon_bandwidth_failure(output_text):
@@ -8923,13 +9299,21 @@ def _ensure_lineprofile(
     pt = str(pon_tech or "gpon").lower().strip()
     is_epon = pt == "epon"
 
-    items, _ = _load_display_profile_items(tn, f"display ont-lineprofile {pt} all", transcript)
+    profile_list_output = ""
+    if force_new:
+        items, profile_list_output = _load_display_profile_items_bulk(tn, f"display ont-lineprofile {pt} all", transcript)
+    else:
+        items, profile_list_output = _load_display_profile_items(tn, f"display ont-lineprofile {pt} all", transcript)
     existing_id = _find_profile_id_by_name(items, profile_name)
     if existing_id is not None and not force_new:
         return {"ok": True, "profile_id": int(existing_id), "reused": True}
-    effective_profile_name = _unique_profile_name(items, profile_name) if force_new else profile_name
+    if force_new:
+        item_names = "\n".join(str(item.get("name") or "") for item in items)
+        effective_profile_name = _unique_profile_name_from_text(f"{profile_list_output}\n{item_names}", profile_name)
+    else:
+        effective_profile_name = profile_name
 
-    candidate = _next_free_profile_id(items, min_id=min_id)
+    candidate = _next_free_profile_id(items, min_id=min_id, prefer_after_max=force_new)
     max_candidate = candidate + 120
     while candidate <= max_candidate:
         command = f'ont-lineprofile {pt} profile-id {candidate} profile-name "{effective_profile_name}"'
@@ -8937,6 +9321,19 @@ def _ensure_lineprofile(
         _append_authorize_transcript(transcript, command, output)
         if _authorize_cli_profile_id_conflict(output):
             candidate += 1
+            continue
+        if force_new and _authorize_cli_profile_name_conflict(output):
+            previous_profile_name = effective_profile_name
+            items, profile_list_output = _load_display_profile_items_bulk(tn, f"display ont-lineprofile {pt} all", transcript)
+            item_names = "\n".join(str(item.get("name") or "") for item in items)
+            effective_profile_name = _unique_profile_name_from_text(
+                f"{profile_list_output}\n{item_names}\n{previous_profile_name}",
+                profile_name,
+            )
+            if effective_profile_name.upper() == previous_profile_name.upper():
+                effective_profile_name = _next_suffixed_profile_name(profile_name, previous_profile_name)
+            candidate = _next_free_profile_id(items, min_id=max(candidate + 1, min_id), prefer_after_max=True)
+            max_candidate = max(max_candidate, candidate + 40)
             continue
         if _authorize_cli_has_failure(output):
             return {"ok": False, "message": _clean_cli_response_text(command, output) or "OLT rejected line profile creation."}
@@ -9370,16 +9767,25 @@ def authorize_autofind_onu(
 
             _emit(3, "Adding and binding the ONU...")
             # ── ONT add: SNMP-first, Telnet CLI fallback ──────────────────────────
-            snmp_ont_result = _add_onu_via_snmp(
-                olt,
-                int(slot or 0),
-                int(port or 0),
-                sn_auth,
-                line_profile_name=line_profile_name,
-                srv_profile_name=srv_profile_name,
-                desc=subscriber_desc[:64],
-                frame=int(frame or 0),
-            )
+            if vlan_mapping_mode:
+                # VLAN Mapping creates a fresh per-ONU line profile every time.
+                # SNMP ONT add binds by profile name, which can resolve an older
+                # suffixed profile on Huawei OLTs. CLI add binds by exact ID.
+                snmp_ont_result = {
+                    "ok": False,
+                    "message": "Skipped SNMP ONT add for VLAN Mapping; using CLI profile IDs.",
+                }
+            else:
+                snmp_ont_result = _add_onu_via_snmp(
+                    olt,
+                    int(slot or 0),
+                    int(port or 0),
+                    sn_auth,
+                    line_profile_name=line_profile_name,
+                    srv_profile_name=srv_profile_name,
+                    desc=subscriber_desc[:64],
+                    frame=int(frame or 0),
+                )
 
             interface_command = f"interface {pon_tech_cli} {int(frame or 0)}/{int(slot or 0)}"
             authorized_desc = subscriber_desc
