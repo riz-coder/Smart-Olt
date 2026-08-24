@@ -11169,6 +11169,82 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
     return result
 
 
+def fetch_single_ont_last_down_history(olt, slot, port, ont_id, frame=0):
+    fields = (
+        "Description",
+        "Last down cause",
+        "Last up time",
+        "Last down time",
+        "Last dying gasp time",
+        "ONT online duration",
+        "Type C support",
+        "Interoperability-mode",
+    )
+    result = {
+        "ok": False,
+        "command": f"display ont info {int(frame or 0)} {int(slot)} {int(port)} {int(ont_id)}",
+        "output": "",
+        "message": "",
+    }
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["message"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        command = result["command"]
+        output = _run_telnet_bulk_command(tn, command, max_wait_seconds=35, idle_poke=b" ", poll_seconds=0.12)
+        cleaned = _clean_cli_transcript_block(command, output)
+        cleaned = re.sub(r"(?im)^\s*Command:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*scroll\s+512\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*display\s+ont\s+info[^\r\n]*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^[^\r\n]*\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*it\s+will\s+take\s+a\s+long\s+time.*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*you\s+can\s+press\s+ctrl_c\s+to\s+break\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*return\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^\s*\^\s*$", "", cleaned)
+        cleaned = re.sub(r"(?im)^%.*$", "", cleaned)
+        if _telnet_auth_output_detected(cleaned):
+            raise OSError("Telnet session returned to login prompt.")
+
+        wanted = {name.lower(): name for name in fields}
+        values = {}
+        for raw_line in str(cleaned or "").splitlines():
+            line = raw_line.strip()
+            if not line or ":" not in line:
+                continue
+            label, value = line.split(":", 1)
+            label = " ".join(label.strip().split())
+            key = label.lower()
+            if key in wanted:
+                values[wanted[key]] = value.strip() or "-"
+
+        if not values:
+            result["message"] = "No last down history returned."
+            return result
+
+        result["ok"] = True
+        result["output"] = "\n".join(
+            f"HISTORYROW|{field}|{values.get(field, '-')}" for field in fields
+        )
+        result["message"] = "Last down history fetched."
+        return result
+    except (socket.timeout, TimeoutError):
+        result["message"] = "Last down history command timed out."
+        return result
+    except (EOFError, OSError) as exc:
+        result["message"] = f"Last down history fetch failed: {exc}"
+        return result
+    finally:
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+
+
 def _parse_native_vlan_value_for_eth(output_text, port, ont_id, eth_port):
     pattern = re.compile(
         rf"(?i)ont\s+port\s+native-vlan\s+{int(port)}\s+{int(ont_id)}\s+eth\s+{int(eth_port)}\s+vlan\s+(\d+)\b"

@@ -182,6 +182,7 @@ class ConfiguredONU(models.Model):
     # from the OLT (configured outside the app).
     configured_via_app = models.BooleanField(default=False)
     mapping_mode_cache = models.CharField(max_length=32, blank=True, default='')
+    catv_operational_cache = models.CharField(max_length=32, blank=True, default='')
     stability_report_date = models.DateField(blank=True, null=True)
     stability_report_cache = models.JSONField(default=dict, blank=True)
     raw_line = models.TextField(blank=True, default='')

@@ -422,7 +422,8 @@
         font-size: 12px;
         line-height: 1.65;
     }
-    .running-config-output:has(.mac-output-view) {
+    .running-config-output:has(.mac-output-view),
+    .running-config-output:has(.history-output-view) {
         padding-top: 10px;
     }
     .running-config-placeholder {
@@ -495,6 +496,34 @@
     .mac-output-line em {
         color: #ffcf73;
         font-style: normal;
+    }
+    .history-output-view {
+        display: grid;
+        gap: 10px;
+        white-space: normal;
+    }
+    .history-output-row {
+        display: grid;
+        grid-template-columns: minmax(160px, 230px) 1fr;
+        gap: 12px;
+        align-items: center;
+        border: 1px solid rgba(122, 200, 255, 0.13);
+        border-radius: 10px;
+        background: rgba(5, 11, 24, 0.35);
+        padding: 9px 12px;
+    }
+    .history-output-label {
+        color: #8fc8ff;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .history-output-value {
+        color: #f4f8ff;
+        font-size: 13px;
+        font-weight: 800;
+        word-break: break-word;
     }
     /* WAN interface card */
     .wan-iface {
@@ -1101,6 +1130,15 @@
         height: 16px;
         accent-color: #31d889;
     }
+    .catv-toggle-card.catv-disabled {
+        border-color: rgba(255, 92, 109, 0.55);
+        background: rgba(255, 92, 109, 0.12);
+        color: #ff8d99;
+        box-shadow: 0 0 18px rgba(255, 92, 109, 0.12);
+    }
+    .catv-toggle-card.catv-disabled input {
+        accent-color: #ff5c6d;
+    }
     .tv-mini-card {
         max-width: 220px;
         padding: 12px;
@@ -1383,6 +1421,9 @@
     html[data-theme="light"] .running-config-loading-text { color: #526681; }
     html[data-theme="light"] .mac-output-title { color: #0e8aa0; }
     html[data-theme="light"] .mac-output-line { color: #16233c; }
+    html[data-theme="light"] .history-output-row { background: #f4f8fe; border-color: #dce6f3; }
+    html[data-theme="light"] .history-output-label { color: #1d4ed8; }
+    html[data-theme="light"] .history-output-value { color: #16233c; }
     html[data-theme="light"] .onu-config-table th {
         color: #16233c;
         background: #eef3fb;
@@ -1626,7 +1667,7 @@
         </div>
     </div>
 
-    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
+    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-last-down-history-url="{{ onu_last_down_history_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
@@ -1709,9 +1750,10 @@
                     <div class="running-config-actions">
                         <button type="button" class="btn btn-primary btn-pappu" data-get-status-button>Mac-address</button>
                         <button type="button" class="btn btn-primary btn-pappu" data-running-config-button>Show running-config</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-last-down-history-button>Last Down History</button>
                     </div>
                     <div class="running-config-panel" data-running-config-panel hidden>
-                        <pre class="running-config-output running-config-placeholder" data-running-config-output>Press Mac-address or Show running-config to fetch ONU details.</pre>
+                        <pre class="running-config-output running-config-placeholder" data-running-config-output>Press Mac-address, Show running-config, or Last Down History to fetch ONU details.</pre>
                     </div>
                 </div>
                 {% if user.is_staff or user.is_superuser %}
@@ -1728,9 +1770,9 @@
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-restart-button>Restart ONU</button>
                         <button type="button" class="btn btn-danger btn-pappu" data-onu-delete-button>Delete ONU</button>
                         {% if onu_has_catv %}
-                        <label class="catv-toggle-card">
-                            <input type="checkbox" data-catv-toggle checked>
-                            <span>CATV</span>
+                        <label class="catv-toggle-card {% if not onu_catv_enabled %}catv-disabled{% endif %}" data-catv-card>
+                            <input type="checkbox" data-catv-toggle {% if onu_catv_enabled %}checked{% endif %}>
+                            <span data-catv-label>{% if onu_catv_enabled %}CATV{% else %}CATV Disabled{% endif %}</span>
                         </label>
                         {% endif %}
                     </div>
@@ -1968,6 +2010,7 @@
     const trafficRangeButtons = Array.from(document.querySelectorAll('[data-traffic-range]'));
     const attachedVlansNode = document.querySelector('[data-detail-attached-vlans]');
     const runningConfigButton = document.querySelector('[data-running-config-button]');
+    const lastDownHistoryButton = document.querySelector('[data-last-down-history-button]');
     const fetchConfigButton = document.querySelector('[data-fetch-config-button]');
     const getStatusButton = document.querySelector('[data-get-status-button]');
     const onuDisableButton = document.querySelector('[data-onu-disable-button]');
@@ -1977,6 +2020,8 @@
     const onuActionStatus = document.querySelector('[data-onu-action-status]');
     const onuDisabledBanner = document.querySelector('[data-onu-disabled-banner]');
     const catvToggle = document.querySelector('[data-catv-toggle]');
+    const catvCard = document.querySelector('[data-catv-card]');
+    const catvLabel = document.querySelector('[data-catv-label]');
     const catvToastStack = document.querySelector('[data-catv-toast-stack]');
     const runningConfigOutput = document.querySelector('[data-running-config-output]');
     const runningConfigStatus = document.querySelector('[data-running-config-status]');
@@ -1991,6 +2036,7 @@
     const catvUrl = panel.getAttribute('data-catv-url');
     const macAddressUrl = panel.getAttribute('data-mac-address-url');
     const runningConfigUrl = panel.getAttribute('data-running-config-url');
+    const lastDownHistoryUrl = panel.getAttribute('data-last-down-history-url');
     const fetchConfigUrl = panel.getAttribute('data-fetch-config-url');
     const onuDisableUrl = panel.getAttribute('data-onu-disable-url');
     const onuEnableUrl = panel.getAttribute('data-onu-enable-url');
@@ -2029,6 +2075,13 @@
             item.classList.remove('visible');
             window.setTimeout(() => item.remove(), 260);
         }, 5000);
+    };
+
+    const applyCatvState = (enabled) => {
+        const isEnabled = Boolean(enabled);
+        if (catvToggle) catvToggle.checked = isEnabled;
+        if (catvCard) catvCard.classList.toggle('catv-disabled', !isEnabled);
+        if (catvLabel) catvLabel.textContent = isEnabled ? 'CATV' : 'CATV Disabled';
     };
 
     const getCookie = (name) => {
@@ -2156,6 +2209,24 @@
         return `<div class="mac-output-view">${sections.join('')}</div>`;
     };
 
+    const formatHistoryOutput = (text) => {
+        const rows = String(text || '').split(/\r?\n/).map((line) => {
+            if (!line.startsWith('HISTORYROW|')) return null;
+            const parts = line.split('|');
+            return {
+                label: parts[1] || '-',
+                value: parts.slice(2).join('|') || '-',
+            };
+        }).filter(Boolean);
+        if (!rows.length) return '<div class="history-output-view"><div class="mac-output-line">No last down history found.</div></div>';
+        return `<div class="history-output-view">${rows.map((row) => `
+            <div class="history-output-row">
+                <span class="history-output-label">${escapeHtml(row.label)}</span>
+                <span class="history-output-value">${escapeHtml(row.value)}</span>
+            </div>
+        `).join('')}</div>`;
+    };
+
     const RC_KEYWORDS = new Set([
         'interface', 'gpon', 'epon', 'xgpon', 'ont', 'add', 'port', 'mac-auth', 'sn-auth',
         'oam', 'omci', 'ont-lineprofile-id', 'ont-srvprofile-id', 'desc', 'service-port',
@@ -2191,8 +2262,11 @@
         }
         if (runningConfigOutput && typeof outputText === 'string') {
             const macHtml = outputMode === 'mac' ? formatMacOutput(outputText) : '';
+            const historyHtml = outputMode === 'history' ? formatHistoryOutput(outputText) : '';
             const isPlaceholder = !outputText || outputText.startsWith('Press ');
-            if (macHtml) {
+            if (historyHtml) {
+                runningConfigOutput.innerHTML = historyHtml;
+            } else if (macHtml) {
                 runningConfigOutput.innerHTML = macHtml;
             } else if (isPlaceholder || isError) {
                 runningConfigOutput.textContent = outputText;
@@ -2756,14 +2830,15 @@
                 });
                 const data = await response.json();
                 if (!response.ok || !data.ok) {
-                    catvToggle.checked = !enabled;
+                    applyCatvState(!enabled);
                     setOnuActionState(data.message || 'CATV command failed.', true);
                     return;
                 }
+                applyCatvState(enabled);
                 setOnuActionState(data.message || (enabled ? 'CATV Enabled' : 'CATV Disabled'), false);
                 showCatvToast(data.message || (enabled ? 'CATV Enabled' : 'CATV Disabled'));
             } catch (error) {
-                catvToggle.checked = !enabled;
+                applyCatvState(!enabled);
                 setOnuActionState('CATV command failed.', true);
             } finally {
                 catvToggle.disabled = false;
@@ -2924,6 +2999,34 @@
             } finally {
                 runningConfigButton.disabled = false;
                 runningConfigButton.textContent = originalText;
+            }
+        });
+    }
+
+    if (lastDownHistoryButton && lastDownHistoryUrl) {
+        lastDownHistoryButton.addEventListener('click', async () => {
+            lastDownHistoryButton.disabled = true;
+            const originalText = lastDownHistoryButton.textContent;
+            lastDownHistoryButton.textContent = 'Loading...';
+            setRunningConfigLoading('Fetching last down history', 'Reading ONU last down details from the OLT...');
+            try {
+                const response = await fetch(lastDownHistoryUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    setRunningConfigState(data.message || 'Last down history fetch failed.', data.output || '', true);
+                } else {
+                    setRunningConfigState(data.message || 'Last down history fetched.', data.output || 'No last down history returned.', false, 'history');
+                }
+            } catch (error) {
+                setRunningConfigState('OLT is busy. Please try again in a few seconds.', '', true);
+            } finally {
+                lastDownHistoryButton.disabled = false;
+                lastDownHistoryButton.textContent = originalText;
             }
         });
     }

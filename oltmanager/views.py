@@ -49,6 +49,7 @@ from .utils import (
     fetch_single_onu_snmp_traffic_counters,
     fetch_single_ont_runtime_snapshot,
     fetch_single_ont_mac_addresses,
+    fetch_single_ont_last_down_history,
     fetch_single_ont_running_config,
     fetch_single_ont_live_status,
     fetch_olt_snmp_status_map,
@@ -4981,6 +4982,7 @@ def configured_onus(request):
         enriched["onu_label"] = f"{record.olt.name} {_tech}-onu_{row.get('fsp')}:{row.get('ont_id')}"
         enriched["signal_class"] = (row.get("signal_bucket") or "").strip() or _classify_onu_signal(row.get("olt_rx"))
         enriched["has_catv"] = _onu_has_catv_port(record)
+        enriched["catv_disabled"] = str(getattr(record, "catv_operational_cache", "") or "").strip().lower() == "disabled"
         rows.append(enriched)
 
     available_olts, available_boards, latest_inventory_sync = _get_cached_configured_onu_filter_options()
@@ -6048,6 +6050,9 @@ def configured_onu_catv_action(request, olt_pk, slot, port, ont_id):
         enabled,
         frame=(record.frame if record is not None else 0),
     )
+    if snapshot.get("ok") and record is not None:
+        record.catv_operational_cache = "enabled" if enabled else "disabled"
+        record.save(update_fields=["catv_operational_cache"])
     status_code = 200 if snapshot.get("ok") else 400
     return JsonResponse(
         {
@@ -6404,6 +6409,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "onu_traffic_history_json": json.dumps(traffic_history),
         "onu_stability": stability_summary,
         "onu_has_catv": _onu_has_catv_port(record),
+        "onu_catv_enabled": str(getattr(record, "catv_operational_cache", "") or "").strip().lower() != "disabled",
         "olt_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}",
         "board_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}",
         "port_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}&port={port}",
@@ -6427,6 +6433,12 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             "ont_id": ont_id,
         }),
         "onu_running_config_url": reverse("configured_onu_running_config", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
+        "onu_last_down_history_url": reverse("configured_onu_last_down_history", kwargs={
             "olt_pk": olt.pk,
             "slot": slot,
             "port": port,
@@ -7149,6 +7161,34 @@ def configured_onu_running_config(request, olt_pk, slot, port, ont_id):
         port,
         ont_id,
         expected_sn=(getattr(record, "sn", "") if record is not None else ""),
+    )
+    status_code = 200 if snapshot.get("ok") else 400
+    message = _ui_telnet_error_message(snapshot.get("message"))
+    return JsonResponse(
+        {
+            "ok": bool(snapshot.get("ok")),
+            "output": str(snapshot.get("output") or ""),
+            "message": message,
+            "command": str(snapshot.get("command") or ""),
+        },
+        status=status_code,
+    )
+
+
+@login_required
+@require_POST
+def configured_onu_last_down_history(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
+    snapshot = fetch_single_ont_last_down_history(
+        olt,
+        slot,
+        port,
+        ont_id,
+        frame=(getattr(record, "frame", 0) if record is not None else 0),
     )
     status_code = 200 if snapshot.get("ok") else 400
     message = _ui_telnet_error_message(snapshot.get("message"))

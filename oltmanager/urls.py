@@ -26,6 +26,7 @@ urlpatterns = [
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/mac-address/', views.configured_onu_mac_address, name='configured_onu_mac_address'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/live-status/', views.configured_onu_live_status, name='configured_onu_live_status'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/running-config/', views.configured_onu_running_config, name='configured_onu_running_config'),
+    path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/last-down-history/', views.configured_onu_last_down_history, name='configured_onu_last_down_history'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/fetch-config/', views.configured_onu_fetch_config, name='configured_onu_fetch_config'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/action/<str:action>/', views.configured_onu_action, name='configured_onu_action'),
     path('report/', views.health_report, name='health_report'),

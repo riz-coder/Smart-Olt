@@ -202,6 +202,18 @@
         font-weight: 900;
         letter-spacing: 0.04em;
     }
+    .catv-badge.disabled {
+        background: rgba(255, 92, 109, 0.14);
+        color: #ff7b86;
+        border-color: rgba(255, 92, 109, 0.45);
+        box-shadow: 0 0 16px rgba(255, 92, 109, 0.12);
+    }
+    .catv-badge.unsupported {
+        background: rgba(109, 179, 255, 0.14);
+        color: #8fc8ff;
+        border-color: rgba(109, 179, 255, 0.45);
+        box-shadow: 0 0 16px rgba(109, 179, 255, 0.1);
+    }
     .signal-spinner {
         display: none;
         width: 12px;
@@ -555,8 +567,10 @@
                         <td>{{ row.attached_vlans|default:"-" }}</td>
                         <td>
                             {% if row.has_catv %}
-                            <span class="catv-badge">CATV</span>
-                            {% else %}-{% endif %}
+                            <span class="catv-badge {% if row.catv_disabled %}disabled{% endif %}">{% if row.catv_disabled %}CATV Disabled{% else %}CATV Enabled{% endif %}</span>
+                            {% else %}
+                            <span class="catv-badge unsupported">CATV Not Supported</span>
+                            {% endif %}
                         </td>
                         <td class="signal-cell" data-signal-cell>
                             {% if row.signal_class %}
