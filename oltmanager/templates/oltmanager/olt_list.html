@@ -1284,6 +1284,224 @@
     html[data-theme="light"] .status-graph-latest { color: #3a4862; }
     html[data-theme="light"] .status-graph-latest strong { color: #16233c; }
     html[data-theme="light"] .status-graph-range { color: #5a6b86; }
+
+    /* Light dashboard contrast pass: closer to the dark theme hierarchy, but still clean. */
+    html[data-theme="light"] .summary-hero {
+        background:
+            radial-gradient(circle at 6% 18%, rgba(47, 128, 255, 0.16), transparent 30%),
+            radial-gradient(circle at 96% 86%, rgba(20, 184, 166, 0.14), transparent 26%),
+            linear-gradient(135deg, #ffffff 0%, #f3f8ff 54%, #eaf3ff 100%);
+        border-color: #b8cceb;
+        box-shadow: 0 22px 48px rgba(36, 72, 126, 0.16);
+    }
+    html[data-theme="light"] .summary-kicker {
+        color: #0b6fdc;
+        font-weight: 900;
+    }
+    html[data-theme="light"] .summary-title {
+        color: #071a36;
+        font-weight: 950;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    }
+    html[data-theme="light"] .summary-stamp {
+        background: #eef5ff;
+        border-color: #b8cceb;
+        color: #102b55;
+        font-weight: 900;
+        box-shadow: 0 8px 18px rgba(36, 72, 126, 0.10);
+    }
+    html[data-theme="light"] .summary-stamp span {
+        color: #0a2f65;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .donut-panel {
+        background:
+            radial-gradient(circle at 50% 35%, rgba(47, 128, 255, 0.08), transparent 42%),
+            #f7fbff;
+        border-color: #c4d6ef;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.75);
+    }
+    html[data-theme="light"] .donut-chart::before {
+        background: linear-gradient(180deg, #ffffff, #eef6ff);
+        box-shadow: inset 0 0 0 1px #d5e3f5;
+    }
+    html[data-theme="light"] .donut-total {
+        color: #071a36;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .donut-label,
+    html[data-theme="light"] .legend-item,
+    html[data-theme="light"] .donut-olt .doc-label {
+        color: #17345f;
+        font-weight: 900;
+    }
+    html[data-theme="light"] .donut-olt {
+        background: #edf5ff;
+        border-color: #bfd2ec;
+        box-shadow: 0 8px 18px rgba(36, 72, 126, 0.10);
+    }
+    html[data-theme="light"] .donut-olt .doc-total,
+    html[data-theme="light"] .donut-olt .doc-sep {
+        color: #071a36;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .metric-card {
+        background: linear-gradient(180deg, #f8fbff, #eef5ff);
+        border-color: #c2d5ee;
+        box-shadow: 0 14px 30px rgba(36, 72, 126, 0.11);
+    }
+    html[data-theme="light"] .metric-card.offline {
+        background:
+            radial-gradient(circle at 96% 86%, rgba(255, 107, 119, 0.13), transparent 32%),
+            linear-gradient(180deg, #fff3f5, #fff8f9);
+        border-color: rgba(255, 107, 119, 0.42);
+    }
+    html[data-theme="light"] .metric-card.low-signal {
+        background:
+            radial-gradient(circle at 96% 86%, rgba(245, 158, 11, 0.16), transparent 34%),
+            linear-gradient(180deg, #fff8ec, #fffdf8);
+        border-color: rgba(245, 158, 11, 0.42);
+    }
+    html[data-theme="light"] .metric-label {
+        color: #31517b;
+        font-weight: 950;
+        letter-spacing: 0.14em;
+    }
+    html[data-theme="light"] .metric-card.online .metric-value {
+        color: #10b964;
+        text-shadow: 0 8px 22px rgba(16, 185, 100, 0.18);
+    }
+    html[data-theme="light"] .metric-card.offline .metric-value {
+        color: #f05c6d;
+        text-shadow: 0 8px 22px rgba(240, 92, 109, 0.16);
+    }
+    html[data-theme="light"] .metric-card.low-signal .metric-value {
+        color: #f5a623;
+        text-shadow: 0 8px 22px rgba(245, 166, 35, 0.16);
+    }
+    html[data-theme="light"] .metric-value {
+        color: #071a36;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .metric-note {
+        color: #324b70;
+        font-weight: 700;
+    }
+    html[data-theme="light"] .status-breakdown a,
+    html[data-theme="light"] .signal-breakdown a {
+        color: #0b63ce;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .olt-uptime-box,
+    html[data-theme="light"] .pon-signal-alert-box,
+    html[data-theme="light"] .alert-widget-box,
+    html[data-theme="light"] .status-graph-box {
+        background: linear-gradient(180deg, #ffffff, #f4f8ff);
+        border-color: #b8cceb;
+        box-shadow: 0 18px 38px rgba(36, 72, 126, 0.14);
+    }
+    html[data-theme="light"] .olt-uptime-title,
+    html[data-theme="light"] .alert-widget-title,
+    html[data-theme="light"] .status-graph-title {
+        color: #071a36;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .olt-health-filter-count {
+        color: #16396b;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .olt-uptime-item {
+        background: #f8fbff;
+        border-color: #c8d8ef;
+        box-shadow: 0 8px 18px rgba(36, 72, 126, 0.08);
+    }
+    html[data-theme="light"] .olt-uptime-item.alert {
+        background: linear-gradient(180deg, #fff0f3, #fff8fa);
+        border-color: rgba(240, 92, 109, 0.42);
+    }
+    html[data-theme="light"] .olt-uptime-item.selected {
+        background: linear-gradient(180deg, #eaf3ff, #f8fbff);
+        border-color: rgba(47, 128, 255, 0.50);
+    }
+    html[data-theme="light"] .olt-uptime-name,
+    html[data-theme="light"] .aw-name {
+        color: #071a36;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .olt-temp-label,
+    html[data-theme="light"] .aw-loc {
+        color: #31517b;
+        font-weight: 900;
+    }
+    html[data-theme="light"] .olt-temp-value {
+        color: #079969;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .olt-temp-value.alert {
+        color: #e11d48;
+    }
+    html[data-theme="light"] .olt-uptime-pill.ok {
+        background: #d9fae8;
+        color: #087443;
+        border: 1px solid rgba(16, 185, 100, 0.28);
+    }
+    html[data-theme="light"] .olt-uptime-pill.bad {
+        background: #ffe3e8;
+        color: #b3122b;
+        border: 1px solid rgba(225, 29, 72, 0.28);
+    }
+    html[data-theme="light"] .olt-uptime-pill.unknown {
+        background: #e8f1ff;
+        color: #244a7f;
+        border: 1px solid #bdd3f0;
+    }
+    html[data-theme="light"] .alert-widget-item.warn {
+        background: linear-gradient(180deg, #fff8ea, #fffdfa);
+        border-color: rgba(245, 158, 11, 0.42);
+    }
+    html[data-theme="light"] .alert-widget-item.bad {
+        background: linear-gradient(180deg, #fff0f3, #fff8fa);
+        border-color: rgba(225, 29, 72, 0.42);
+    }
+    html[data-theme="light"] .aw-value.warn {
+        color: #e68a00;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .aw-value.bad {
+        color: #e11d48;
+        font-weight: 950;
+    }
+    html[data-theme="light"] .status-graph-sub {
+        color: #31517b;
+        font-weight: 750;
+    }
+    html[data-theme="light"] .status-graph-btn {
+        background: #eef5ff;
+        border-color: #b8cceb;
+        color: #0b2c59;
+        font-weight: 950;
+        box-shadow: 0 6px 14px rgba(36, 72, 126, 0.08);
+    }
+    html[data-theme="light"] .status-graph-btn.active {
+        background: linear-gradient(180deg, #3590ff, #1569e8);
+        border-color: #1569e8;
+        color: #ffffff;
+        box-shadow: 0 10px 22px rgba(21, 105, 232, 0.22);
+    }
+    html[data-theme="light"] .status-graph-canvas,
+    html[data-theme="light"] .dashboard-port-traffic-canvas {
+        background: linear-gradient(180deg, #f8fbff, #eef5ff);
+        border-color: #c8d8ef;
+    }
+    html[data-theme="light"] .status-graph-range,
+    html[data-theme="light"] .status-graph-latest {
+        color: #17345f;
+        font-weight: 850;
+    }
+    html[data-theme="light"] .status-graph-latest strong {
+        color: #071a36;
+        font-weight: 950;
+    }
   </style>
   {% endblock %}
 
