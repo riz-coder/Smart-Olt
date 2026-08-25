@@ -373,43 +373,109 @@
 
     /* ============================ LIGHT THEME (ONUs) ============================ */
     html[data-theme="light"] tr[data-status="online"] td {
-        background: rgba(16, 185, 89, 0.07);
+        background: #e8f8ef;
+        border-bottom-color: #bfe8cf;
     }
     html[data-theme="light"] tr[data-status="offline"] td,
     html[data-theme="light"] tr[data-status="power_failure"] td,
     html[data-theme="light"] tr[data-status="loss_of_signal"] td {
-        background: rgba(220, 50, 60, 0.06);
+        background: #fff0f2;
+        border-bottom-color: #f4c8cf;
     }
     html[data-theme="light"] tr[data-status="admin_disabled"] td {
-        background: rgba(220, 140, 0, 0.07);
+        background: #fff6df;
+        border-bottom-color: #eed99f;
     }
     html[data-theme="light"] .search-group label,
-    html[data-theme="light"] .filter-label { color: #2b3a57; }
+    html[data-theme="light"] .filter-label {
+        color: #122a52;
+        font-weight: 900;
+    }
     html[data-theme="light"] .search-input,
     html[data-theme="light"] .search-select {
-        background: #f7faff;
-        border-color: #cdd9ec;
-        color: #16233c;
+        background: #ffffff;
+        border-color: #9bb8df;
+        color: #0b1f3f;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
     }
     html[data-theme="light"] .filter-bar {
-        background: #f4f8fe;
-        border-color: #dce6f3;
+        background: #f8fbff;
+        border-color: #bfd1ea;
+        box-shadow: 0 8px 22px rgba(21, 53, 105, 0.08);
     }
-    html[data-theme="light"] .name-cell { color: #15233f; }
-    html[data-theme="light"] .signal-value { color: #2b3a57; }
+    html[data-theme="light"] .filter-link {
+        background: #ffffff;
+        border-color: #b8cbe5;
+        box-shadow: 0 3px 10px rgba(21, 53, 105, 0.08);
+    }
+    html[data-theme="light"] .filter-link.active {
+        background: #dbeafe;
+        border-color: #4d8df5;
+    }
+    html[data-theme="light"] .name-cell,
+    html[data-theme="light"] .onu-cell,
+    html[data-theme="light"] td {
+        color: #071b38;
+        font-weight: 800;
+    }
+    html[data-theme="light"] .signal-value { color: #17365f; }
     html[data-theme="light"] .signal-cell .signal-placeholder,
-    html[data-theme="light"] .muted-cell { color: #5a6b86; }
+    html[data-theme="light"] .muted-cell {
+        color: #516783;
+        font-weight: 800;
+    }
+    html[data-theme="light"] .status-dot.good {
+        background: #13c76a;
+        box-shadow: 0 0 0 4px rgba(19, 199, 106, 0.18), 0 0 16px rgba(19, 199, 106, 0.35);
+    }
+    html[data-theme="light"] .status-dot.bad {
+        background: #ff5065;
+        box-shadow: 0 0 0 4px rgba(255, 80, 101, 0.18), 0 0 16px rgba(255, 80, 101, 0.32);
+    }
+    html[data-theme="light"] .status-dot.warn {
+        background: #f59e0b;
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.20), 0 0 16px rgba(245, 158, 11, 0.28);
+    }
+    html[data-theme="light"] .catv-badge {
+        background: linear-gradient(180deg, #12d776 0%, #049b53 100%);
+        color: #ffffff;
+        border-color: #007d42;
+        text-shadow: 0 1px 2px rgba(0, 55, 28, 0.45);
+        box-shadow: 0 0 0 2px rgba(18, 215, 118, 0.18), 0 7px 18px rgba(0, 125, 66, 0.22);
+    }
+    html[data-theme="light"] .catv-badge.disabled {
+        background: linear-gradient(180deg, #ff6075 0%, #cf1833 100%);
+        color: #ffffff;
+        border-color: #a90f27;
+        text-shadow: 0 1px 2px rgba(80, 0, 18, 0.45);
+        box-shadow: 0 0 0 2px rgba(255, 96, 117, 0.18), 0 7px 18px rgba(207, 24, 51, 0.20);
+    }
+    html[data-theme="light"] .catv-badge.unsupported {
+        background: linear-gradient(180deg, #4aa3ff 0%, #176bd8 100%);
+        color: #ffffff;
+        border-color: #0b55b4;
+        text-shadow: 0 1px 2px rgba(0, 35, 85, 0.45);
+        box-shadow: 0 0 0 2px rgba(74, 163, 255, 0.18), 0 7px 18px rgba(23, 107, 216, 0.20);
+    }
     html[data-theme="light"] .pager {
-        background: #f4f8fe;
-        border-color: #cdd9ec;
+        background: #ffffff;
+        border-color: #b8cbe5;
+        box-shadow: 0 6px 18px rgba(21, 53, 105, 0.08);
     }
     html[data-theme="light"] .pager a,
     html[data-theme="light"] .pager span {
-        color: #2b3a57;
-        border-right-color: #dce6f3;
+        color: #12335f;
+        border-right-color: #cfddf0;
+        font-weight: 900;
     }
-    html[data-theme="light"] .pager .current { background: #d8e6fb; color: #15233f; }
-    html[data-theme="light"] .pager-summary { color: #5a6b86; }
+    html[data-theme="light"] .pager .current {
+        background: linear-gradient(180deg, #dbeafe 0%, #c7ddff 100%);
+        color: #0b4fb3;
+    }
+    html[data-theme="light"] .pager-summary {
+        color: #17365f;
+        font-weight: 900;
+    }
     html[data-theme="light"] .onu-sync-countdown { color: #1f65d1; }
     html[data-theme="light"] .onu-sync-countdown strong { color: #16233c; }
     html[data-theme="light"] .onu-sync-progress {
@@ -457,13 +523,25 @@
                     {% endfor %}
                 </select>
             </div>
+            <div class="search-group">
+                <label>VLAN</label>
+                <input type="text" name="vlan" value="{{ configured_onu_vlan_filter }}" class="search-select" placeholder="Any">
+            </div>
+            <div class="search-group">
+                <label>CATV</label>
+                <select name="tv" class="search-select">
+                    <option value="">Any</option>
+                    <option value="enabled" {% if configured_onu_tv_filter == "enabled" %}selected{% endif %}>CATV Enabled</option>
+                    <option value="disabled" {% if configured_onu_tv_filter == "disabled" %}selected{% endif %}>CATV Disabled</option>
+                    <option value="unsupported" {% if configured_onu_tv_filter == "unsupported" %}selected{% endif %}>CATV Not Supported</option>
+                </select>
+            </div>
             {{ configured_onu_board_port_map|json_script:"olt-board-port-map" }}
             <input type="hidden" name="status" value="{{ configured_onu_status_filter }}">
             <input type="hidden" name="signal" value="{{ configured_onu_signal_filter }}">
-            <input type="hidden" name="tv" value="{{ configured_onu_tv_filter }}">
             <input type="hidden" name="sort" value="{{ configured_onu_sort_filter }}">
             <button type="submit" class="btn btn-primary btn-mini">Apply</button>
-            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
+            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_vlan_filter or configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
             <a href="{% url 'configured_onus' %}" class="btn btn-secondary btn-mini">Clear</a>
             {% endif %}
         </form>
@@ -494,10 +572,7 @@
             <a href="{% url 'configured_onus' %}?signal=bad{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_signal_filter == 'bad' %}active{% endif %}">
                 <span class="filter-bars bad"><i></i><i></i><i></i><i></i></span>
             </a>
-            <a href="{% url 'configured_onus' %}?tv=catv{% if configured_onu_status_filter %}&status={{ configured_onu_status_filter }}{% endif %}{% if configured_onu_signal_filter %}&signal={{ configured_onu_signal_filter }}{% endif %}{% if configured_onu_search_query %}&q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_olt_filter %}&olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_board_filter %}&board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_port_filter %}&port={{ configured_onu_port_filter }}{% endif %}" class="filter-link {% if configured_onu_tv_filter == 'catv' %}active{% endif %}">
-                <span class="catv-badge">CATV</span>
-            </a>
-            {% if configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
+            {% if configured_onu_status_filter or configured_onu_signal_filter %}
             <a href="{% url 'configured_onus' %}{% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter %}?{% endif %}{% if configured_onu_search_query %}q={{ configured_onu_search_query|urlencode }}{% endif %}{% if configured_onu_search_query and configured_onu_olt_filter %}&{% endif %}{% if configured_onu_olt_filter %}olt={{ configured_onu_olt_filter }}{% endif %}{% if configured_onu_olt_filter and configured_onu_board_filter %}&{% endif %}{% if configured_onu_board_filter %}board={{ configured_onu_board_filter }}{% endif %}{% if configured_onu_board_filter and configured_onu_port_filter %}&{% endif %}{% if configured_onu_port_filter %}port={{ configured_onu_port_filter }}{% endif %}" class="btn btn-secondary btn-mini">Clear</a>
             {% endif %}
         </div>

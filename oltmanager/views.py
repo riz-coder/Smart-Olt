@@ -4338,11 +4338,10 @@ def _onu_traffic_graph_hours(range_key):
     }.get(key, 1)
 
 
-def _onu_has_catv_port(record):
+def _onu_type_has_catv_port(onu_type_value):
     def _norm(value):
         return re.sub(r"[^A-Z0-9]+", "", str(value or "").replace("_SOLT", "").upper())
 
-    onu_type_value = getattr(record, "onu_type_cache", "") if record is not None else ""
     catalog = _load_onu_type_catv_lookup()
     key = _norm(onu_type_value)
     item = catalog.get(key)
@@ -4354,6 +4353,22 @@ def _onu_has_catv_port(record):
     if catv_value.isdigit():
         return int(catv_value) > 0
     return catv_value not in {"", "0", "-"}
+
+
+def _onu_has_catv_port(record):
+    onu_type_value = getattr(record, "onu_type_cache", "") if record is not None else ""
+    return _onu_type_has_catv_port(onu_type_value)
+
+
+def _get_catv_supported_onu_type_values():
+    cache_key = "configured_onu_catv_supported_type_values:v1"
+    values = cache.get(cache_key)
+    if values is not None:
+        return values
+    distinct_types = ConfiguredONU.objects.exclude(onu_type_cache="").values_list("onu_type_cache", flat=True).distinct()
+    values = [value for value in distinct_types if _onu_type_has_catv_port(value)]
+    cache.set(cache_key, values, 300)
+    return values
 
 
 def _catv_onu_type_query():
@@ -4998,8 +5013,16 @@ def configured_onus(request):
         base_qs = base_qs.filter(signal_bucket=signal_filter)
     if vlan_filter:
         base_qs = base_qs.filter(attached_vlans_cache__regex=rf'(^|,\s*){re.escape(vlan_filter)}(\s*,|$)')
-    if tv_filter == "catv":
-        base_qs = base_qs.filter(_catv_onu_type_query())
+    if tv_filter in {"enabled", "disabled", "unsupported", "catv"}:
+        catv_supported_types = _get_catv_supported_onu_type_values()
+        if tv_filter == "enabled":
+            base_qs = base_qs.filter(onu_type_cache__in=catv_supported_types).exclude(catv_operational_cache__iexact="disabled")
+        elif tv_filter == "disabled":
+            base_qs = base_qs.filter(onu_type_cache__in=catv_supported_types, catv_operational_cache__iexact="disabled")
+        elif tv_filter == "unsupported":
+            base_qs = base_qs.exclude(onu_type_cache__in=catv_supported_types)
+        else:
+            base_qs = base_qs.filter(onu_type_cache__in=catv_supported_types)
     if onu_type_filter:
         # Exact match so e.g. "EG8143A5" does not also pull in "EG8143A5-CATV".
         base_qs = base_qs.filter(onu_type_cache__iexact=onu_type_filter)
