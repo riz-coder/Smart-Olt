@@ -6305,6 +6305,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     selected_onu["sn"] = _format_onu_serial_display(selected_onu.get("sn"))
     _tech = _onu_tech_label(olt, slot)
     selected_onu["onu_label"] = f"{_tech}-onu_0/{slot}/{port}:{ont_id}"
+    selected_onu["pon_tech_label"] = f"{str(_tech or 'gpon').upper()} ONU"
     # Imported ONUs (configured outside the app) get a "delete & reconfigure" hint.
     selected_onu["configured_via_app"] = bool(getattr(record, "configured_via_app", False)) if record is not None else True
     selected_mapping_mode = str(getattr(record, "mapping_mode_cache", "") if record is not None else "").strip().lower()

@@ -63,6 +63,24 @@
         display: grid;
         gap: 6px;
     }
+    .pon-tech-badge {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 10px;
+        padding: 4px 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(42, 255, 167, 0.58);
+        background: rgba(8, 90, 74, 0.38);
+        color: #5bffd0;
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: .03em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        box-shadow: 0 0 14px rgba(42, 255, 167, 0.22);
+        text-shadow: 0 0 10px rgba(42, 255, 167, 0.38);
+        vertical-align: middle;
+    }
     .debug-panel {
         margin: 0 0 18px;
         padding: 16px;
@@ -1423,6 +1441,13 @@
         background: #eaf3ff;
         color: #174b91;
     }
+    html[data-theme="light"] .pon-tech-badge {
+        border-color: #00a875;
+        background: #dcfff3;
+        color: #006b4e;
+        box-shadow: 0 0 14px rgba(0, 168, 117, 0.22);
+        text-shadow: 0 0 8px rgba(0, 168, 117, 0.2);
+    }
     html[data-theme="light"] .vlan-mapping-limit-note {
         background: #fff1f3;
         border-color: #ff6b82;
@@ -1624,7 +1649,7 @@
             <div class="detail-topbar-summary">
                 <div>
                     <h1 class="brand">ONU Detail</h1>
-                    <p class="subtle">{{ olt.name }} | {{ fsp }} | ONT {{ ont_id }}</p>
+                    <p class="subtle">{{ olt.name }} | {{ fsp }} | ONT {{ ont_id }} <span class="pon-tech-badge">{{ onu.pon_tech_label }}</span></p>
                 </div>
                 <div class="detail-topbar-grid">
                     <div class="detail-topbar-live">
