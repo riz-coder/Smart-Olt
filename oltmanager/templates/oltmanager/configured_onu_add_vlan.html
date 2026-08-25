@@ -138,7 +138,7 @@
                 <div class="vlan-picker" data-vlan-picker{% if is_vlan_mapping %} data-max-select="{{ vlan_mapping_remaining }}"{% endif %}>
                     {% if is_vlan_mapping %}
                     <div class="vlan-limit-note{% if vlan_mapping_remaining == 0 %} is-muted{% endif %}" data-vlan-limit-note>
-                        Max 7 VLANs allowed. {{ vlan_mapping_existing_count }}/{{ vlan_mapping_max_vlans }} already used.
+                        Max 8 VLANs allowed. {{ vlan_mapping_existing_count }}/{{ vlan_mapping_max_vlans }} already used.
                     </div>
                     {% endif %}
                     <button type="button" class="vlan-picker-button" data-vlan-picker-button>No VLAN selected</button>
@@ -333,7 +333,7 @@
                 selectAll.checked = selected.length > 0 && selected.length >= Math.min(maxSelect, visible.length);
             }
             if (limitNote && maxSelect <= 0) {
-                limitNote.textContent = 'Max 7 VLANs allowed. No more VLANs can be added.';
+                limitNote.textContent = 'Max 8 VLANs allowed. No more VLANs can be added.';
             }
         }
     };
@@ -359,7 +359,7 @@
     boxes.forEach((box) => box.addEventListener('change', () => {
         if (hasMaxLimit && box.checked && boxes.filter((item) => item.checked).length > maxSelect) {
             box.checked = false;
-            window.alert(`VLAN Mapping allows maximum 7 VLANs. You can select ${maxSelect} more.`);
+            window.alert(`VLAN Mapping allows maximum 8 VLANs. You can select ${maxSelect} more.`);
         }
         updateButton();
     }));

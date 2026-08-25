@@ -378,6 +378,13 @@
         color: #ffffff;
         box-shadow: 0 10px 24px rgba(47, 128, 255, 0.18);
     }
+    .authorize-mapping-tabs label.mapping-disabled {
+        cursor: not-allowed;
+        opacity: .55;
+        border-color: rgba(120, 135, 160, 0.28);
+        background: rgba(90, 105, 128, 0.16);
+        box-shadow: none;
+    }
     .authorize-vlan-stack {
         gap: 10px;
     }
@@ -957,6 +964,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const svlanSelect = form.querySelector('[data-authorize-svlan-select]');
             const tagTransformSelect = form.querySelector('[data-authorize-tag-transform]');
             const userVlanSelect = form.querySelector('select[name="vlan"]');
+            const mappingRadios = Array.from(form.querySelectorAll('input[name="mapping_mode"]'));
+            const svlanToggleWrap = svlanToggle ? svlanToggle.closest('.authorize-inline-check') : null;
+            const isVlanMapping = () => mappingRadios.some((radio) => radio.checked && radio.value === 'vlan');
             const syncTagTransformOptions = () => {
                 if (!tagTransformSelect || !userVlanSelect) return;
                 const isUntagged = String(userVlanSelect.value || '').toLowerCase() === 'untagged';
@@ -969,7 +979,10 @@ document.addEventListener('DOMContentLoaded', function () {
             };
             if (svlanToggle) {
                 const syncSvlanSelect = () => {
-                    const enabled = svlanToggle.checked;
+                    const vlanMappingMode = isVlanMapping();
+                    const enabled = svlanToggle.checked && !vlanMappingMode;
+                    if (svlanToggleWrap) svlanToggleWrap.hidden = vlanMappingMode;
+                    svlanToggle.disabled = vlanMappingMode;
                     if (svlanControls) svlanControls.hidden = !enabled;
                     if (svlanSelect) {
                         svlanSelect.disabled = !enabled;
@@ -982,6 +995,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     syncTagTransformOptions();
                 };
                 svlanToggle.addEventListener('change', syncSvlanSelect);
+                mappingRadios.forEach((radio) => radio.addEventListener('change', syncSvlanSelect));
                 if (userVlanSelect) userVlanSelect.addEventListener('change', syncTagTransformOptions);
                 syncSvlanSelect();
             }

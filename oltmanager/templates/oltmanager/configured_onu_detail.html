@@ -670,6 +670,16 @@
         white-space: nowrap;
         vertical-align: middle;
     }
+    .mapping-badge-action {
+        text-decoration: none;
+        cursor: pointer;
+        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .mapping-badge-action:hover {
+        border-color: rgba(100, 255, 205, 0.75);
+        box-shadow: 0 0 18px rgba(47, 128, 255, 0.26);
+        transform: translateY(-1px);
+    }
     .vlan-mapping-limit-note {
         display: inline-flex;
         align-items: center;
@@ -697,6 +707,29 @@
         text-decoration: none;
         font-weight: 800;
         cursor: pointer;
+    }
+    .detail-value-name {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .detail-pencil {
+        display: inline-grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        border: 1px solid rgba(121, 184, 255, 0.45);
+        background: rgba(47, 128, 255, 0.16);
+        color: #9bd6ff;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1;
+    }
+    .detail-pencil:hover {
+        background: rgba(47, 128, 255, 0.3);
+        color: #ffffff;
     }
     .detail-edit-form {
         margin-top: 14px;
@@ -1671,40 +1704,45 @@
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
-                    <strong>OLT</strong>
-                    <a href="{{ olt_filter_url }}" class="detail-link">&#10548;</a>
-                    <div class="detail-value">{{ olt.name }}</div>
-                </div>
-                <div class="detail-row">
-                    <strong>Board</strong>
-                    <a href="{{ board_filter_url }}" class="detail-link">&#10548;</a>
-                    <div class="detail-value">{{ slot }}</div>
-                </div>
-                <div class="detail-row">
-                    <strong>Port</strong>
-                    <a href="{{ port_filter_url }}" class="detail-link">&#10548;</a>
-                    <div class="detail-value">{{ port }}</div>
-                </div>
-                <div class="detail-row">
-                    <strong>ONU</strong>
-                    <span></span>
-                    <div class="detail-value">{{ onu.onu_label|default:onu_label }}</div>
-                </div>
-                <div class="detail-row">
                     <strong>SN</strong>
                     <span></span>
                     <div class="detail-value">
                         {{ onu.sn|default:"-" }}
                         {% if onu.mapping_label %}
-                        <span class="mapping-badge">{{ onu.mapping_label }}</span>
+                            {% if user.is_staff or user.is_superuser %}
+                            <a class="mapping-badge mapping-badge-action" href="{{ onu_mapping_convert_url }}" title="Convert mapping mode">{{ onu.mapping_label }}</a>
+                            {% else %}
+                            <span class="mapping-badge">{{ onu.mapping_label }}</span>
+                            {% endif %}
                         {% endif %}
                     </div>
                 </div>
                 <div class="detail-row">
                     <strong>Name</strong>
                     <span></span>
-                    <div class="detail-value">{{ onu.display_name|default:"-" }}</div>
+                    <div class="detail-value detail-value-name">
+                        <span>{{ onu.display_name|default:"-" }}</span>
+                        {% if user.is_staff or user.is_superuser %}
+                        <a href="#" class="detail-pencil" title="Edit ONU name" data-name-edit-open>&#9998;</a>
+                        {% endif %}
+                    </div>
                 </div>
+                {% if user.is_staff or user.is_superuser %}
+                <form method="post" class="detail-edit-form" data-name-edit-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save_onu_name">
+                    <div class="detail-edit-grid">
+                        <div class="detail-edit-field">
+                            <label>Name</label>
+                            <input type="text" name="onu_name" maxlength="255" value="{{ onu.description|default:'' }}" placeholder="Enter ONU name">
+                        </div>
+                    </div>
+                    <div class="detail-edit-actions">
+                        <button type="submit" class="btn btn-primary btn-mini">Save</button>
+                        <button type="button" class="btn btn-secondary btn-mini" data-name-edit-close>Cancel</button>
+                    </div>
+                </form>
+                {% endif %}
                 <div class="detail-row">
                     <strong>ONU Type</strong>
                     <span></span>
@@ -1713,12 +1751,22 @@
                 <div class="detail-row">
                     <strong>Address</strong>
                     <span></span>
-                    <div class="detail-value">{% if user.is_staff or user.is_superuser %}<a href="#" class="detail-edit" data-contact-edit-open>{{ onu.address|default:"None" }}</a>{% else %}{{ onu.address|default:"None" }}{% endif %}</div>
+                    <div class="detail-value detail-value-name">
+                        <span>{{ onu.address|default:"None" }}</span>
+                        {% if user.is_staff or user.is_superuser %}
+                        <a href="#" class="detail-pencil" title="Edit address/contact" data-contact-edit-open>&#9998;</a>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="detail-row">
                     <strong>Contact</strong>
                     <span></span>
-                    <div class="detail-value">{% if user.is_staff or user.is_superuser %}<a href="#" class="detail-edit" data-contact-edit-open>{{ onu.contact|default:"None" }}</a>{% else %}{{ onu.contact|default:"None" }}{% endif %}</div>
+                    <div class="detail-value detail-value-name">
+                        <span>{{ onu.contact|default:"None" }}</span>
+                        {% if user.is_staff or user.is_superuser %}
+                        <a href="#" class="detail-pencil" title="Edit address/contact" data-contact-edit-open>&#9998;</a>
+                        {% endif %}
+                    </div>
                 </div>
                 {% if user.is_staff or user.is_superuser %}
                 <form method="post" class="detail-edit-form" data-contact-edit-form>
@@ -1788,7 +1836,7 @@
                         <span class="vlan-value-row">
                             <span data-detail-attached-vlans>{{ onu.attached_vlans|default:"-" }}</span>
                             {% if onu.is_vlan_mapping %}
-                            <span class="vlan-mapping-limit-note">Max 7 VLANs allowed</span>
+                            <span class="vlan-mapping-limit-note">Max 8 VLANs allowed</span>
                             {% endif %}
                             {% if user.is_staff or user.is_superuser %}
                             <a href="{{ onu_add_vlan_url }}" class="onu-add-vlan-btn" title="Add VLAN">+</a>
@@ -2029,6 +2077,9 @@
     const contactEditOpenButtons = Array.from(document.querySelectorAll('[data-contact-edit-open]'));
     const contactEditForm = document.querySelector('[data-contact-edit-form]');
     const contactEditClose = document.querySelector('[data-contact-edit-close]');
+    const nameEditOpen = document.querySelector('[data-name-edit-open]');
+    const nameEditForm = document.querySelector('[data-name-edit-form]');
+    const nameEditClose = document.querySelector('[data-name-edit-close]');
     if (!panel || !chartNode || !chartEmptyNode || !currentOltNode || !maximumOltNode) return;
     const refreshUrl = panel.getAttribute('data-signal-refresh-url');
     const signalGraphUrl = panel.getAttribute('data-signal-graph-url');
@@ -3142,6 +3193,17 @@
         });
         contactEditClose?.addEventListener('click', () => {
             contactEditForm.classList.remove('active');
+        });
+    }
+    if (nameEditForm && nameEditOpen) {
+        nameEditOpen.addEventListener('click', (event) => {
+            event.preventDefault();
+            nameEditForm.classList.add('active');
+            const input = nameEditForm.querySelector('input[name="onu_name"]');
+            if (input) input.focus();
+        });
+        nameEditClose?.addEventListener('click', () => {
+            nameEditForm.classList.remove('active');
         });
     }
 })();

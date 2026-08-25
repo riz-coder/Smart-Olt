@@ -118,9 +118,9 @@
                                             <input type="radio" name="mapping_mode" value="priority"{% if row.authorize_mapping_mode != 'vlan' %} checked{% endif %}>
                                             <span>Priority Mapping</span>
                                         </label>
-                                        <label>
-                                            <input type="radio" name="mapping_mode" value="vlan"{% if row.authorize_mapping_mode == 'vlan' %} checked{% endif %}>
-                                            <span>VLAN Mapping</span>
+                                        <label{% if row.authorize_vlan_mapping_disabled %} class="mapping-disabled" title="VLAN Mapping is currently disabled for EPON"{% endif %}>
+                                            <input type="radio" name="mapping_mode" value="vlan"{% if row.authorize_mapping_mode == 'vlan' %} checked{% endif %}{% if row.authorize_vlan_mapping_disabled %} disabled{% endif %}>
+                                            <span>{% if row.authorize_vlan_mapping_disabled %}VLAN Mapping Disabled{% else %}VLAN Mapping{% endif %}</span>
                                         </label>
                                     </div>
                                 </div>

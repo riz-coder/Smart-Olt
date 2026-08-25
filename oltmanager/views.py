@@ -235,6 +235,8 @@ _AUTOFIND_ROWS_CACHE = {}
 _AUTOFIND_ROWS_REFRESHING = set()
 _AUTHORIZE_TASKS_LOCK = threading.Lock()
 _AUTHORIZE_TASKS = {}
+_MAPPING_CONVERT_TASKS_LOCK = threading.Lock()
+_MAPPING_CONVERT_TASKS = {}
 _SPEED_PROFILE_TASKS_LOCK = threading.Lock()
 _SPEED_PROFILE_TASKS = {}
 _NEW_OLT_VLAN_FILL_LOCK = threading.Lock()
@@ -528,6 +530,174 @@ def _configured_onu_runtime_snapshot_from_record(record):
 def _clean_onu_detail_text(value, max_length):
     text = str(value or "").strip()
     return text[:max_length]
+
+
+def _split_onu_cache_values(value):
+    text = str(value or "")
+    if not text.strip():
+        return []
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _normalize_onu_type_key(value):
+    return re.sub(r"[^A-Z0-9]+", "", str(value or "").replace("_SOLT", "").upper())
+
+
+def _onu_type_entry_for_record(record):
+    raw_type = str(getattr(record, "onu_type_cache", "") or "").strip()
+    normalized = _normalize_onu_type_key(raw_type)
+    for item in _load_onu_type_option_rows():
+        if normalized in {
+            _normalize_onu_type_key(item.get("value")),
+            _normalize_onu_type_key(item.get("label")),
+        }:
+            return item
+    return {
+        "value": raw_type.replace("_SOLT", "") or "UNKNOWN",
+        "label": raw_type or "UNKNOWN",
+        "serial_no": 300,
+        "ethernet_ports": str(_ethernet_port_count_for_record(record) or 4),
+        "voip_ports": "0",
+    }
+
+
+def _ethernet_port_count_for_record(record):
+    try:
+        payload = json.loads(getattr(record, "ethernet_port_config_cache", "") or "{}")
+        keys = [str(key) for key in payload.keys()]
+        numbers = [int(key) for key in keys if str(key).isdigit()]
+        if numbers:
+            return max(numbers)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+    return 0
+
+
+def _speed_profile_lookup_by_index():
+    lookup = {}
+    default_pair = None
+    for profile in SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name"):
+        base_index = int(profile.index_number or 0)
+        if not base_index:
+            continue
+        base_name = (profile.name or "").strip()
+        base_name = re.sub(r"(?i)(?:-|_)?(up|down)$", "", base_name).strip(" -_") or base_name
+        down_name = (profile.download_name or f"{base_name}-DOWN").strip()
+        up_name = (profile.upload_name or f"{base_name}-UP").strip()
+        lookup[str(base_index)] = {"name": down_name, "profile": profile}
+        lookup[str(base_index + 1)] = {"name": up_name, "profile": profile}
+        speed_value = float(profile.speed_mbps_value or 0)
+        if default_pair is None and (
+            speed_value >= 1000
+            or "1G" in str(profile.name or "").upper()
+            or "1000" in str(profile.name or "")
+        ):
+            default_pair = (str(base_index), down_name, str(base_index + 1), up_name)
+    if default_pair is None:
+        last_profile = SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name").last()
+        if last_profile is not None and int(last_profile.index_number or 0):
+            base_index = int(last_profile.index_number or 0)
+            base_name = (last_profile.name or "").strip() or "SOLT-1G"
+            default_pair = (
+                str(base_index),
+                (last_profile.download_name or f"{base_name}-DOWN").strip(),
+                str(base_index + 1),
+                (last_profile.upload_name or f"{base_name}-UP").strip(),
+            )
+    return lookup, default_pair
+
+
+def _first_valid_profile_value(raw_value, lookup, default_value):
+    for item in _split_onu_cache_values(raw_value):
+        if item in lookup:
+            return item, lookup[item]["name"]
+    return default_value[0], default_value[1]
+
+
+def _build_onu_mapping_conversion_plan(record):
+    current_mode = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower()
+    if current_mode not in {"priority", "vlan"}:
+        current_mode = "priority"
+    target_mode = "priority" if current_mode == "vlan" else "vlan"
+
+    service_vlans = _split_onu_cache_values(getattr(record, "attached_vlans_cache", ""))
+    user_vlans = _split_onu_cache_values(getattr(record, "user_vlan_cache", "")) or service_vlans[:]
+    user_vlans = [item for item in user_vlans if item and item != "-"]
+    if not user_vlans:
+        user_vlans = [item for item in service_vlans if item and item != "-"]
+
+    line_profile_vlans = []
+    for index, user_vlan in enumerate(user_vlans):
+        candidate = user_vlan
+        if str(user_vlan).strip().lower() == "untagged":
+            candidate = service_vlans[index] if index < len(service_vlans) else ""
+        candidate = str(candidate or "").strip()
+        if candidate and candidate.lower() != "untagged" and candidate not in line_profile_vlans:
+            line_profile_vlans.append(candidate)
+
+    service_vlan_value = ""
+    tag_transform = ""
+    clean_service_vlans = [item for item in service_vlans if item and item != "-"]
+    if clean_service_vlans and len(set(clean_service_vlans)) == 1:
+        only_service_vlan = clean_service_vlans[0]
+        if any(str(item).lower() == "untagged" for item in user_vlans) or set(user_vlans) != {only_service_vlan}:
+            service_vlan_value = only_service_vlan
+            tag_transform = "default" if any(str(item).lower() == "untagged" for item in user_vlans) else "translate"
+
+    speed_lookup, default_speed = _speed_profile_lookup_by_index()
+    if default_speed is None:
+        return {
+            "ok": False,
+            "message": "No active 1G/default speed profile is available.",
+        }
+    download_index, download_name = _first_valid_profile_value(
+        getattr(record, "download_profile_index_cache", ""), speed_lookup, (default_speed[0], default_speed[1])
+    )
+    upload_index, upload_name = _first_valid_profile_value(
+        getattr(record, "upload_profile_index_cache", ""), speed_lookup, (default_speed[2], default_speed[3])
+    )
+
+    onu_type_entry = _onu_type_entry_for_record(record)
+    eth_ports = str(onu_type_entry.get("ethernet_ports") or "").strip() or str(_ethernet_port_count_for_record(record) or 4)
+    pots_ports = str(onu_type_entry.get("voip_ports") or "").strip() or "0"
+
+    warnings = []
+    if target_mode == "vlan" and _onu_tech_label(record.olt, record.slot) == "epon":
+        warnings.append("VLAN Mapping is currently disabled for EPON ONUs.")
+    if target_mode == "vlan" and any(str(item).strip().lower() == "untagged" for item in user_vlans):
+        warnings.append("VLAN Mapping cannot be used when the ONU User VLAN is untagged.")
+    if target_mode == "vlan" and len(line_profile_vlans) > 8:
+        warnings.append("VLAN Mapping supports a maximum of 8 line-profile VLAN mappings.")
+
+    return {
+        "ok": True,
+        "current_mode": current_mode,
+        "target_mode": target_mode,
+        "current_label": "VLAN Mapping" if current_mode == "vlan" else "PRI Mapping",
+        "target_label": "VLAN Mapping" if target_mode == "vlan" else "PRI Mapping",
+        "prompt": (
+            "Do you want to convert this ONU to VLAN Mapping?"
+            if target_mode == "vlan"
+            else "Do you want to shift this ONU to PRI Mapping?"
+        ),
+        "vlan_ids": user_vlans,
+        "line_profile_vlan_ids": line_profile_vlans or user_vlans,
+        "service_vlan": service_vlan_value,
+        "tag_transform": tag_transform,
+        "download_profile_index": download_index,
+        "download_profile_name": download_name,
+        "upload_profile_index": upload_index,
+        "upload_profile_name": upload_name,
+        "onu_type_name": str(onu_type_entry.get("value") or "").strip(),
+        "onu_type_label": str(onu_type_entry.get("label") or "").strip(),
+        "onu_type_serial": int(onu_type_entry.get("serial_no") or 300),
+        "eth_ports": eth_ports,
+        "pots_ports": pots_ports,
+        "subscriber_name": str(getattr(record, "description", "") or "").strip() or str(getattr(record, "sn", "") or "").strip(),
+        "onu_mode": str(getattr(record, "onu_mode_cache", "") or "").strip().lower() or "routing",
+        "service_ports": _split_onu_cache_values(getattr(record, "service_port_id_cache", "")),
+        "warnings": warnings,
+    }
 
 
 def _refresh_new_olt_vlan_fill_worker(olt_id):
@@ -2035,7 +2205,11 @@ def _build_unconfigured_group(
             else "-"
         )
         item["authorize_key"] = f"auth-{olt.id}-{int(item.get('board') or 0)}-{int(item.get('port') or 0)}-{re.sub(r'[^A-Za-z0-9]+', '-', str(item.get('sn') or '').strip())}"
-        item["authorize_pon_type"] = "GPON"
+        row_pon_type = str(item.get("pon_type") or "").strip().upper()
+        if not row_pon_type or row_pon_type == "-":
+            row_pon_type = _onu_tech_label(olt, item.get("board")).upper()
+        item["authorize_pon_type"] = "EPON" if "EPON" in row_pon_type else "GPON"
+        item["authorize_vlan_mapping_disabled"] = item["authorize_pon_type"] == "EPON"
         item["authorize_vlan_options"] = vlan_options_with_untagged
         item["authorize_svlan_options"] = vlan_options
         equipment_id = str(item.get("type") or "-").strip()
@@ -2055,6 +2229,8 @@ def _build_unconfigured_group(
         item["authorize_tag_transform"] = "default"
         item["authorize_mapping_mode"] = str(getattr(existing_record, "mapping_mode_cache", "") or "").strip().lower() if existing_record else ""
         if item["authorize_mapping_mode"] not in {"priority", "vlan"}:
+            item["authorize_mapping_mode"] = "priority"
+        if item["authorize_vlan_mapping_disabled"]:
             item["authorize_mapping_mode"] = "priority"
         item["authorize_download_speed"] = str(getattr(existing_record, "download_profile_index_cache", "") or "").strip() if existing_record else ""
         item["authorize_upload_speed"] = str(getattr(existing_record, "upload_profile_index_cache", "") or "").strip() if existing_record else ""
@@ -5388,6 +5564,10 @@ def unconfigured_onu_authorize(request):
     service_vlan_value = str(request.POST.get("service_vlan") or "").strip() if use_svlan else ""
     tag_transform_value = str(request.POST.get("tag_transform") or "default").strip().lower() if use_svlan else ""
     mapping_mode = str(request.POST.get("mapping_mode") or "priority").strip().lower()
+    if mapping_mode == "vlan":
+        use_svlan = False
+        service_vlan_value = ""
+        tag_transform_value = ""
     download_profile_index = str(request.POST.get("download_speed") or "").strip()
     upload_profile_index = str(request.POST.get("upload_speed") or "").strip()
     subscriber_name = str(request.POST.get("subscriber_name") or "").strip()
@@ -5423,6 +5603,8 @@ def unconfigured_onu_authorize(request):
         return _finish_error("Authorize failed: OLT not found.")
     if olt.pricing_access_locked:
         return _finish_error(olt.pricing_lock_message or "Authorize failed: subscription expired.")
+    if mapping_mode == "vlan" and _onu_tech_label(olt, slot) == "epon":
+        return _finish_error("Authorize failed: VLAN Mapping is currently disabled for EPON ONUs.")
 
     onu_type_map = {
         str(row.get("value") or "").strip().lower(): row
@@ -5445,6 +5627,7 @@ def unconfigured_onu_authorize(request):
 
     download_profile_name = str((speed_profile_lookup.get(download_profile_index) or {}).get("name") or "").strip()
     upload_profile_name = str((speed_profile_lookup.get(upload_profile_index) or {}).get("name") or "").strip()
+    line_profile_vlan_ids = [service_vlan_value] if mapping_mode == "vlan" and service_vlan_value else [vlan_value]
 
     authorize_kwargs = dict(
         olt=olt,
@@ -5463,6 +5646,7 @@ def unconfigured_onu_authorize(request):
         service_vlan=service_vlan_value,
         tag_transform=tag_transform_value,
         mapping_mode=mapping_mode,
+        line_profile_vlan_ids=line_profile_vlan_ids,
         onu_type_serial=int(onu_type_entry.get("serial_no") or 300),
         pots_ports=str(onu_type_entry.get("voip_ports") or "0").strip() or "0",
         eth_ports=str(onu_type_entry.get("ethernet_ports") or "0").strip() or "0",
@@ -6095,6 +6279,11 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             record.save(update_fields=["address", "contact"])
             messages.success(request, "ONU contact details updated.")
             return redirect("configured_onu_detail", olt_pk=olt.pk, slot=slot, port=port, ont_id=ont_id)
+        if action == "save_onu_name":
+            record.description = _clean_onu_detail_text(request.POST.get("onu_name"), 255)
+            record.save(update_fields=["description"])
+            messages.success(request, "ONU name updated in OptiVerse.")
+            return redirect("configured_onu_detail", olt_pk=olt.pk, slot=slot, port=port, ont_id=ont_id)
 
     selected_onu = _configured_onu_record_to_row(record) if record else None
 
@@ -6255,6 +6444,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     download_profile_values = _split_positional(raw_download_names)
     upload_profile_values = _split_positional(raw_upload_names)
     profile_speed_label_by_index = {}
+    default_speed_profile_label = "1G"
     for profile in SpeedProfile.objects.filter(is_active=True).only("index_number", "name", "download_name", "upload_name", "speed_mbps_value"):
         base_index = int(profile.index_number or 0)
         if not base_index:
@@ -6262,6 +6452,16 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         speed_label = _format_profile_speed_label_from_mbps(profile.speed_mbps_value)
         if not speed_label:
             speed_label = _short_speed_profile_label(profile.download_name or profile.upload_name or profile.name)
+        try:
+            speed_mbps = float(profile.speed_mbps_value or 0)
+        except (TypeError, ValueError):
+            speed_mbps = 0
+        if speed_label and (
+            "1G" in str(profile.name or "").upper()
+            or "1000" in str(profile.name or "")
+            or speed_mbps >= 1000
+        ):
+            default_speed_profile_label = speed_label
         profile_speed_label_by_index[str(base_index)] = speed_label or str(base_index)
         profile_speed_label_by_index[str(base_index + 1)] = speed_label or str(base_index + 1)
     speed_profile_rows = []
@@ -6292,23 +6492,33 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     def _row_value(values, index):
         return (values[index] if index < len(values) else "").strip() or "-"
 
-    def _profile_row_value(name_values, index_values, index):
+    def _profile_row_value(name_values, index_values, index, default_label=""):
         name_value = (name_values[index] if index < len(name_values) else "").strip()
         index_value = (index_values[index] if index < len(index_values) else "").strip()
-        return _short_speed_profile_label(
+        label = _short_speed_profile_label(
             name_value,
             fallback_index=index_value,
             speed_label_by_index=profile_speed_label_by_index,
         )
+        return label if label != "-" else (default_label or "-")
 
     for index in range(speed_profile_count):
+        row_has_config = any(
+            value != "-"
+            for value in (
+                _row_value(service_port_values, index),
+                _row_value(service_vlan_values, index),
+                _row_value(user_vlan_values, index),
+            )
+        )
+        row_default_speed = default_speed_profile_label if row_has_config else ""
         speed_profile_rows.append(
             {
                 "service_port_id": _row_value(service_port_values, index),
                 "service_vlan": _row_value(service_vlan_values, index),
                 "user_vlan": _row_value(user_vlan_values, index),
-                "download": _profile_row_value(download_profile_values, download_index_values, index),
-                "upload": _profile_row_value(upload_profile_values, upload_index_values, index),
+                "download": _profile_row_value(download_profile_values, download_index_values, index, row_default_speed),
+                "upload": _profile_row_value(upload_profile_values, upload_index_values, index, row_default_speed),
                 "configure_url": reverse(
                     "configured_onu_speed_profile_config",
                     kwargs={
@@ -6450,6 +6660,12 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             "port": port,
             "ont_id": ont_id,
         }),
+        "onu_mapping_convert_url": reverse("configured_onu_mapping_convert", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
         "onu_disable_url": reverse("configured_onu_action", kwargs={
             "olt_pk": olt.pk,
             "slot": slot,
@@ -6497,6 +6713,244 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "authorize_debug": authorize_debug,
     }
     return render(request, "oltmanager/configured_onu_detail.html", context)
+
+
+def _execute_onu_mapping_conversion(olt, record, plan, user=None, *, on_progress=None):
+    def _emit(step, label):
+        if callable(on_progress):
+            try:
+                on_progress(step, label)
+            except Exception:
+                pass
+
+    result = {"ok": False, "message": "Mapping conversion failed.", "redirect_url": "", "transcript": ""}
+    old_frame = int(record.frame or 0)
+    old_slot = int(record.slot or 0)
+    old_port = int(record.port or 0)
+    old_ont_id = int(record.ont_id or 0)
+    sn_value = str(record.sn or "").strip()
+    old_service_ports = [str(item).strip() for item in plan.get("service_ports") or [] if str(item).strip()]
+    authorize_kwargs = dict(
+        olt=olt,
+        frame=old_frame,
+        slot=old_slot,
+        port=old_port,
+        sn=sn_value,
+        onu_type_name=plan["onu_type_name"],
+        vlan_ids=plan["vlan_ids"],
+        line_profile_vlan_ids=plan.get("line_profile_vlan_ids") or plan["vlan_ids"],
+        download_profile_index=plan["download_profile_index"],
+        download_profile_name=plan["download_profile_name"],
+        upload_profile_index=plan["upload_profile_index"],
+        upload_profile_name=plan["upload_profile_name"],
+        subscriber_name=plan["subscriber_name"],
+        onu_mode=plan["onu_mode"],
+        onu_type_serial=plan["onu_type_serial"],
+        pots_ports=plan["pots_ports"],
+        eth_ports=plan["eth_ports"],
+        service_vlan=plan.get("service_vlan") or "",
+        tag_transform=plan.get("tag_transform") or "",
+        mapping_mode=plan["target_mode"],
+    )
+
+    _emit(1, f"Deleting existing ONU and service-port(s): {', '.join(old_service_ports) or '-'}")
+    delete_result = execute_onu_cli_delete_action(
+        olt,
+        old_slot,
+        old_port,
+        old_ont_id,
+        frame=old_frame,
+        service_port_ids=old_service_ports,
+    )
+    if not delete_result.get("ok"):
+        result.update({
+            "message": _ui_telnet_error_message(delete_result.get("message")) or "Existing ONU could not be deleted.",
+            "transcript": str(delete_result.get("transcript") or ""),
+        })
+        return result
+
+    record.delete()
+
+    def _auth_progress(step, label):
+        mapped_step = min(max(int(step or 0) + 2, 2), 6)
+        _emit(mapped_step, label or "Authorizing ONU...")
+
+    payload = authorize_autofind_onu(**authorize_kwargs, on_progress=_auth_progress)
+    if not payload.get("ok"):
+        result.update({
+            "message": (
+                f"ONU deleted, but {plan['target_label']} rebuild failed: "
+                f"{_ui_telnet_error_message(payload.get('message')) or 'authorize failed'}"
+            ),
+            "transcript": str(payload.get("transcript") or ""),
+            "redirect_url": reverse("unconfigured_onus"),
+        })
+        _schedule_autofind_rows_refresh(int(olt.pk))
+        _schedule_autofind_counts_refresh(int(olt.pk))
+        return result
+
+    new_ont_id = int(payload.get("ont_id") or old_ont_id)
+    new_record = ConfiguredONU.objects.filter(
+        olt=olt, frame=old_frame, slot=old_slot, port=old_port, ont_id=new_ont_id,
+    ).first()
+    if new_record is not None:
+        try:
+            _refresh_single_onu_power_from_snmp(olt, new_record, old_slot, old_port, new_ont_id)
+        except Exception:
+            pass
+    _schedule_autofind_rows_refresh(int(olt.pk))
+    _schedule_autofind_counts_refresh(int(olt.pk))
+    if user is not None:
+        try:
+            _record_olt_login(
+                olt,
+                user,
+                "mapping_convert",
+                f"ONU converted {plan['current_label']} -> {plan['target_label']}: 0/{old_slot}/{old_port} ont {old_ont_id}",
+                onu=f"0/{old_slot}/{old_port}:{new_ont_id}",
+            )
+        except Exception:
+            pass
+    result.update({
+        "ok": True,
+        "message": f"ONU converted to {plan['target_label']}. New ONT-ID {new_ont_id}.",
+        "redirect_url": reverse("configured_onu_detail", kwargs={
+            "olt_pk": olt.pk,
+            "slot": old_slot,
+            "port": old_port,
+            "ont_id": new_ont_id,
+        }),
+        "transcript": str(payload.get("transcript") or ""),
+    })
+    return result
+
+
+def _run_mapping_convert_bg_task(task_id, olt_id, record_id, user_pk):
+    close_old_connections()
+
+    def _set_progress(step, label):
+        with _MAPPING_CONVERT_TASKS_LOCK:
+            if task_id in _MAPPING_CONVERT_TASKS:
+                _MAPPING_CONVERT_TASKS[task_id]["step"] = int(step or 0)
+                _MAPPING_CONVERT_TASKS[task_id]["label"] = str(label or "")
+
+    try:
+        _set_progress(0, "Preparing mapping conversion...")
+        olt = OLT.objects.filter(pk=int(olt_id)).first()
+        record = ConfiguredONU.objects.filter(pk=int(record_id), olt=olt).first() if olt else None
+        user = get_user_model().objects.filter(pk=int(user_pk)).first() if user_pk else None
+        if olt is None or record is None:
+            result = {"ok": False, "message": "ONU record not found.", "redirect_url": "", "transcript": ""}
+        else:
+            plan = _build_onu_mapping_conversion_plan(record)
+            if not plan.get("ok"):
+                result = {"ok": False, "message": plan.get("message") or "Mapping conversion could not be prepared.", "redirect_url": "", "transcript": ""}
+            elif plan.get("warnings"):
+                result = {"ok": False, "message": "Mapping conversion blocked: " + " ".join(plan.get("warnings") or []), "redirect_url": "", "transcript": ""}
+            else:
+                result = _execute_onu_mapping_conversion(olt, record, plan, user=user, on_progress=_set_progress)
+        with _MAPPING_CONVERT_TASKS_LOCK:
+            if task_id in _MAPPING_CONVERT_TASKS:
+                _MAPPING_CONVERT_TASKS[task_id].update({
+                    "done": True,
+                    "ok": bool(result.get("ok")),
+                    "step": 6 if result.get("ok") else _MAPPING_CONVERT_TASKS[task_id].get("step", 0),
+                    "label": "Done" if result.get("ok") else _MAPPING_CONVERT_TASKS[task_id].get("label", ""),
+                    "message": str(result.get("message") or ""),
+                    "transcript": str(result.get("transcript") or ""),
+                    "redirect_url": str(result.get("redirect_url") or ""),
+                })
+    except Exception as exc:
+        with _MAPPING_CONVERT_TASKS_LOCK:
+            if task_id in _MAPPING_CONVERT_TASKS:
+                _MAPPING_CONVERT_TASKS[task_id].update({
+                    "done": True,
+                    "ok": False,
+                    "message": f"Mapping conversion encountered an unexpected error: {exc}",
+                    "transcript": "",
+                    "redirect_url": "",
+                })
+    finally:
+        close_old_connections()
+
+
+@login_required
+@admin_required
+def configured_onu_mapping_convert(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
+    plan = _build_onu_mapping_conversion_plan(record)
+    detail_url = reverse("configured_onu_detail", kwargs={"olt_pk": olt.pk, "slot": slot, "port": port, "ont_id": ont_id})
+
+    if not plan.get("ok"):
+        messages.error(request, plan.get("message") or "Mapping conversion could not be prepared.")
+        return redirect(detail_url)
+
+    if request.method == "POST":
+        if plan.get("warnings"):
+            message = "Mapping conversion blocked: " + " ".join(plan.get("warnings") or [])
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "message": message}, status=400)
+            messages.error(request, message)
+            return redirect(detail_url)
+
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            task_id = uuid.uuid4().hex[:20]
+            now_ts = time.time()
+            with _MAPPING_CONVERT_TASKS_LOCK:
+                stale = [tid for tid, task in _MAPPING_CONVERT_TASKS.items() if now_ts - task.get("created_at", now_ts) > 900]
+                for tid in stale:
+                    _MAPPING_CONVERT_TASKS.pop(tid, None)
+                _MAPPING_CONVERT_TASKS[task_id] = {
+                    "done": False,
+                    "ok": False,
+                    "step": 0,
+                    "label": "Preparing mapping conversion...",
+                    "message": "",
+                    "transcript": "",
+                    "redirect_url": "",
+                    "created_at": now_ts,
+                }
+            threading.Thread(
+                target=_run_mapping_convert_bg_task,
+                args=(task_id, olt.pk, record.pk, request.user.pk),
+                name=f"mapping-convert-{task_id}",
+                daemon=True,
+            ).start()
+            return JsonResponse({"ok": True, "task_id": task_id})
+
+        result = _execute_onu_mapping_conversion(olt, record, plan, user=request.user)
+        if result.get("ok"):
+            messages.success(request, result.get("message") or f"ONU converted to {plan['target_label']}.")
+            return redirect(result.get("redirect_url") or detail_url)
+        messages.error(request, result.get("message") or "Mapping conversion failed.")
+        if result.get("redirect_url"):
+            return redirect(result["redirect_url"])
+        return redirect(detail_url)
+
+    return render(
+        request,
+        "oltmanager/configured_onu_mapping_convert.html",
+        {
+            "olt": olt,
+            "record": record,
+            "plan": plan,
+            "back_url": detail_url,
+        },
+    )
+
+
+@login_required
+def configured_onu_mapping_convert_progress(request, task_id):
+    with _MAPPING_CONVERT_TASKS_LOCK:
+        task = dict(_MAPPING_CONVERT_TASKS.get(str(task_id) or "", {}) or {})
+    if not task:
+        return JsonResponse({"done": True, "ok": False, "message": "Task not found or expired."}, status=404)
+    task.pop("created_at", None)
+    return JsonResponse(task)
 
 
 def _run_speed_profile_bg_task(task_id, olt, speed_kwargs, redirect_url):
@@ -6847,7 +7301,7 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
     existing_user_vlans = [item.strip() for item in str(record.user_vlan_cache or "").split(",") if item.strip()]
     existing_service_ports = [item.strip() for item in str(record.service_port_id_cache or "").split(",") if item.strip()]
     is_vlan_mapping = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower() == "vlan"
-    vlan_mapping_max_vlans = 7
+    vlan_mapping_max_vlans = 8
     vlan_mapping_existing_count = max(len(existing_vlans), len(existing_user_vlans), len(existing_service_ports))
     vlan_mapping_remaining = max(vlan_mapping_max_vlans - vlan_mapping_existing_count, 0)
     vlan_options = _olt_vlan_option_values(olt)

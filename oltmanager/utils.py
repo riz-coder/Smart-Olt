@@ -7983,15 +7983,15 @@ def _parse_vlan_mapping_line_profile(output_text):
         # Huawei display output table:
         #   Mapping VLAN  Priority ...
         #   index
-        #   1       948   -        ...
-        # First column is mapping index (1-7), second column is VLAN.
+        #   0       948   -        ...
+        # First column is mapping index, second column is VLAN.
         row_match = re.match(r"^(\d+)\s+(\d{1,4})(?:\s+|$)", line)
         if row_match:
             try:
                 index = int(row_match.group(1))
             except (TypeError, ValueError):
                 continue
-            if 1 <= index <= 7:
+            if 0 <= index <= 7:
                 mappings.setdefault(index, row_match.group(2).strip())
     return {"profile_name": profile_name, "mappings": mappings}
 
@@ -8034,6 +8034,8 @@ def _read_vlan_mapping_line_profile_detail(tn, *, pon_cli, line_profile_id, tran
 def _ensure_vlan_mapping_line_profile_vlans(tn, *, olt, frame, slot, port, ont_id, sn="", vlan_values, transcript):
     pon_tech = _slot_pon_tech(olt, slot)
     pon_cli = "epon" if str(pon_tech or "").upper() == "EPON" else "gpon"
+    if pon_cli == "epon":
+        return {"ok": False, "message": "VLAN Mapping is currently disabled for EPON ONUs."}
 
     current_command = f"display current-configuration ont {int(frame)}/{int(slot)}/{int(port)} {int(ont_id)}"
     current_output = _run_telnet_bulk_command(
@@ -8058,12 +8060,12 @@ def _ensure_vlan_mapping_line_profile_vlans(tn, *, olt, frame, slot, port, ont_i
     profile_name = info.get("profile_name") or profile_name or f"SOLT_{'E' if pon_cli == 'epon' else 'G'}_{int(line_profile_id)}"
     mappings = dict(info.get("mappings") or {})
     existing_vlans = {str(value).strip() for value in mappings.values() if str(value).strip()}
-    next_indexes = [idx for idx in range(1, 8) if idx not in mappings]
+    next_indexes = [idx for idx in range(0, 8) if idx not in mappings]
     new_vlans = [str(vlan).strip() for vlan in vlan_values if str(vlan).strip() not in existing_vlans]
     if new_vlans and not next_indexes:
-        return {"ok": False, "message": "All VLAN Mapping indexes 1-7 are already full in the line profile."}
+        return {"ok": False, "message": "All VLAN Mapping indexes 0-7 are already full in the line profile."}
     if len(new_vlans) > len(next_indexes):
-        return {"ok": False, "message": "VLAN Mapping supports a maximum of 7 VLANs in the line profile."}
+        return {"ok": False, "message": "VLAN Mapping supports a maximum of 8 VLANs in the line profile."}
     if not new_vlans:
         return {"ok": True, "message": "Line profile already contains selected VLAN mapping(s)."}
 
@@ -8081,9 +8083,9 @@ def _ensure_vlan_mapping_line_profile_vlans(tn, *, olt, frame, slot, port, ont_i
     for vlan_value in new_vlans:
         vlan_added = False
         while True:
-            available_indexes = [idx for idx in range(1, 8) if idx not in used_indexes]
+            available_indexes = [idx for idx in range(0, 8) if idx not in used_indexes]
             if not available_indexes:
-                return {"ok": False, "message": "All VLAN Mapping indexes 1-7 are already full in the line profile."}
+                return {"ok": False, "message": "All VLAN Mapping indexes 0-7 are already full in the line profile."}
             mapping_index = available_indexes[0]
             map_command = f"gem mapping 1 {int(mapping_index)} vlan {int(vlan_value)}"
             map_output = _run_telnet_authorize_command(tn, map_command, enter_until_prompt=True, busy_retries=4)
@@ -9291,6 +9293,7 @@ def _ensure_lineprofile(
     vlan_mapping_mode=False,
     force_new=False,
     vlan_id,
+    vlan_ids=None,
     dba_profile_id,
     transcript,
     min_id=4,
@@ -9344,11 +9347,20 @@ def _ensure_lineprofile(
                 f"llid dba-profile-id {int(dba_profile_id)}",
             ]
         elif vlan_mapping_mode:
+            mapping_vlans = []
+            for item in (vlan_ids or [vlan_id]):
+                text = str(item or "").strip()
+                if text and text.lower() != "untagged" and text not in mapping_vlans:
+                    mapping_vlans.append(text)
+            mapping_vlans = mapping_vlans[:8] or [str(vlan_id).strip()]
             commands = [
                 f"tcont 1 dba-profile-id {int(dba_profile_id)}",
                 "gem add 1 eth tcont 1",
-                f"gem mapping 1 1 vlan {vlan_id}",
             ]
+            commands.extend(
+                f"gem mapping 1 {index} vlan {mapping_vlan}"
+                for index, mapping_vlan in enumerate(mapping_vlans, start=0)
+            )
         elif generic_mode:
             commands = [
                 f"tcont 1 dba-profile-id {int(dba_profile_id)}",
@@ -9589,6 +9601,7 @@ def authorize_autofind_onu(
     service_vlan="",
     tag_transform="",
     mapping_mode="priority",
+    line_profile_vlan_ids=None,
     on_progress=None,
 ):
     from .models import ConfiguredONU
@@ -9614,6 +9627,9 @@ def authorize_autofind_onu(
     if not vlan_values:
         result["message"] = "No VLAN selected."
         return result
+    line_profile_vlan_values = [str(item).strip() for item in (line_profile_vlan_ids or []) if str(item).strip()]
+    if not line_profile_vlan_values:
+        line_profile_vlan_values = vlan_values[:]
 
     sn_auth = _preferred_sn_auth_serial(sn)
     if not sn_auth:
@@ -9639,6 +9655,9 @@ def authorize_autofind_onu(
     pon_tech = _slot_pon_tech(olt, slot)          # "GPON" | "EPON" | "XGS-PON" | "XG-PON"
     is_epon = pon_tech.upper() == "EPON"
     pon_tech_cli = "epon" if is_epon else "gpon"  # CLI keyword for profile commands
+    if is_epon and vlan_mapping_mode:
+        result["message"] = "VLAN Mapping is currently disabled for EPON ONUs."
+        return result
 
     if is_epon:
         dba_profile_name = "SOLT_1G_EPON"
@@ -9740,6 +9759,7 @@ def authorize_autofind_onu(
                 vlan_mapping_mode=vlan_mapping_mode,
                 force_new=vlan_mapping_mode,
                 vlan_id=primary_vlan,
+                vlan_ids=line_profile_vlan_values,
                 dba_profile_id=int(dba_result["profile_id"]),
                 transcript=transcript,
                 min_id=line_profile_seed,

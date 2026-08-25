@@ -1,0 +1,467 @@
+{% extends "oltmanager/base.html" %}
+
+{% block title %}Convert ONU Mapping{% endblock %}
+
+{% block extra_css %}
+<style>
+    .mapping-convert-wrap {
+        display: grid;
+        gap: 16px;
+        max-width: 980px;
+    }
+    .mapping-convert-card {
+        border: 1px solid rgba(90, 150, 255, 0.26);
+        border-radius: 16px;
+        background: rgba(15, 31, 58, 0.78);
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+        padding: 18px;
+    }
+    .mapping-convert-title {
+        margin: 0 0 6px;
+        color: #f5f8ff;
+        font-size: 24px;
+        font-weight: 900;
+    }
+    .mapping-convert-subtitle {
+        margin: 0;
+        color: #9fb4d6;
+        font-weight: 700;
+    }
+    .mapping-flow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+    }
+    .mapping-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 7px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(80, 145, 255, 0.45);
+        background: rgba(37, 99, 235, 0.16);
+        color: #cfe3ff;
+        font-weight: 900;
+    }
+    .mapping-pill.target {
+        border-color: rgba(52, 211, 153, 0.55);
+        background: rgba(18, 130, 90, 0.18);
+        color: #8dffd1;
+    }
+    .mapping-arrow {
+        color: #74a8ff;
+        font-weight: 900;
+    }
+    .mapping-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+    }
+    .mapping-summary-item {
+        border: 1px solid rgba(120, 170, 255, 0.18);
+        border-radius: 12px;
+        background: rgba(6, 16, 34, 0.48);
+        padding: 12px;
+    }
+    .mapping-summary-label {
+        display: block;
+        margin-bottom: 5px;
+        color: #86b8ff;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+    }
+    .mapping-summary-value {
+        color: #f4f8ff;
+        font-size: 14px;
+        font-weight: 800;
+        word-break: break-word;
+    }
+    .mapping-warning {
+        border-color: rgba(255, 76, 96, 0.44);
+        background: rgba(74, 13, 28, 0.42);
+        color: #ffc6ce;
+    }
+    .mapping-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+    }
+    .olt-wait-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        background: rgba(3, 9, 22, 0.72);
+        backdrop-filter: blur(6px);
+    }
+    .olt-wait-overlay[hidden] {
+        display: none;
+    }
+    .olt-wait-box {
+        width: min(430px, calc(100vw - 32px));
+        border: 1px solid rgba(105, 165, 255, 0.32);
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(16, 30, 58, 0.98), rgba(9, 18, 36, 0.98));
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.38);
+        padding: 28px 32px;
+        text-align: center;
+    }
+    .olt-wait-wheel {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 18px;
+        border-radius: 50%;
+        border: 6px solid rgba(255, 255, 255, 0.12);
+        border-top-color: #4f8dff;
+        border-right-color: #67d39c;
+        animation: oltWaitSpin 0.9s linear infinite;
+    }
+    .olt-wait-title {
+        color: #f4f8ff;
+        font-size: 22px;
+        font-weight: 900;
+        margin: 0 0 8px;
+    }
+    .olt-wait-log {
+        margin: 0 0 14px;
+        color: #b9cceb;
+        font-size: 13px;
+        font-weight: 800;
+        min-height: 18px;
+        white-space: pre-wrap;
+    }
+    .olt-wait-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+        margin-bottom: 16px;
+    }
+    .olt-wait-fill {
+        width: 12%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #4f8dff, #67d39c);
+        transition: width .25s ease;
+    }
+    .olt-wait-steps {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        text-align: left;
+    }
+    .olt-wait-steps li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #70819a;
+        font-size: 12px;
+        font-weight: 900;
+    }
+    .olt-wait-steps li::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: .55;
+    }
+    .olt-wait-steps li.is-active {
+        color: #dff2ff;
+    }
+    .olt-wait-steps li.is-active::before {
+        opacity: 1;
+        background: #4f8dff;
+    }
+    .olt-wait-steps li.is-done {
+        color: #9fe7bf;
+    }
+    .olt-wait-steps li.is-done::before {
+        opacity: 1;
+        background: #67d39c;
+        box-shadow: 0 0 10px rgba(103, 211, 156, .55);
+    }
+    .mapping-error {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid rgba(255, 76, 96, 0.42);
+        border-radius: 12px;
+        background: rgba(74, 13, 28, 0.42);
+        color: #ffc6ce;
+        font-weight: 800;
+    }
+    @keyframes oltWaitSpin {
+        to { transform: rotate(360deg); }
+    }
+    html[data-theme="light"] .mapping-convert-card {
+        background: #ffffff;
+        border-color: #bfd4f7;
+    }
+    html[data-theme="light"] .mapping-convert-title,
+    html[data-theme="light"] .mapping-summary-value {
+        color: #082040;
+    }
+    html[data-theme="light"] .mapping-convert-subtitle {
+        color: #45627f;
+    }
+    html[data-theme="light"] .mapping-summary-item {
+        background: #f4f8ff;
+        border-color: #d4e2f7;
+    }
+    html[data-theme="light"] .olt-wait-overlay {
+        background: rgba(14, 28, 48, 0.54);
+    }
+    html[data-theme="light"] .olt-wait-box {
+        background: linear-gradient(180deg, #f8fbff, #eaf2ff);
+        border-color: rgba(47, 128, 255, 0.34);
+    }
+    html[data-theme="light"] .olt-wait-title {
+        color: #10213d;
+    }
+    html[data-theme="light"] .olt-wait-log {
+        color: #31496a;
+    }
+    html[data-theme="light"] .olt-wait-track {
+        background: rgba(20, 45, 80, 0.14);
+    }
+    html[data-theme="light"] .olt-wait-steps li {
+        color: #75859a;
+    }
+    html[data-theme="light"] .olt-wait-steps li.is-active {
+        color: #17365d;
+    }
+    html[data-theme="light"] .olt-wait-steps li.is-done {
+        color: #147c50;
+    }
+    @media (max-width: 760px) {
+        .mapping-summary {
+            grid-template-columns: 1fr;
+        }
+        .mapping-actions {
+            justify-content: stretch;
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mapping-convert-wrap">
+    <div class="panel mapping-convert-card">
+        <h1 class="mapping-convert-title">Convert ONU Mapping</h1>
+        <p class="mapping-convert-subtitle">{{ olt.name }} | {{ record.frame }}/{{ record.slot }}/{{ record.port }} ONT {{ record.ont_id }}</p>
+
+        <div class="mapping-flow">
+            <span class="mapping-pill">{{ plan.current_label }}</span>
+            <span class="mapping-arrow">to</span>
+            <span class="mapping-pill target">{{ plan.target_label }}</span>
+        </div>
+    </div>
+
+    <div class="panel mapping-convert-card">
+        <h2 class="mapping-convert-title" style="font-size:18px;">{{ plan.prompt }}</h2>
+        <p class="mapping-convert-subtitle">
+            This will delete the current ONU from the OLT, then authorize it again using the selected target mapping.
+        </p>
+
+        <div class="mapping-summary">
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">SN</span>
+                <span class="mapping-summary-value">{{ record.sn|default:"-" }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">Name</span>
+                <span class="mapping-summary-value">{{ plan.subscriber_name|default:"-" }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">ONU Type</span>
+                <span class="mapping-summary-value">{{ plan.onu_type_label|default:plan.onu_type_name }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">ONU Mode</span>
+                <span class="mapping-summary-value">{{ plan.onu_mode|default:"routing" }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">VLANs</span>
+                <span class="mapping-summary-value">{{ plan.vlan_ids|join:", " }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">Line Profile VLANs</span>
+                <span class="mapping-summary-value">{{ plan.line_profile_vlan_ids|join:", " }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">Download</span>
+                <span class="mapping-summary-value">{{ plan.download_profile_name }} | {{ plan.download_profile_index }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">Upload</span>
+                <span class="mapping-summary-value">{{ plan.upload_profile_name }} | {{ plan.upload_profile_index }}</span>
+            </div>
+        </div>
+
+        {% if plan.service_vlan %}
+        <div class="mapping-summary" style="margin-top:10px;">
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">SVLAN</span>
+                <span class="mapping-summary-value">{{ plan.service_vlan }}</span>
+            </div>
+            <div class="mapping-summary-item">
+                <span class="mapping-summary-label">Tag Transform</span>
+                <span class="mapping-summary-value">{{ plan.tag_transform|default:"default" }}</span>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if plan.warnings %}
+        <div class="mapping-convert-card mapping-warning" style="margin-top:16px;">
+            {% for warning in plan.warnings %}
+            <div>{{ warning }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="mapping-error" data-mapping-error hidden></div>
+        <form method="post" class="mapping-actions" data-mapping-convert-form>
+            {% csrf_token %}
+            <a href="{{ back_url }}" class="btn btn-secondary">Back</a>
+            <button type="submit" class="btn btn-primary" {% if plan.warnings %}disabled{% endif %}>Convert to {{ plan.target_label }}</button>
+        </form>
+    </div>
+</div>
+
+<div class="olt-wait-overlay" data-olt-wait hidden>
+    <div class="olt-wait-box">
+        <div class="olt-wait-wheel"></div>
+        <div class="olt-wait-title">Waiting for OLT</div>
+        <div class="olt-wait-log" data-olt-wait-log>Preparing mapping conversion...</div>
+        <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
+        <ul class="olt-wait-steps" data-olt-wait-steps>
+            <li data-step-index="0">Preparing conversion details</li>
+            <li data-step-index="1">Deleting existing ONU and service-port(s)</li>
+            <li data-step-index="2">Opening authorization Telnet session</li>
+            <li data-step-index="3">Checking required profiles</li>
+            <li data-step-index="4">Preparing traffic tables</li>
+            <li data-step-index="5">Adding and binding the ONU</li>
+            <li data-step-index="6">Saving and refreshing OptiVerse</li>
+        </ul>
+    </div>
+</div>
+<span id="mapping-progress-url-tpl" data-url="{% url 'configured_onu_mapping_convert_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
+
+<script>
+(function () {
+    const form = document.querySelector('[data-mapping-convert-form]');
+    const overlay = document.querySelector('[data-olt-wait]');
+    const fill = document.querySelector('[data-olt-wait-fill]');
+    const log = document.querySelector('[data-olt-wait-log]');
+    const steps = Array.from(document.querySelectorAll('[data-olt-wait-steps] [data-step-index]'));
+    const errorBox = document.querySelector('[data-mapping-error]');
+    const progressTpl = document.getElementById('mapping-progress-url-tpl');
+    const progressBase = progressTpl ? progressTpl.getAttribute('data-url') : '';
+    const stepProgress = [12, 25, 38, 52, 66, 82, 94];
+    let pollTimer = null;
+
+    const setStep = (activeIndex, label) => {
+        const index = Math.max(0, Math.min(Number(activeIndex || 0), steps.length - 1));
+        if (log) log.textContent = label || 'Waiting for OLT response...';
+        if (fill) fill.style.width = `${stepProgress[index] || 12}%`;
+        steps.forEach((node) => {
+            const nodeIndex = Number(node.getAttribute('data-step-index') || 0);
+            node.classList.toggle('is-done', nodeIndex < index);
+            node.classList.toggle('is-active', nodeIndex === index);
+        });
+    };
+
+    const showOverlay = () => {
+        setStep(0, 'Preparing mapping conversion...');
+        if (overlay) overlay.hidden = false;
+    };
+
+    const hideOverlay = () => {
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+        if (overlay) overlay.hidden = true;
+    };
+
+    const showError = (message) => {
+        hideOverlay();
+        if (errorBox) {
+            errorBox.textContent = message || 'Mapping conversion failed.';
+            errorBox.hidden = false;
+        } else {
+            alert(message || 'Mapping conversion failed.');
+        }
+    };
+
+    const pollProgress = (taskId) => {
+        const url = progressBase.replace('TASK_ID_PLACEHOLDER', taskId);
+        const poll = async () => {
+            try {
+                const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    showError(data.message || 'Progress check failed.');
+                    return;
+                }
+                setStep(data.step || 0, data.label || '');
+                if (data.done) {
+                    if (pollTimer) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                    }
+                    if (data.ok && data.redirect_url) {
+                        if (fill) fill.style.width = '100%';
+                        setTimeout(() => { window.location.href = data.redirect_url; }, 350);
+                    } else {
+                        showError(data.message || 'Mapping conversion failed.');
+                    }
+                }
+            } catch (_) {
+                // Keep polling through transient browser/network interruptions.
+            }
+        };
+        poll();
+        pollTimer = setInterval(poll, 700);
+    };
+
+    if (!form) return;
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (errorBox) errorBox.hidden = true;
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+        showOverlay();
+        try {
+            const response = await fetch(form.action || window.location.href, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: new FormData(form),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.ok || !data.task_id) {
+                if (submitButton) submitButton.disabled = false;
+                showError(data.message || 'Mapping conversion could not be started.');
+                return;
+            }
+            pollProgress(data.task_id);
+        } catch (_) {
+            if (submitButton) submitButton.disabled = false;
+            showError('Mapping conversion could not reach the server.');
+        }
+    });
+})();
+</script>
+{% endblock %}
