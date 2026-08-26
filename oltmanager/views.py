@@ -6671,6 +6671,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "onu_has_catv": _onu_has_catv_port(record),
         "onu_catv_enabled": str(getattr(record, "catv_operational_cache", "") or "").strip().lower() != "disabled",
         "olt_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}",
+        "olt_uplink_url": f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=uplink",
         "board_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}",
         "port_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}&port={port}",
         "onu_signal_refresh_url": reverse("configured_onu_signals_refresh"),

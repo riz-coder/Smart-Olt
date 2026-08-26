@@ -515,6 +515,39 @@
         color: #ffcf73;
         font-style: normal;
     }
+    .mac-uplink-hint {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+        padding: 10px 12px;
+        border: 1px solid rgba(109, 179, 255, 0.24);
+        border-radius: 12px;
+        background: rgba(37, 99, 235, 0.1);
+        color: #cfe7ff;
+        font-size: 12.5px;
+        font-weight: 800;
+    }
+    .mac-uplink-hint a {
+        color: #63e6be;
+        font-weight: 900;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(99, 230, 190, 0.7);
+    }
+    .mac-uplink-hint a:hover {
+        color: #ffffff;
+        border-bottom-color: #ffffff;
+    }
+    html[data-theme="light"] .mac-uplink-hint {
+        background: #eaf5ff;
+        border-color: #9ec8ff;
+        color: #16345f;
+    }
+    html[data-theme="light"] .mac-uplink-hint a {
+        color: #0067c7;
+        border-bottom-color: #0067c7;
+    }
     .history-output-view {
         display: grid;
         gap: 10px;
@@ -1734,7 +1767,7 @@
         </div>
     </div>
 
-    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-last-down-history-url="{{ onu_last_down_history_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
+    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-last-down-history-url="{{ onu_last_down_history_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-olt-uplink-url="{{ olt_uplink_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
@@ -2123,6 +2156,7 @@
     const runningConfigUrl = panel.getAttribute('data-running-config-url');
     const lastDownHistoryUrl = panel.getAttribute('data-last-down-history-url');
     const fetchConfigUrl = panel.getAttribute('data-fetch-config-url');
+    const oltUplinkUrl = panel.getAttribute('data-olt-uplink-url') || '';
     const onuDisableUrl = panel.getAttribute('data-onu-disable-url');
     const onuEnableUrl = panel.getAttribute('data-onu-enable-url');
     const onuRestartUrl = panel.getAttribute('data-onu-restart-url');
@@ -2291,6 +2325,16 @@
         }
         sections.push(`<section class="mac-output-section"><div class="mac-output-title">MACs on OLT from this ONU</div>${macHtml}</section>`);
         sections.push(`<section class="mac-output-section"><div class="mac-output-title">Ethernet Ports</div>${portHtml}</section>`);
+        if (macRows.length && oltUplinkUrl) {
+            sections.push(`
+                <section class="mac-output-section">
+                    <div class="mac-uplink-hint">
+                        <span>Want to check MACs for the respective VLANs on the uplink?</span>
+                        <a href="${escapeHtml(oltUplinkUrl)}">Open this OLT uplink page</a>
+                    </div>
+                </section>
+            `);
+        }
         return `<div class="mac-output-view">${sections.join('')}</div>`;
     };
 
