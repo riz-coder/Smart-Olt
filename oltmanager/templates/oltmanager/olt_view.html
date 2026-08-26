@@ -338,6 +338,95 @@
         font-weight: 900;
         margin-bottom: 7px;
     }
+    .uplink-sfp-cell {
+        min-width: 150px;
+        vertical-align: top;
+    }
+    .uplink-sfp-box {
+        display: inline-grid;
+        gap: 5px;
+        min-width: 132px;
+        padding: 8px 10px;
+        border: 1px solid rgba(88, 139, 215, 0.32);
+        border-radius: 12px;
+        background: rgba(47, 128, 255, 0.08);
+        color: #cfe0ff;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.35;
+    }
+    .uplink-sfp-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        white-space: nowrap;
+    }
+    .uplink-sfp-line strong {
+        color: #7db5ff;
+        font-weight: 950;
+    }
+    .uplink-sfp-value {
+        color: #f4f8ff;
+        font-weight: 950;
+    }
+    .uplink-sfp-value.is-copper {
+        color: #ff5f72;
+        text-shadow: 0 0 10px rgba(255, 95, 114, 0.34);
+    }
+    .uplink-sfp-temp {
+        color: #35e58d;
+        font-weight: 950;
+    }
+    .uplink-sfp-temp.is-hot {
+        color: #ff5f72;
+        text-shadow: 0 0 10px rgba(255, 95, 114, 0.34);
+    }
+    .uplink-sfp-temp.is-ok {
+        color: #35e58d;
+        text-shadow: 0 0 10px rgba(53, 229, 141, 0.22);
+    }
+    .uplink-sfp-refresh {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        margin-left: 6px;
+        border: 1px solid rgba(47, 128, 255, 0.48);
+        border-radius: 999px;
+        background: rgba(47, 128, 255, 0.16);
+        color: #9fd0ff;
+        font-size: 14px;
+        font-weight: 950;
+        cursor: pointer;
+        vertical-align: top;
+    }
+    .uplink-sfp-refresh:hover {
+        background: rgba(47, 128, 255, 0.26);
+        color: #ffffff;
+    }
+    .uplink-sfp-refresh.is-loading {
+        animation: uplinkSfpSpin 0.8s linear infinite;
+        cursor: wait;
+    }
+    .uplink-sfp-refresh.is-disabled:not(.is-loading) {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+    .uplink-sfp-status {
+        display: block;
+        margin-top: 5px;
+        color: #8ea5ca;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1.35;
+    }
+    .uplink-sfp-status.is-error {
+        color: #ff8ea0;
+    }
+    @keyframes uplinkSfpSpin {
+        to { transform: rotate(360deg); }
+    }
     .uplink-mac-head {
         display: flex;
         align-items: center;
@@ -444,6 +533,44 @@
         font-weight: 800;
     }
     html[data-theme="light"] .uplink-mac-placeholder { color: #50647f; }
+    html[data-theme="light"] .uplink-sfp-box {
+        background: #f2f7ff;
+        border-color: #bdd2f2;
+        color: #17365f;
+    }
+    html[data-theme="light"] .uplink-sfp-line strong {
+        color: #1d5fd6;
+    }
+    html[data-theme="light"] .uplink-sfp-value {
+        color: #10233f;
+    }
+    html[data-theme="light"] .uplink-sfp-value.is-copper {
+        color: #c01e35;
+        text-shadow: none;
+    }
+    html[data-theme="light"] .uplink-sfp-temp.is-ok {
+        color: #087d45;
+        text-shadow: none;
+    }
+    html[data-theme="light"] .uplink-sfp-temp.is-hot {
+        color: #c01e35;
+        text-shadow: none;
+    }
+    html[data-theme="light"] .uplink-sfp-refresh {
+        background: #eaf2ff;
+        border-color: #9dbbe9;
+        color: #1d5fd6;
+    }
+    html[data-theme="light"] .uplink-sfp-refresh:hover {
+        background: #2f80ff;
+        color: #ffffff;
+    }
+    html[data-theme="light"] .uplink-sfp-status {
+        color: #50647f;
+    }
+    html[data-theme="light"] .uplink-sfp-status.is-error {
+        color: #b42335;
+    }
     html[data-theme="light"] .uplink-mac-lag-note {
         background: #fff7e8;
         border-color: #f4c56f;
@@ -839,6 +966,81 @@
         color: #a9c8ff;
         font-size: 12px;
         font-weight: 700;
+    }
+    .olt-wait-progress {
+        height: 8px;
+        margin: 14px 0 10px;
+        border: 1px solid rgba(98, 151, 225, 0.45);
+        border-radius: 999px;
+        background: rgba(5, 13, 29, 0.9);
+        overflow: hidden;
+    }
+    .olt-wait-progress span {
+        display: block;
+        width: 32%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #2f80ff, #66e2a0);
+        box-shadow: 0 0 18px rgba(102, 226, 160, 0.35);
+        transition: width 0.25s ease;
+    }
+    .olt-wait-steps {
+        display: grid;
+        gap: 7px;
+        margin-top: 10px;
+        text-align: left;
+    }
+    .olt-wait-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #7f96bf;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .olt-wait-step::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #354760;
+        flex: 0 0 auto;
+    }
+    .olt-wait-step.active {
+        color: #dbe8ff;
+    }
+    .olt-wait-step.active::before {
+        background: #2f80ff;
+        box-shadow: 0 0 12px rgba(47, 128, 255, 0.8);
+    }
+    .olt-wait-step.done {
+        color: #83f0ae;
+    }
+    .olt-wait-step.done::before {
+        background: #66e2a0;
+        box-shadow: 0 0 12px rgba(102, 226, 160, 0.8);
+    }
+    html[data-theme="light"] .olt-wait-overlay {
+        background: rgba(221, 231, 245, 0.72);
+    }
+    html[data-theme="light"] .olt-wait-card {
+        background: #f8fbff;
+        border-color: #8fb7ec;
+        box-shadow: 0 22px 60px rgba(24, 70, 128, 0.22);
+    }
+    html[data-theme="light"] .olt-wait-title {
+        color: #08264a;
+    }
+    html[data-theme="light"] .olt-wait-subtitle,
+    html[data-theme="light"] .olt-wait-step.active {
+        color: #1e4f8d;
+    }
+    html[data-theme="light"] .olt-wait-step {
+        color: #627493;
+    }
+    html[data-theme="light"] .olt-wait-progress {
+        background: #d9e7f8;
+        border-color: #b6cae6;
     }
     .cli-toolbar {
         display: flex;
@@ -1552,6 +1754,7 @@
                                     <th>Admin state</th>
                                     <th>Status</th>
                                     <th>Speed</th>
+                                    <th>SFP Power</th>
                                     <th>Aggregate</th>
                                     <th>VLANs</th>
                                     <th>Mode</th>
@@ -1566,6 +1769,21 @@
                                     <td>{{ row.admin_status }}</td>
                                     <td class="{% if row.oper_status|upper == 'UP' %}status-normal{% else %}status-failed{% endif %}">{{ row.oper_status }}</td>
                                     <td class="{% if row.speed|default:'-' != '-' %}status-normal{% endif %}">{{ row.speed|default:"-" }}</td>
+                                    <td class="uplink-sfp-cell" data-sfp-power-cell>
+                                        <span class="uplink-sfp-box">
+                                            <span class="uplink-sfp-line"><strong>Tx</strong> <span class="uplink-sfp-value" data-sfp-tx>{{ row.sfp_tx_power|default:"-" }}</span></span>
+                                            <span class="uplink-sfp-line"><strong>Rx</strong> <span class="uplink-sfp-value" data-sfp-rx>{{ row.sfp_rx_power|default:"-" }}</span></span>
+                                            <span class="uplink-sfp-line"><strong>Temp</strong> <span class="uplink-sfp-temp" data-sfp-temp>{{ row.sfp_temperature|default:"-" }}</span></span>
+                                        </span>
+                                        <button
+                                            type="button"
+                                            class="uplink-sfp-refresh"
+                                            title="Refresh SFP power and temperature"
+                                            data-uplink-sfp-fetch
+                                            data-url="{% url 'olt_uplink_sfp_ddm_data' olt.pk %}"
+                                            data-port="{{ row.port }}">&#8635;</button>
+                                        <span class="uplink-sfp-status" data-sfp-status>{% if row.sfp_ddm_status != "SFP DDM fetched." %}{{ row.sfp_ddm_status|default:"" }}{% endif %}</span>
+                                    </td>
                                     <td class="uplink-agg-cell">
                                         {% if row.aggregate.master %}
                                         <span class="agg-chip{% if row.aggregate.is_master %} agg-master{% endif %}">{% if row.aggregate.is_master %}&#9733; LAG master{% else %}LAG member{% endif %}</span>
@@ -1880,8 +2098,30 @@
 <div class="olt-wait-overlay" id="syncConfigOverlay" hidden>
     <div class="olt-wait-card" role="status" aria-live="polite">
         <div class="olt-wait-wheel"></div>
-        <p class="olt-wait-title">Waiting for OLT</p>
+        <p class="olt-wait-title">Config Sync Running</p>
         <p class="olt-wait-subtitle">Reading configured ONUs and updating the database...</p>
+    </div>
+</div>
+<div
+    class="olt-wait-overlay"
+    id="autoVlanRefreshOverlay"
+    data-url="{{ auto_vlan_refresh.url|default:'' }}"
+    data-section="{{ auto_vlan_refresh.section|default:'' }}"
+    data-title="{{ auto_vlan_refresh.title|default:'' }}"
+    data-message="{{ auto_vlan_refresh.message|default:'' }}"
+    hidden
+>
+    <div class="olt-wait-card" role="status" aria-live="polite">
+        <div class="olt-wait-wheel"></div>
+        <p class="olt-wait-title" id="autoVlanRefreshTitle">Refreshing OLT data</p>
+        <p class="olt-wait-subtitle" id="autoVlanRefreshSubtitle">Preparing refresh...</p>
+        <div class="olt-wait-progress"><span id="autoVlanRefreshProgress"></span></div>
+        <div class="olt-wait-steps">
+            <span class="olt-wait-step active" id="autoVlanStepConnect">Opening OLT session</span>
+            <span class="olt-wait-step" id="autoVlanStepRead">Reading VLAN information</span>
+            <span class="olt-wait-step" id="autoVlanStepSave">Updating local database</span>
+            <span class="olt-wait-step" id="autoVlanStepReload">Reloading section</span>
+        </div>
     </div>
 </div>
 <script>
@@ -1913,6 +2153,76 @@
                 unreachablePop.setAttribute('hidden', '');
             }
         });
+    }
+    const autoVlanOverlay = document.getElementById('autoVlanRefreshOverlay');
+    if (autoVlanOverlay && autoVlanOverlay.dataset.url) {
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        const csrfToken = csrfInput ? csrfInput.value : '';
+        const titleNode = document.getElementById('autoVlanRefreshTitle');
+        const subtitleNode = document.getElementById('autoVlanRefreshSubtitle');
+        const progressNode = document.getElementById('autoVlanRefreshProgress');
+        const stepConnect = document.getElementById('autoVlanStepConnect');
+        const stepRead = document.getElementById('autoVlanStepRead');
+        const stepSave = document.getElementById('autoVlanStepSave');
+        const stepReload = document.getElementById('autoVlanStepReload');
+        const setStep = (activeStep, width, message) => {
+            [stepConnect, stepRead, stepSave, stepReload].forEach((step) => {
+                if (!step) return;
+                step.classList.remove('active');
+                if (step === activeStep) step.classList.add('active');
+                if (
+                    (activeStep === stepRead && step === stepConnect) ||
+                    (activeStep === stepSave && [stepConnect, stepRead].includes(step)) ||
+                    (activeStep === stepReload && [stepConnect, stepRead, stepSave].includes(step))
+                ) {
+                    step.classList.add('done');
+                }
+            });
+            if (progressNode) progressNode.style.width = `${width}%`;
+            if (subtitleNode && message) subtitleNode.textContent = message;
+        };
+        const runAutoVlanRefresh = async () => {
+            if (titleNode) titleNode.textContent = autoVlanOverlay.dataset.title || 'Refreshing OLT data';
+            if (subtitleNode) subtitleNode.textContent = autoVlanOverlay.dataset.message || 'Reading data from the OLT...';
+            autoVlanOverlay.hidden = false;
+            setStep(stepConnect, 28, 'Opening OLT session...');
+            window.setTimeout(() => setStep(stepRead, 58, autoVlanOverlay.dataset.message || 'Reading VLAN information...'), 450);
+            try {
+                const response = await fetch(autoVlanOverlay.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    credentials: 'same-origin',
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.ok) {
+                    const msg = payload.message || 'OLT refresh could not be completed.';
+                    setStep(stepRead, 100, msg);
+                    window.setTimeout(() => { autoVlanOverlay.hidden = true; }, 1800);
+                    return;
+                }
+                setStep(stepSave, 82, payload.message || 'Database updated.');
+                window.setTimeout(() => {
+                    setStep(stepReload, 100, 'Refresh complete. Reloading this section...');
+                    window.setTimeout(() => {
+                        const nextUrl = payload.redirect_url || window.location.href;
+                        const resolvedNext = new URL(nextUrl, window.location.origin);
+                        if (resolvedNext.pathname === window.location.pathname && resolvedNext.search === window.location.search) {
+                            window.location.reload();
+                        } else {
+                            window.location.href = resolvedNext.href;
+                        }
+                    }, 450);
+                }, 450);
+            } catch (error) {
+                setStep(stepRead, 100, 'Refresh request failed. Please try again.');
+                window.setTimeout(() => { autoVlanOverlay.hidden = true; }, 1800);
+            }
+        };
+        window.setTimeout(runAutoVlanRefresh, 140);
     }
     if (refreshForms.length) {
         refreshForms.forEach((form) => {
@@ -2575,6 +2885,84 @@ terminal.addEventListener('click', () => terminal.focus());
             } finally {
                 button.disabled = false;
                 button.textContent = originalText || 'Fetch Uplink MAC';
+            }
+        });
+    });
+
+    const setSfpStatus = (row, text, isError = false) => {
+        const statusNode = row ? row.querySelector('[data-sfp-status]') : null;
+        if (!statusNode) return;
+        statusNode.textContent = text || '';
+        statusNode.classList.toggle('is-error', Boolean(isError));
+    };
+    const setSfpTempTone = (tempNode) => {
+        if (!tempNode) return;
+        const match = String(tempNode.textContent || '').match(/-?\d+(?:\.\d+)?/);
+        const value = match ? Number(match[0]) : NaN;
+        tempNode.classList.remove('is-ok', 'is-hot');
+        if (!Number.isFinite(value)) return;
+        tempNode.classList.add(value > 70 ? 'is-hot' : 'is-ok');
+    };
+    const setSfpPowerTone = (node) => {
+        if (!node) return;
+        node.classList.toggle('is-copper', /ethersfp|ethernet\s+sfp\s+placed/i.test(node.textContent || ''));
+    };
+    document.querySelectorAll('[data-sfp-status]').forEach((node) => {
+        const text = String(node.textContent || '').trim();
+        if (!text || /sfp\s+ddm\s+fetched|ethersfp|ethernet\s+sfp\s+placed/i.test(text)) {
+            node.textContent = '';
+        } else if (!/unable\s+to\s+fetch\s+signals/i.test(text)) {
+            node.textContent = 'Unable to fetch signals';
+            node.classList.add('is-error');
+        }
+    });
+    document.querySelectorAll('[data-sfp-temp]').forEach(setSfpTempTone);
+    document.querySelectorAll('[data-sfp-tx], [data-sfp-rx]').forEach(setSfpPowerTone);
+    const sfpRefreshButtons = Array.from(document.querySelectorAll('[data-uplink-sfp-fetch]'));
+    let sfpRefreshBusy = false;
+    const setAllSfpRefreshDisabled = (disabled) => {
+        sfpRefreshButtons.forEach((btn) => {
+            btn.disabled = disabled;
+            btn.classList.toggle('is-disabled', Boolean(disabled));
+        });
+    };
+    sfpRefreshButtons.forEach((button) => {
+        button.addEventListener('click', async () => {
+            if (sfpRefreshBusy) return;
+            const baseUrl = button.dataset.url || '';
+            const port = button.dataset.port || '';
+            const row = button.closest('tr[data-uplink-port]');
+            if (!baseUrl || !port || !row) return;
+            const txNode = row.querySelector('[data-sfp-tx]');
+            const rxNode = row.querySelector('[data-sfp-rx]');
+            const tempNode = row.querySelector('[data-sfp-temp]');
+            sfpRefreshBusy = true;
+            setAllSfpRefreshDisabled(true);
+            button.classList.add('is-loading');
+            setSfpStatus(row, `Refreshing ${port}...`);
+            try {
+                const url = `${baseUrl}?port=${encodeURIComponent(port)}&t=${Date.now()}`;
+                const response = await fetch(url, { credentials: 'same-origin' });
+                const payload = await response.json();
+                if (txNode) {
+                    txNode.textContent = payload.tx_power || '-';
+                    setSfpPowerTone(txNode);
+                }
+                if (rxNode) {
+                    rxNode.textContent = payload.rx_power || '-';
+                    setSfpPowerTone(rxNode);
+                }
+                if (tempNode) {
+                    tempNode.textContent = payload.temperature || '-';
+                    setSfpTempTone(tempNode);
+                }
+                setSfpStatus(row, payload.ok ? '' : 'Unable to fetch signals', !payload.ok);
+            } catch (error) {
+                setSfpStatus(row, 'Unable to fetch signals', true);
+            } finally {
+                button.classList.remove('is-loading');
+                sfpRefreshBusy = false;
+                setAllSfpRefreshDisabled(false);
             }
         });
     });

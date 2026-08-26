@@ -11,7 +11,7 @@ import telnetlib
 import threading
 import time
 import uuid
-from urllib.parse import quote_plus, urlencode
+from urllib.parse import quote_plus, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
@@ -56,6 +56,7 @@ from .utils import (
     fetch_olt_snmp_onu_type_map,
     fetch_olt_snmp_onu_type_distance_maps,
     fetch_uplink_mac_addresses,
+    fetch_uplink_sfp_ddm,
     fetch_single_onu_snmp_distance,
     fetch_single_onu_snmp_type,
     execute_onu_cli_delete_action,
@@ -919,6 +920,31 @@ def _safe_session_pop(request, key, default=None):
         return default
     except Exception:
         return default
+
+
+def _olt_view_vlan_autorefresh_key(olt_id, section):
+    return f"olt_view_vlan_autorefresh_{int(olt_id)}_{section}"
+
+
+def _reset_olt_view_vlan_autorefresh_on_new_visit(request, olt_id):
+    current_path = reverse("olt_view", kwargs={"pk": int(olt_id)})
+    try:
+        referrer_path = urlparse(request.META.get("HTTP_REFERER") or "").path
+    except Exception:
+        referrer_path = ""
+    if referrer_path == current_path:
+        return
+    for section in ("uplink", "vlans"):
+        _safe_session_pop(request, _olt_view_vlan_autorefresh_key(olt_id, section), None)
+
+
+def _should_auto_refresh_olt_vlan_section(request, olt, selected_section):
+    if selected_section not in {"uplink", "vlans"}:
+        return False
+    session_key = _olt_view_vlan_autorefresh_key(olt.pk, selected_section)
+    if request.session.get(session_key):
+        return False
+    return True
 
 
 def _format_onu_display_name(value, fallback=""):
@@ -8645,6 +8671,15 @@ def olt_view(request, pk):
     olt = _get_olt_for_view(pk, selected_section)
     if olt.pricing_access_locked:
         return _render_olt_subscription_locked(request, olt)
+    _reset_olt_view_vlan_autorefresh_on_new_visit(request, olt.pk)
+    auto_vlan_refresh = None
+    if _should_auto_refresh_olt_vlan_section(request, olt, selected_section):
+        auto_vlan_refresh = {
+            "section": selected_section,
+            "url": reverse("olt_refresh_uplink_vlans" if selected_section == "uplink" else "olt_refresh_vlans", kwargs={"pk": olt.pk}),
+            "title": "Refreshing uplink VLANs" if selected_section == "uplink" else "Refreshing VLAN list",
+            "message": "Reading uplink VLAN membership from the OLT..." if selected_section == "uplink" else "Reading the OLT VLAN table and updating the database...",
+        }
 
     olt_cards = []
     olt_cards_status = ''
@@ -8881,6 +8916,7 @@ def olt_view(request, pk):
         'history_rows': history_rows,
         'olt_details_refresh_url': reverse('olt_details_refresh', kwargs={'pk': olt.pk}),
         'olt_config_last_sync_display': olt_config_last_sync_display,
+        'auto_vlan_refresh': auto_vlan_refresh,
     }
     return render(request, 'oltmanager/olt_view.html', context)
 
@@ -9303,6 +9339,42 @@ def olt_uplink_mac_data(request, pk):
 
 
 @login_required
+def olt_uplink_sfp_ddm_data(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    port_name = str(request.GET.get("port") or "").strip()
+    rows = [dict(row or {}) for row in (getattr(olt, "uplink_cache", []) or [])]
+    valid_ports = {str((row or {}).get("port") or "").strip() for row in rows}
+    if not port_name or port_name not in valid_ports:
+        return JsonResponse({
+            "ok": False,
+            "port": port_name,
+            "status": "Select a valid uplink port.",
+            "temperature": "-",
+            "tx_power": "-",
+            "rx_power": "-",
+        }, status=400)
+
+    result = fetch_uplink_sfp_ddm(olt, port_name, timeout_seconds=120)
+    now_display = timezone.localtime(timezone.now(), ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p")
+    for row in rows:
+        if str((row or {}).get("port") or "").strip() != port_name:
+            continue
+        row["sfp_temperature"] = result.get("temperature") or "-"
+        row["sfp_tx_power"] = result.get("tx_power") or "-"
+        row["sfp_rx_power"] = result.get("rx_power") or "-"
+        row["sfp_ddm_status"] = result.get("status") or ""
+        row["sfp_media"] = result.get("sfp_media") or ""
+        row["sfp_type"] = result.get("sfp_type") or ""
+        row["sfp_ddm_updated_at"] = now_display
+        break
+    olt.uplink_cache = rows
+    olt.uplink_refreshed_at = timezone.now()
+    olt.save(update_fields=["uplink_cache", "uplink_refreshed_at"])
+    result["updated_at"] = now_display
+    return JsonResponse(result)
+
+
+@login_required
 def olt_pon_traffic_graph_data(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
     range_key = (request.GET.get("range") or "1h").strip().lower()
@@ -9423,18 +9495,33 @@ def olt_refresh_uplink_vlans(request, pk):
     locked_response = _deny_olt_access_if_locked(request, olt)
     if locked_response:
         return locked_response
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
     if live_lock is None:
+        if is_ajax:
+            return JsonResponse({
+                "ok": False,
+                "busy": True,
+                "message": "Another live OLT task is already running. Please try again in a few seconds.",
+            }, status=409)
         messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
         return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
     try:
         result = refresh_uplink_vlan_snapshot(olt)
         status_text = str(result.get("status") or "")
-        if result.get("ok"):
+        if result.get("ok") and not is_ajax:
             messages.success(request, status_text or "Uplink VLANs refreshed.")
             _record_olt_login(olt, request.user, 'refresh_uplink_vlans', status_text or 'Uplink VLAN refresh completed', request=request)
-        else:
+        elif not result.get("ok") and not is_ajax:
             messages.warning(request, status_text or "Uplink VLAN refresh failed.")
+        _safe_session_set(request, _olt_view_vlan_autorefresh_key(olt.pk, "uplink"), True)
+        if is_ajax:
+            return JsonResponse({
+                "ok": bool(result.get("ok")),
+                "message": status_text or ("Uplink VLANs refreshed." if result.get("ok") else "Uplink VLAN refresh failed."),
+                "updated": int(result.get("updated") or 0),
+                "redirect_url": f"{redirect('olt_view', pk=pk).url}?section=uplink",
+            })
     finally:
         live_lock.release()
     return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
@@ -9447,8 +9534,15 @@ def olt_refresh_vlans(request, pk):
     locked_response = _deny_olt_access_if_locked(request, olt)
     if locked_response:
         return locked_response
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
     live_lock = _acquire_olt_live_lock_with_retry(olt.pk)
     if live_lock is None:
+        if is_ajax:
+            return JsonResponse({
+                "ok": False,
+                "busy": True,
+                "message": "Another live OLT task is already running. Please try again in a few seconds.",
+            }, status=409)
         messages.warning(request, "Another live OLT task is already running. Please try again in a few seconds.")
         return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
     try:
@@ -9457,10 +9551,18 @@ def olt_refresh_vlans(request, pk):
         _record_olt_login(olt, request.user, 'refresh_vlans', 'VLAN refresh completed', request=request)
         status_text = str((vlan_data or {}).get("status") or "")
         row_count = len((vlan_data or {}).get("rows") or [])
-        if row_count:
+        if row_count and not is_ajax:
             messages.success(request, status_text or f"VLANs fetched: {row_count}")
-        elif status_text:
+        elif status_text and not is_ajax:
             messages.warning(request, status_text)
+        _safe_session_set(request, _olt_view_vlan_autorefresh_key(olt.pk, "vlans"), True)
+        if is_ajax:
+            return JsonResponse({
+                "ok": True,
+                "message": status_text or f"VLANs fetched: {row_count}",
+                "rows": row_count,
+                "redirect_url": f"{redirect('olt_view', pk=pk).url}?section=vlans",
+            })
     finally:
         live_lock.release()
     return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")

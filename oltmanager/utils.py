@@ -2341,25 +2341,103 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             result["transcript"] = "\n\n".join(transcript)[:16000]
             return result
 
-        is_epon = "epon" in str(board_kind or "").lower()
-        delete_command = f"ont delete {int(port or 0)} {int(ont_id or 0)}"
-        delete_output = _run_telnet_command(
-            tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
-        )
-        _append_authorize_transcript(transcript, delete_command, delete_output)
-        # A few EPON firmwares use the "onu" verb instead of "ont"; retry once.
-        if is_epon and _delete_failure_text(delete_output) and any(
-            t in str(delete_output or "").lower()
-            for t in ("unknown command", "incomplete command", "% invalid", "parameter error", "command not found", "wrong parameter")
-        ):
-            delete_command = f"onu delete {int(port or 0)} {int(ont_id or 0)}"
-            delete_output = _run_telnet_command(
-                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
-            )
-            _append_authorize_transcript(transcript, delete_command, delete_output)
+        def _delete_command_rejected(text):
+            lowered = str(text or "").lower()
+            return any(token in lowered for token in (
+                "unknown command",
+                "incomplete command",
+                "% invalid",
+                "parameter error",
+                "command not found",
+                "wrong parameter",
+                "too many parameters",
+            ))
 
-        lowered_delete = str(delete_output or "").strip().lower()
-        if _deleted_text(delete_output):
+        def _echo_only_delete_response(command, output):
+            cleaned = _clean_cli_response_text(command, output)
+            compact_cleaned = re.sub(r"\s+", "", str(cleaned or "").lower())
+            compact_command = re.sub(r"\s+", "", str(command or "").lower())
+            return not compact_cleaned or compact_cleaned == compact_command
+
+        def _delete_retryable_response(command, output):
+            return (
+                _echo_only_delete_response(command, output)
+                or _cli_system_busy(output)
+                or _delete_failure_text(output)
+            )
+
+        def _delete_failure_detail(command, output):
+            cleaned = _clean_cli_response_text(command, output)
+            if _echo_only_delete_response(command, output):
+                return "OLT did not confirm ONU delete after retries."
+            return cleaned or "ONU still exists after delete attempts."
+
+        def _reset_delete_interface_context():
+            """Recover from half-read delete prompts without opening a new Telnet session."""
+            _run_telnet_command(tn, "", enter_until_prompt=True, max_wait_seconds=3, step_timeout=0.3)
+            _run_telnet_command(tn, "quit", enter_until_prompt=True, max_wait_seconds=5, step_timeout=0.3)
+            entered_cfg, cfg_out = _enter_config_mode(tn)
+            _append_authorize_transcript(transcript, "config", cfg_out)
+            if not entered_cfg:
+                return False
+            _, iface_out, entered_again = _enter_interface_context(
+                tn, interface_kinds, int(frame or 0), int(slot or 0)
+            )
+            _append_authorize_transcript(
+                transcript,
+                f"interface {board_kind or interface_kinds[0]} {int(frame or 0)}/{int(slot or 0)}",
+                iface_out,
+            )
+            return bool(entered_again)
+
+        def _run_onu_delete_command(command):
+            last_output = ""
+            for attempt in range(6):
+                if attempt:
+                    time.sleep(1.0 if attempt < 3 else 1.8)
+                    if not _reset_delete_interface_context():
+                        continue
+                # Settle the prompt in the same Telnet session before running.
+                _run_telnet_command(tn, "", enter_until_prompt=True, max_wait_seconds=3, step_timeout=0.3)
+                output = _run_telnet_command(
+                    tn,
+                    command,
+                    enter_until_prompt=True,
+                    confirm_response="y",
+                    max_wait_seconds=28,
+                    step_timeout=0.45,
+                )
+                _append_authorize_transcript(transcript, command, output)
+                last_output = output
+                if _deleted_text(output):
+                    return output, True, True
+                if _delete_success_text(output) or _verify_onu_deleted():
+                    return output, True, False
+                if _delete_command_rejected(output):
+                    return output, False, False
+                if _cli_system_busy(output):
+                    continue
+                if not _echo_only_delete_response(command, output) and not _delete_failure_text(output):
+                    # OLT returned meaningful text but no success yet; give the next
+                    # attempt a chance instead of failing after service-port deletion.
+                    continue
+            return last_output, False, False
+
+        ont_delete_command = f"ont delete {int(port or 0)} {int(ont_id or 0)}"
+        delete_commands = [ont_delete_command]
+
+        delete_command = delete_commands[0]
+        delete_output = ""
+        already_deleted = False
+        delete_done = False
+        for candidate_command in delete_commands:
+            delete_command = candidate_command
+            delete_output, delete_done, already_deleted = _run_onu_delete_command(candidate_command)
+            if delete_done:
+                break
+            break
+
+        if already_deleted:
             quit_interface_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
             _append_authorize_transcript(transcript, "quit", quit_interface_output)
             quit_config_output = _run_telnet_command(tn, "quit", enter_until_prompt=True)
@@ -2370,32 +2448,11 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             result["transcript"] = "\n\n".join(transcript)[:16000]
             return result
 
-        delete_confirmed = _delete_success_text(delete_output)
-        needs_retry = (
-            _delete_failure_text(delete_output)
-            or (re.search(r"(?i)success\s*:\s*0\b", str(delete_output or "")) is not None)
-            or ("number of onts that can be deleted" in lowered_delete and not delete_confirmed)
-            or ("number of onus that can be deleted" in lowered_delete and not delete_confirmed)
-        )
-        if needs_retry:
-            retry_output = _run_telnet_command(
-                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
-            )
-            _append_authorize_transcript(transcript, delete_command, retry_output)
-            delete_output = retry_output
-            delete_confirmed = _delete_success_text(delete_output)
-
-        if not _deleted_text(delete_output) and not delete_confirmed and not _verify_onu_deleted():
-            retry_output = _run_telnet_command(
-                tn, delete_command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=22, step_timeout=0.45
-            )
-            _append_authorize_transcript(transcript, delete_command, retry_output)
-            retry_confirmed = _delete_success_text(retry_output)
-            if not _deleted_text(retry_output) and not retry_confirmed and not _verify_onu_deleted():
-                detail = _clean_cli_response_text(delete_command, retry_output or delete_output)
-                result["message"] = f"{delete_command} failed: {detail or 'ONU still exists after delete attempt.'}"
-                result["transcript"] = "\n\n".join(transcript)[:16000]
-                return result
+        if not delete_done:
+            detail = _delete_failure_detail(delete_command, delete_output)
+            result["message"] = f"{delete_command} failed: {detail}"
+            result["transcript"] = "\n\n".join(transcript)[:16000]
+            return result
 
         # Verified end state: ONU config is gone. No save; return immediately so
         # the UI jumps straight to Autofind.
@@ -13911,6 +13968,288 @@ def _parse_uplink_port_command_parts(port_name):
         return None
     frame, slot, port = [int(part) for part in match.groups()]
     return frame, slot, port
+
+
+def _uplink_interface_kind_from_cards(olt, slot):
+    try:
+        target_slot = int(slot)
+    except (TypeError, ValueError):
+        return ""
+    for card in list(getattr(olt, "olt_cards_cache", []) or []):
+        try:
+            card_slot = int((card or {}).get("slot") or -1)
+        except (TypeError, ValueError):
+            continue
+        if card_slot != target_slot:
+            continue
+        text = " ".join(str((card or {}).get(key) or "") for key in ("type", "model_type", "real_type")).upper()
+        model_match = re.search(r"\bH\d{3}([A-Z]+)", text)
+        model_key = model_match.group(1) if model_match else text
+        if model_key.startswith("MCU") or "MCU" in model_key:
+            return "mcu"
+        if model_key.startswith("SCU") or "SCU" in model_key:
+            return "scu"
+        if model_key.startswith(("GIU", "GIC", "X1C", "X2C")) or any(token in model_key for token in ("GIU", "GIC", "X1C", "X2C")):
+            return "giu"
+        if model_key.startswith(("MPSG", "MPS", "MPU")) or any(token in model_key for token in ("MPSG", "MPS", "MPU")):
+            return "mpu"
+    return ""
+
+
+def _format_ddm_decimal(raw_value, suffix):
+    text = str(raw_value or "").strip()
+    if not text or text == "-":
+        return "-"
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+    if not match:
+        return "-"
+    try:
+        value = float(match.group(0))
+    except (TypeError, ValueError):
+        return "-"
+    return f"{value:.2f} {suffix}"
+
+
+def _parse_uplink_sfp_ddm_output(output_text):
+    text = str(output_text or "")
+    lowered = text.lower()
+    if any(token in lowered for token in ("optic module of port is absence", "absence", "can not do such operation")):
+        return {
+            "ok": False,
+            "temperature": "-",
+            "tx_power": "-",
+            "rx_power": "-",
+            "status": "Unable to fetch signals",
+        }
+    if _is_cli_error_text(text):
+        return {
+            "ok": False,
+            "temperature": "-",
+            "tx_power": "-",
+            "rx_power": "-",
+            "status": "Unable to fetch signals",
+        }
+
+    def pick(label_pattern):
+        match = re.search(rf"(?im)^\s*{label_pattern}\s*:\s*([^\r\n]+)\s*$", text)
+        return match.group(1).strip() if match else ""
+
+    temperature = _format_ddm_decimal(pick(r"Temperature\s*\(\s*C\s*\)"), "C")
+    tx_power = _format_ddm_decimal(pick(r"TX\s+power\s*\(\s*dBm\s*\)"), "dBm")
+    rx_power = _format_ddm_decimal(pick(r"RX\s+power\s*\(\s*dBm\s*\)"), "dBm")
+    has_value = any(value != "-" for value in (temperature, tx_power, rx_power))
+    return {
+        "ok": has_value,
+        "temperature": temperature,
+        "tx_power": tx_power,
+        "rx_power": rx_power,
+        "status": "" if has_value else "Unable to fetch signals",
+    }
+
+
+def _parse_uplink_opticstate_output(output_text, target_port):
+    text = str(output_text or "")
+    try:
+        wanted_port = str(int(target_port))
+    except (TypeError, ValueError):
+        wanted_port = str(target_port or "").strip()
+
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("-"):
+            continue
+        parts = stripped.split()
+        if len(parts) < 2 or parts[0] != wanted_port:
+            continue
+        port_type = parts[-1].strip()
+        copper_length = parts[-2].strip() if len(parts) >= 2 else "-"
+        upper_type = port_type.upper()
+        copper_present = copper_length not in {"", "-", "0"}
+        copper_type = "_T" in upper_type or "BASE_T" in upper_type or "COPPER" in upper_type
+        absent = port_type == "-" or all(part == "-" for part in parts[1:])
+        return {
+            "found": True,
+            "port_type": port_type,
+            "copper_length": copper_length,
+            "is_copper": bool(copper_present and copper_type),
+            "is_absent": bool(absent),
+        }
+    return {
+        "found": False,
+        "port_type": "",
+        "copper_length": "",
+        "is_copper": False,
+        "is_absent": False,
+    }
+
+
+def fetch_uplink_sfp_ddm(olt, uplink_port, *, timeout_seconds=30):
+    result = {
+        "ok": False,
+        "port": str(uplink_port or "").strip(),
+        "interface_kind": "",
+        "temperature": "-",
+        "tx_power": "-",
+        "rx_power": "-",
+        "status": "Unable to fetch signals",
+    }
+    parsed_port = _parse_uplink_port_command_parts(uplink_port)
+    if not parsed_port:
+        result["status"] = "Invalid uplink port."
+        return result
+
+    frame, slot, port = parsed_port
+    preferred_kind = _uplink_interface_kind_from_cards(olt, slot)
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["status"] = status or "Telnet session could not be opened."
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=True)
+        kinds = [preferred_kind] if preferred_kind else ["mcu", "scu", "giu", "mpu"]
+
+        config_entered, _config_output = _enter_config_mode(tn)
+        if not config_entered:
+            result["status"] = "Could not enter OLT config mode."
+            return result
+
+        for kind in kinds:
+            enter_output = _run_telnet_command(
+                tn,
+                f"interface {kind} {frame}/{slot}",
+                enter_until_prompt=True,
+                max_wait_seconds=8,
+                step_timeout=0.2,
+                max_loops=48,
+            )
+            if _is_cli_error_text(enter_output):
+                continue
+            lines = [line.strip().lower() for line in str(enter_output or "").splitlines() if line.strip()]
+            if not any(f"config-if-{kind}-{frame}/{slot}" in line for line in lines):
+                if str(enter_output or "").strip():
+                    continue
+            board_kind = kind
+            try:
+                # Some MA-series CLIs echo the interface command slightly late.
+                # Drain that stale echo before reading optic/DDM output.
+                time.sleep(0.15)
+                try:
+                    tn.read_very_eager()
+                except (OSError, EOFError):
+                    pass
+                optic_command = "display port opticstate all"
+                optic_output = _run_telnet_command(
+                    tn,
+                    optic_command,
+                    enter_until_prompt=True,
+                    max_wait_seconds=int(timeout_seconds or 120),
+                    step_timeout=0.18,
+                    max_loops=max(80, int((timeout_seconds or 120) / 0.18)),
+                )
+                optic = _parse_uplink_opticstate_output(optic_output, port)
+                if optic.get("found") and optic.get("is_copper"):
+                    label = "EtherSFP"
+                    result.update({
+                        "ok": True,
+                        "temperature": "-",
+                        "tx_power": label,
+                        "rx_power": "-",
+                        "status": label,
+                        "sfp_media": "copper",
+                        "sfp_type": optic.get("port_type") or "",
+                        "interface_kind": board_kind,
+                        "command": optic_command,
+                        "raw_output": optic_output or "",
+                    })
+                    return result
+                if optic.get("found") and optic.get("is_absent"):
+                    result.update({
+                        "ok": False,
+                        "temperature": "-",
+                        "tx_power": "-",
+                        "rx_power": "-",
+                        "status": "Unable to fetch signals",
+                        "sfp_media": "absent",
+                        "sfp_type": optic.get("port_type") or "",
+                        "interface_kind": board_kind,
+                        "command": optic_command,
+                        "raw_output": optic_output or "",
+                    })
+                    return result
+
+                time.sleep(0.15)
+                try:
+                    tn.read_very_eager()
+                except (OSError, EOFError):
+                    pass
+                last_output = ""
+                last_command = ""
+                last_parsed = {}
+                last_optic = optic
+                for command in (
+                    f"display port ddm-info {int(port)}",
+                    f"display port ddm-info {int(port)}",
+                ):
+                    output = _run_telnet_command(
+                        tn,
+                        command,
+                        enter_until_prompt=True,
+                        max_wait_seconds=int(timeout_seconds or 120),
+                        step_timeout=0.18,
+                        max_loops=max(80, int((timeout_seconds or 120) / 0.18)),
+                    )
+                    command_optic = optic if optic.get("found") else _parse_uplink_opticstate_output(output, port)
+                    last_optic = command_optic
+                    if command_optic.get("found") and command_optic.get("is_copper"):
+                        label = "EtherSFP"
+                        result.update({
+                            "ok": True,
+                            "temperature": "-",
+                            "tx_power": label,
+                            "rx_power": "-",
+                            "status": label,
+                            "sfp_media": "copper",
+                            "sfp_type": command_optic.get("port_type") or "",
+                            "interface_kind": board_kind,
+                            "command": command,
+                            "raw_output": output or "",
+                            "opticstate_output": optic_output or "",
+                        })
+                        return result
+                    parsed = _parse_uplink_sfp_ddm_output(output)
+                    last_output = output or ""
+                    last_command = command
+                    last_parsed = parsed
+                    if parsed.get("ok"):
+                        break
+                    if "absence" in str(output or "").lower():
+                        break
+
+                result.update(last_parsed)
+                result.update({
+                    "interface_kind": board_kind,
+                    "command": last_command,
+                    "raw_output": last_output,
+                    "opticstate_output": optic_output or "",
+                    "sfp_media": "optical" if last_parsed.get("ok") else "",
+                    "sfp_type": last_optic.get("port_type") or "",
+                })
+                return result
+            finally:
+                _run_telnet_command(tn, "quit")
+
+        result["status"] = "Unable to fetch signals"
+        return result
+    except (socket.timeout, TimeoutError):
+        result["status"] = "Unable to fetch signals"
+        return result
+    except (EOFError, OSError) as exc:
+        result["status"] = "Unable to fetch signals"
+        return result
+    finally:
+        _close_telnet_session(tn)
 
 
 def _parse_display_port_vlan_ids(output_text):
