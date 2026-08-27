@@ -68,6 +68,7 @@
                             <input type="hidden" name="slot" value="{{ row.board|default:0 }}">
                             <input type="hidden" name="port" value="{{ row.port|default:0 }}">
                             <input type="hidden" name="sn" value="{{ row.sn|default:'' }}">
+                            <input type="hidden" name="pon_type" value="{{ row.authorize_pon_type|default:'GPON' }}">
                             <input type="hidden" name="reconfigure" value="{% if row.category == 'resync' %}1{% else %}0{% endif %}">
                             <div class="authorize-panel-head">
                                 <h4>{% if row.category == 'resync' %}Reconfigure ONU{% else %}Authorize ONU{% endif %}</h4>

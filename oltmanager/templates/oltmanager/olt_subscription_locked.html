@@ -56,6 +56,34 @@
         font-size: 16px;
     }
     .lock-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    html[data-theme="light"] .lock-card {
+        border-color: #efb344;
+        background:
+            radial-gradient(circle at 92% 12%, rgba(255, 184, 77, 0.22), transparent 34%),
+            linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        box-shadow: 0 22px 58px rgba(34, 58, 98, 0.22);
+        color: #10213d;
+    }
+    html[data-theme="light"] .lock-kicker {
+        color: #a45b00;
+    }
+    html[data-theme="light"] .lock-card h1 {
+        color: #10213d;
+        text-shadow: none;
+    }
+    html[data-theme="light"] .lock-message {
+        color: #8a3b0c;
+    }
+    html[data-theme="light"] .lock-metric {
+        border-color: #c2d4eb;
+        background: #eef5ff;
+    }
+    html[data-theme="light"] .lock-metric span {
+        color: #254a84;
+    }
+    html[data-theme="light"] .lock-metric strong {
+        color: #0b1f3d;
+    }
     @media (max-width: 760px) {
         .lock-grid { grid-template-columns: 1fr; }
     }

@@ -2151,17 +2151,32 @@ def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admi
         _close_telnet_session(tn)
 
 
-def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_port_ids=None):
+def execute_onu_cli_delete_action(
+    olt,
+    slot,
+    port,
+    ont_id,
+    *,
+    frame=0,
+    service_port_ids=None,
+    existing_tn=None,
+    existing_transcript=None,
+    force_pon_cli="",
+):
     result = {
         "ok": False,
         "message": "CLI ONU delete failed.",
         "transcript": "",
     }
-    transcript = []
-    tn, status = open_telnet_authenticated_session(olt)
+
+    transcript = existing_transcript if existing_transcript is not None else []
+    tn = existing_tn
+    close_session = tn is None
     if tn is None:
-        result["message"] = status or "Telnet session could not be opened."
-        return result
+        tn, status = open_telnet_authenticated_session(olt)
+        if tn is None:
+            result["message"] = status or "Telnet session could not be opened."
+            return result
 
     def _delete_failure_text(text):
         lowered = str(text or "").lower()
@@ -2199,64 +2214,22 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             "delete successfully",
         ))
 
-    def _onu_missing_from_info():
-        """Return True only when the OLT confirms this ONU is absent."""
-        info_commands = [
-            f"display ont info {int(port or 0)} {int(ont_id or 0)}",
-            f"display onu info {int(port or 0)} {int(ont_id or 0)}",
-        ]
-        for info_command in info_commands:
-            info_output = _run_telnet_command(
-                tn, info_command, enter_until_prompt=True, max_wait_seconds=18, step_timeout=0.45
-            )
-            _append_authorize_transcript(transcript, info_command, info_output)
-            cleaned = _clean_cli_response_text(info_command, info_output)
-            lowered = str(cleaned or info_output or "").lower()
-            if any(token in lowered for token in (
-                "does not exist",
-                "not exist",
-                "the ont does not exist",
-                "the onu does not exist",
-                "ont does not exist",
-                "onu does not exist",
-            )):
-                return True
-            if any(token in lowered for token in (
-                "unknown command",
-                "incomplete command",
-                "parameter error",
-                "% invalid",
-                "wrong parameter",
-                "unrecognized command",
-            )):
-                continue
-            if re.search(r"(?i)\b(?:sn|serial|run state|control flag|ont id|onu id|equipment id)\b", cleaned):
-                return False
-        return False
-
     def _verify_onu_deleted():
-        service_port_verify_command = f"display current-configuration | include {int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} ont {int(ont_id or 0)}"
-        service_port_verify_output = _run_telnet_command(
-            tn, service_port_verify_command, enter_until_prompt=True, max_wait_seconds=30, step_timeout=0.45
+        ont_verify_command = (
+            f"display current-configuration ont "
+            f"{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} {int(ont_id or 0)}"
         )
-        _append_authorize_transcript(transcript, service_port_verify_command, service_port_verify_output)
-        service_port_cleaned = _clean_cli_response_text(service_port_verify_command, service_port_verify_output).lower()
-        service_port_exists = re.search(
-            rf"\bservice-port\s+\d+\b.*\b(?:gpon|epon)\s+{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)}\s+ont\s+{int(ont_id or 0)}\b",
-            service_port_cleaned,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        ont_verify_command = f"display this | include ont add {int(port or 0)} {int(ont_id or 0)}"
         ont_verify_output = _run_telnet_command(
-            tn, ont_verify_command, enter_until_prompt=True, max_wait_seconds=18, step_timeout=0.45
+            tn, ont_verify_command, enter_until_prompt=True, max_wait_seconds=10, step_timeout=0.35
         )
         _append_authorize_transcript(transcript, ont_verify_command, ont_verify_output)
         ont_cleaned = _clean_cli_response_text(ont_verify_command, ont_verify_output).lower()
-        ont_exists = re.search(rf"\b(?:ont|onu)\s+add\s+{int(port or 0)}\s+{int(ont_id or 0)}\b", ont_cleaned)
-        return not service_port_exists and not ont_exists and _onu_missing_from_info()
+        ont_exists = re.search(rf"\bont\s+add\s+{int(port or 0)}\s+{int(ont_id or 0)}\b", ont_cleaned)
+        return not bool(ont_exists)
 
     try:
-        _prepare_telnet_cli_session(tn, use_paging=True)
+        if close_session:
+            _prepare_telnet_cli_session(tn, use_paging=True)
         # Seed with any service-ports we already know from the DB cache.
         delete_service_ports = []
         for raw_value in (service_port_ids or []):
@@ -2264,70 +2237,101 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             if value.isdigit() and int(value) not in delete_service_ports:
                 delete_service_ports.append(int(value))
 
-        # Discovery step (user-requested exact flow): ask the OLT which
-        # service-port(s) belong to THIS ONU before touching anything, e.g.
-        #   display current-configuration | include 0/0/12 ont 15
-        # The OLT prints "It will take a long time ..." and then the matching
-        # "service-port <id> vlan ... gpon 0/0/12 ont 15 ..." line(s). We wait
-        # for the prompt to return and union the discovered ids with the cache
-        # so a stale/empty cache never leaves a dangling service-port behind.
-        fsp = f"{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)}"
-        discover_command = (
-            f"display current-configuration | include {fsp} ont {int(ont_id or 0)}"
-        )
-        discover_output = _run_telnet_command(
-            tn, discover_command, enter_until_prompt=True, max_wait_seconds=45
-        )
-        _append_authorize_transcript(transcript, discover_command, discover_output)
-        for match in re.finditer(r"(?im)\bservice-port\s+(\d+)\b", str(discover_output or "")):
-            sp_id = int(match.group(1))
-            if sp_id not in delete_service_ports:
-                delete_service_ports.append(sp_id)
-
-        entered_config, config_output = _enter_config_mode(tn)
-        _append_authorize_transcript(transcript, "config", config_output)
-        if not entered_config:
-            result["message"] = "Unable to enter configuration mode."
-            return result
-
-        for service_port_id in delete_service_ports:
-            command = f"undo service-port {service_port_id}"
-            output = _run_telnet_command(
-                tn, command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=18, step_timeout=0.45
-            )
-            _append_authorize_transcript(transcript, command, output)
-            lowered = str(output or "").strip().lower()
-            missing_service_port = any(token in lowered for token in (
+        def _service_port_missing_text(text):
+            lowered = str(text or "").strip().lower()
+            return any(token in lowered for token in (
                 "service virtual port does not exist",
                 "service-port does not exist",
                 "service port does not exist",
                 "does not exist",
                 "not exist",
             ))
-            if _delete_failure_text(output) and not missing_service_port:
-                retry_output = _run_telnet_command(
+
+        def _has_attached_service_ports_error(text):
+            lowered = str(text or "").lower()
+            return any(token in lowered for token in (
+                "has some service virtual ports",
+                "configured object has some service virtual ports",
+                "service virtual ports",
+            ))
+
+        def _discover_service_ports_for_onu():
+            # User-requested exact flow: ask the OLT which service-port(s)
+            # belong to THIS ONU, e.g.
+            #   display current-configuration | include 0/0/12 ont 15
+            # This command can pause after the Huawei warning, so the dedicated
+            # reader waits for the real hostname prompt before continuing.
+            fsp = f"{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)}"
+            discover_command = (
+                f"display current-configuration | include {fsp} ont {int(ont_id or 0)}"
+            )
+            discover_output = _run_telnet_current_config_include_command(
+                tn, discover_command, max_wait_seconds=120
+            )
+            _append_authorize_transcript(transcript, discover_command, discover_output)
+            normalized_output = re.sub(r"\s+", " ", str(discover_output or ""))
+            service_port_pattern = re.compile(
+                rf"(?i)\bservice-port\s+(\d+)\b(?:(?!\bservice-port\s+\d+\b).)*\b(?:gpon|epon|xgpon)\s+"
+                rf"{re.escape(fsp)}\s+ont\s+{int(ont_id or 0)}\b"
+            )
+            for match in service_port_pattern.finditer(normalized_output):
+                sp_id = int(match.group(1))
+                if sp_id not in delete_service_ports:
+                    delete_service_ports.append(sp_id)
+            for line in str(discover_output or "").splitlines():
+                lowered_line = line.lower()
+                if "service-port" not in lowered_line:
+                    continue
+                if fsp not in lowered_line or f"ont {int(ont_id or 0)}" not in lowered_line:
+                    continue
+                match = re.search(r"(?i)\bservice-port\s+(\d+)\b", line)
+                if match:
+                    sp_id = int(match.group(1))
+                    if sp_id not in delete_service_ports:
+                        delete_service_ports.append(sp_id)
+            return discover_output
+
+        def _delete_discovered_service_ports():
+            entered_config, config_output = _enter_global_config_mode(tn)
+            if str(config_output or "").strip():
+                _append_authorize_transcript(transcript, "config", config_output)
+            if not entered_config:
+                result["message"] = "Unable to enter configuration mode."
+                return False
+
+            for service_port_id in list(delete_service_ports):
+                command = f"undo service-port {service_port_id}"
+                output = _run_telnet_command(
                     tn, command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=18, step_timeout=0.45
                 )
-                _append_authorize_transcript(transcript, command, retry_output)
-                retry_lowered = str(retry_output or "").strip().lower()
-                retry_missing = any(token in retry_lowered for token in (
-                    "service virtual port does not exist",
-                    "service-port does not exist",
-                    "service port does not exist",
-                    "does not exist",
-                    "not exist",
-                ))
-                if _delete_failure_text(retry_output) and not retry_missing:
-                    result["message"] = _clean_cli_response_text(command, retry_output) or f"Service-port {service_port_id} delete failed."
-                    result["transcript"] = "\n\n".join(transcript)[:16000]
-                    return result
+                _append_authorize_transcript(transcript, command, output)
+                missing_service_port = _service_port_missing_text(output)
+                if _delete_failure_text(output) and not missing_service_port:
+                    retry_output = _run_telnet_command(
+                        tn, command, enter_until_prompt=True, confirm_response="y", max_wait_seconds=18, step_timeout=0.45
+                    )
+                    _append_authorize_transcript(transcript, command, retry_output)
+                    retry_missing = _service_port_missing_text(retry_output)
+                    if _delete_failure_text(retry_output) and not retry_missing:
+                        result["message"] = _clean_cli_response_text(command, retry_output) or f"Service-port {service_port_id} delete failed."
+                        result["transcript"] = "\n\n".join(transcript)[:16000]
+                        return False
+            return True
+
+        _discover_service_ports_for_onu()
+        if not _delete_discovered_service_ports():
+            return result
 
         # Enter the PON interface matching THIS board's technology (EPON / GPON /
         # XGS-PON). A hardcoded "interface gpon" silently fails on an EPON board,
         # which is exactly why EPON ONU delete never worked — the delete must run
         # under the board's own technology, detected from the slot's port type.
         board_tech = _slot_pon_tech(olt, int(slot or 0))
-        interface_kinds = _pon_interface_kinds_for_board(board_tech)
+        forced_kind = str(force_pon_cli or "").strip().lower()
+        if forced_kind in {"gpon", "epon", "xgpon"}:
+            interface_kinds = (forced_kind,)
+        else:
+            interface_kinds = _pon_interface_kinds_for_board(board_tech)
         board_kind, interface_output, entered_iface = _enter_interface_context(
             tn, interface_kinds, int(frame or 0), int(slot or 0)
         )
@@ -2376,8 +2380,9 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
             """Recover from half-read delete prompts without opening a new Telnet session."""
             _run_telnet_command(tn, "", enter_until_prompt=True, max_wait_seconds=3, step_timeout=0.3)
             _run_telnet_command(tn, "quit", enter_until_prompt=True, max_wait_seconds=5, step_timeout=0.3)
-            entered_cfg, cfg_out = _enter_config_mode(tn)
-            _append_authorize_transcript(transcript, "config", cfg_out)
+            entered_cfg, cfg_out = _enter_global_config_mode(tn)
+            if str(cfg_out or "").strip():
+                _append_authorize_transcript(transcript, "config", cfg_out)
             if not entered_cfg:
                 return False
             _, iface_out, entered_again = _enter_interface_context(
@@ -2413,6 +2418,18 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
                     return output, True, True
                 if _delete_success_text(output) or _verify_onu_deleted():
                     return output, True, False
+                if _has_attached_service_ports_error(output):
+                    _append_authorize_transcript(
+                        transcript,
+                        "service-port cleanup retry",
+                        "OLT refused ONT delete because service virtual ports still exist. Rediscovering and removing them before retrying ONT delete.",
+                    )
+                    _discover_service_ports_for_onu()
+                    if not _delete_discovered_service_ports():
+                        return output, False, False
+                    if not _reset_delete_interface_context():
+                        return output, False, False
+                    continue
                 if _delete_command_rejected(output):
                     return output, False, False
                 if _cli_system_busy(output):
@@ -2474,13 +2491,14 @@ def execute_onu_cli_delete_action(olt, slot, port, ont_id, *, frame=0, service_p
         result["transcript"] = "\n\n".join(transcript)[:16000]
         return result
     finally:
-        try:
-            _close_telnet_session(tn)
-        except Exception:
-            pass
+        if close_session:
+            try:
+                _close_telnet_session(tn)
+            except Exception:
+                pass
 
 
-def find_onu_location_by_sn_cli(olt, sn):
+def find_onu_location_by_sn_cli(olt, sn, *, existing_tn=None, transcript=None):
     """Find an existing ONU location on one OLT by serial number via CLI."""
     result = {"ok": False, "frame": None, "slot": None, "port": None, "ont_id": None, "message": ""}
     candidates = []
@@ -2496,12 +2514,16 @@ def find_onu_location_by_sn_cli(olt, sn):
         result["message"] = "Serial is missing."
         return result
 
-    tn, status = open_telnet_authenticated_session(olt)
+    tn = existing_tn
+    close_session = tn is None
     if tn is None:
-        result["message"] = status or "Telnet session could not be opened."
-        return result
+        tn, status = open_telnet_authenticated_session(olt)
+        if tn is None:
+            result["message"] = status or "Telnet session could not be opened."
+            return result
     try:
-        _prepare_telnet_cli_session(tn, use_paging=True)
+        if close_session:
+            _prepare_telnet_cli_session(tn, use_paging=True)
         commands = []
         for candidate in candidates:
             commands.append(f"display ont info by-sn {candidate}")
@@ -2509,6 +2531,8 @@ def find_onu_location_by_sn_cli(olt, sn):
         last_output = ""
         for command in commands:
             output = _run_telnet_command(tn, command, enter_until_prompt=True, max_wait_seconds=30)
+            if transcript is not None:
+                _append_authorize_transcript(transcript, command, output)
             last_output = str(output or "")
             cleaned = _clean_cli_response_text(command, output)
             fsp_match = re.search(
@@ -2517,6 +2541,8 @@ def find_onu_location_by_sn_cli(olt, sn):
             )
             ont_match = re.search(r"(?i)\b(?:ONT[-\s]*ID|ONU[-\s]*ID)\s*[:=]\s*(\d+)\b", cleaned)
             if fsp_match and ont_match:
+                if re.search(r"(?i)more.*press|press\s+'?q'?\s+to\s+break", last_output):
+                    _abort_telnet_pager_to_prompt(tn)
                 result.update({
                     "ok": True,
                     "frame": int(fsp_match.group(1)),
@@ -2532,6 +2558,8 @@ def find_onu_location_by_sn_cli(olt, sn):
                 cleaned,
             )
             if table_match:
+                if re.search(r"(?i)more.*press|press\s+'?q'?\s+to\s+break", last_output):
+                    _abort_telnet_pager_to_prompt(tn)
                 result.update({
                     "ok": True,
                     "frame": int(table_match.group(1)),
@@ -2550,10 +2578,11 @@ def find_onu_location_by_sn_cli(olt, sn):
         result["message"] = f"Telnet error while locating existing ONU by serial: {exc}"
         return result
     finally:
-        try:
-            _close_telnet_session(tn)
-        except Exception:
-            pass
+        if close_session:
+            try:
+                _close_telnet_session(tn)
+            except Exception:
+                pass
 
 
 def _map_snmp_onu_status(run_value, config_value=None):
@@ -4165,6 +4194,14 @@ def _prepare_telnet_cli_session(tn, include_enable=True, use_paging=False):
         _run_telnet_command(tn, "scroll 512")
 
 
+def _has_global_config_prompt(text):
+    return bool(re.search(r"(?i)\(config\)\s*[#>]\s*$", str(text or "").strip()))
+
+
+def _has_config_submode_prompt(text):
+    return bool(re.search(r"(?i)\(config-[^)]+\)\s*[#>]\s*$", str(text or "").strip()))
+
+
 def _enter_config_mode(tn):
     if tn is None:
         return False, "Telnet session not open."
@@ -4172,8 +4209,10 @@ def _enter_config_mode(tn):
         tn.write(b"\r\n")
         time.sleep(0.08)
         prompt_probe = tn.read_very_eager().decode("utf-8", errors="ignore")
-        if "(config)" in str(prompt_probe).lower() or "(config-" in str(prompt_probe).lower():
+        if _has_global_config_prompt(prompt_probe):
             return True, prompt_probe or ""
+        if _has_config_submode_prompt(prompt_probe):
+            return False, prompt_probe or ""
     except Exception:
         pass
     response = _run_telnet_command(
@@ -4184,8 +4223,10 @@ def _enter_config_mode(tn):
         step_timeout=0.25,
         max_loops=32,
     )
-    if "(config)" in str(response or "").lower() or "(config-" in str(response or "").lower():
+    if _has_global_config_prompt(response):
         return True, response or ""
+    if _has_config_submode_prompt(response):
+        return False, response or ""
     if response and _is_cli_error_text(response):
         return False, response or ""
     # Some Huawei builds do not echo a clean `(config)#` prompt through telnet
@@ -4233,7 +4274,7 @@ def _enter_global_config_mode(tn, transcript=None):
             break
 
         # Inside a config sub-mode (config-if-*, config-gpon-*, etc.) — step out.
-        if "(config-" in lower_probe:
+        if _has_config_submode_prompt(probe) or "(config-" in lower_probe:
             quit_output = _run_telnet_command(tn, "quit", enter_until_prompt=True, max_wait_seconds=4, step_timeout=0.25, max_loops=28)
             last_output = quit_output or last_output
             if transcript is not None and str(quit_output or "").strip():
@@ -4241,28 +4282,48 @@ def _enter_global_config_mode(tn, transcript=None):
             continue
 
         # Already in global config mode.
-        if "(config)" in lower_probe:
+        if _has_global_config_prompt(probe):
             return True, last_output
 
         # Top-level prompt (#, >, ]) or an empty/uncertain read — ready to enter
         # config without quitting (quitting here would log us out).
         break
 
-    entered, output = _enter_config_mode(tn)
-    if transcript is not None and str(output or "").strip():
-        _append_authorize_transcript(transcript, "config", output)
-    return entered, output
+    for _ in range(4):
+        entered, output = _enter_config_mode(tn)
+        last_output = output or last_output
+        if transcript is not None and str(output or "").strip():
+            _append_authorize_transcript(transcript, "config", output)
+        if entered and _has_global_config_prompt(output):
+            return True, output
+        if _has_config_submode_prompt(output):
+            quit_output = _run_telnet_command(tn, "quit", enter_until_prompt=True, max_wait_seconds=4, step_timeout=0.25, max_loops=28)
+            last_output = quit_output or last_output
+            if transcript is not None and str(quit_output or "").strip():
+                _append_authorize_transcript(transcript, "quit", quit_output)
+            continue
+        if entered:
+            return True, output
+        break
+    return False, last_output
 
 
 def _enter_interface_context(tn, interface_kinds, frame, slot):
     if tn is None:
         return "", "Telnet session not open.", False
-    config_entered, config_output = _enter_config_mode(tn)
+    config_entered, config_output = _enter_global_config_mode(tn)
     if not config_entered:
-        return "", "", False
+        return "", config_output or "", False
 
     for board_kind in interface_kinds:
-        response = _run_telnet_command(tn, f"interface {board_kind} {frame}/{slot}")
+        response = _run_telnet_command(
+            tn,
+            f"interface {board_kind} {frame}/{slot}",
+            enter_until_prompt=True,
+            max_wait_seconds=8,
+            step_timeout=0.25,
+            max_loops=40,
+        )
         if response and _is_cli_error_text(response):
             continue
         lines = [line.strip().lower() for line in str(response or "").splitlines() if line.strip()]
@@ -4576,6 +4637,128 @@ def _run_telnet_settled_command(tn, command, max_wait_seconds=6):
     output = re.sub(r"(?i)-+\s*more\s*-+", "", output)
     output = re.sub(r"(?i)--more--", "", output)
     output = re.sub(r"(?i)press\s+space\s+to\s+continue", "", output)
+    return output
+
+
+def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=120):
+    """Run slow Huawei current-config include commands and wait for the prompt.
+
+    These commands often print the "It will take a long time..." warning, pause,
+    then return the actual matching config. Do not advance to the next CLI
+    command until the hostname prompt is seen, otherwise later interface commands
+    get polluted by delayed output.
+    """
+    if tn is None:
+        return "Telnet session not open."
+    _touch_telnet_session(tn)
+    try:
+        tn.read_very_eager()
+    except (OSError, EOFError):
+        pass
+    try:
+        tn.write((str(command or "").strip() + "\r\n").encode("ascii", errors="ignore"))
+    except EOFError:
+        return ""
+
+    output = ""
+    start_ts = time.time()
+    prompt_re = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
+    more_patterns = [
+        re.compile(rb"(?i)-+\s*more\s*-+"),
+        re.compile(rb"(?i)--more--"),
+        re.compile(rb"(?i)\bmore\b.*press"),
+        re.compile(rb"(?i)press\s+space"),
+        re.compile(rb"(?i)press\s+'?q'?"),
+    ]
+    continue_patterns = [
+        re.compile(rb"\{\s*<cr>\|[^\r\n]*\}\s*:\s*$", re.IGNORECASE),
+        re.compile(rb"(?i)\{\s*<cr"),
+        re.compile(rb"(?i)<cr>"),
+        re.compile(rb"(?i)press\s+enter"),
+    ]
+    patterns = more_patterns + continue_patterns + [prompt_re]
+
+    while (time.time() - start_ts) < float(max_wait_seconds):
+        try:
+            idx, _, text = tn.expect(patterns, timeout=0.7)
+        except EOFError:
+            break
+
+        if text:
+            output += ANSI_ESCAPE_PATTERN.sub("", text.decode("ascii", errors="ignore"))
+        else:
+            try:
+                extra = tn.read_very_eager().decode("ascii", errors="ignore")
+            except EOFError:
+                break
+            if extra:
+                output += ANSI_ESCAPE_PATTERN.sub("", extra)
+
+        if idx == -1:
+            continue
+        if idx < len(more_patterns):
+            try:
+                _touch_telnet_session(tn)
+                tn.write(b" ")
+            except EOFError:
+                break
+            continue
+        if idx < len(more_patterns) + len(continue_patterns):
+            try:
+                _touch_telnet_session(tn)
+                tn.write(b"\r\n")
+            except EOFError:
+                break
+            continue
+
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        if lines and PROMPT_LINE_PATTERN.match(lines[-1]):
+            break
+
+    output = re.sub(r"(?i)-+\s*more\s*-+", "", output)
+    output = re.sub(r"(?i)--more--", "", output)
+    output = re.sub(r"(?i)press\s+space\s+to\s+continue", "", output)
+    return output
+
+
+def _abort_telnet_pager_to_prompt(tn, *, max_wait_seconds=8):
+    """Abort a Huawei pager after early parsing so the next command starts clean."""
+    if tn is None:
+        return ""
+    output = ""
+    try:
+        _touch_telnet_session(tn)
+        tn.write(b"q")
+    except EOFError:
+        return output
+
+    prompt_pattern = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
+    start_ts = time.time()
+    sent_enter = False
+    while (time.time() - start_ts) < float(max_wait_seconds):
+        try:
+            idx, _, text = tn.expect([prompt_pattern], timeout=0.5)
+        except EOFError:
+            break
+        if text:
+            output += ANSI_ESCAPE_PATTERN.sub("", text.decode("ascii", errors="ignore"))
+        else:
+            try:
+                extra = tn.read_very_eager().decode("ascii", errors="ignore")
+            except EOFError:
+                break
+            if extra:
+                output += ANSI_ESCAPE_PATTERN.sub("", extra)
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        if idx == 0 and lines and PROMPT_LINE_PATTERN.match(lines[-1]):
+            break
+        if not sent_enter and (time.time() - start_ts) > 1.0:
+            try:
+                _touch_telnet_session(tn)
+                tn.write(b"\r\n")
+            except EOFError:
+                break
+            sent_enter = True
     return output
 
 
@@ -9659,6 +9842,7 @@ def authorize_autofind_onu(
     tag_transform="",
     mapping_mode="priority",
     line_profile_vlan_ids=None,
+    pon_type="",
     on_progress=None,
 ):
     from .models import ConfiguredONU
@@ -9709,7 +9893,11 @@ def authorize_autofind_onu(
     generic_mode = False
 
     # ── Detect PON technology from OLT card cache (GPON / EPON / XGS-PON) ──
-    pon_tech = _slot_pon_tech(olt, slot)          # "GPON" | "EPON" | "XGS-PON" | "XG-PON"
+    posted_pon_type = str(pon_type or "").strip().upper()
+    if posted_pon_type in {"GPON", "EPON"}:
+        pon_tech = posted_pon_type
+    else:
+        pon_tech = _slot_pon_tech(olt, slot)      # "GPON" | "EPON" | "XGS-PON" | "XG-PON"
     is_epon = pon_tech.upper() == "EPON"
     pon_tech_cli = "epon" if is_epon else "gpon"  # CLI keyword for profile commands
     if is_epon and vlan_mapping_mode:
@@ -9983,11 +10171,12 @@ def authorize_autofind_onu(
                             "duplicate SN recovery",
                             "OLT reported this serial already exists. Locating and deleting the existing ONU before retrying authorize.",
                         )
-                        try:
-                            _close_telnet_session(tn)
-                        except Exception:
-                            pass
-                        existing_location = find_onu_location_by_sn_cli(olt, sn)
+                        entered_config, config_output = _enter_global_config_mode(tn, transcript=transcript)
+                        if not entered_config:
+                            result["message"] = "SN already exists, but the active Telnet session could not return to configuration mode."
+                            result["transcript"] = "\n\n".join(transcript)[:16000]
+                            return result
+                        existing_location = find_onu_location_by_sn_cli(olt, sn, existing_tn=tn, transcript=transcript)
                         _append_authorize_transcript(
                             transcript,
                             "display ont info by-sn",
@@ -10004,18 +10193,35 @@ def authorize_autofind_onu(
                         old_slot = int(existing_location.get("slot") or 0)
                         old_port = int(existing_location.get("port") or 0)
                         old_ont_id = int(existing_location.get("ont_id") or 0)
+                        cached_service_port_ids = []
+                        try:
+                            cached_rows = ConfiguredONU.objects.filter(
+                                olt=olt,
+                                frame=old_frame,
+                                slot=old_slot,
+                                port=old_port,
+                                ont_id=old_ont_id,
+                            ).values_list("service_port_id_cache", flat=True)
+                            for cache_value in cached_rows:
+                                for match in re.findall(r"\b\d+\b", str(cache_value or "")):
+                                    if match not in cached_service_port_ids:
+                                        cached_service_port_ids.append(match)
+                        except Exception as exc:
+                            _append_authorize_transcript(
+                                transcript,
+                                "read cached service-ports",
+                                f"Warning: could not read cached service-port IDs before duplicate-SN delete: {exc}",
+                            )
                         delete_result = execute_onu_cli_delete_action(
                             olt,
                             old_slot,
                             old_port,
                             old_ont_id,
                             frame=old_frame,
-                            service_port_ids=[],
-                        )
-                        _append_authorize_transcript(
-                            transcript,
-                            "delete existing ONU by SN",
-                            delete_result.get("transcript") or delete_result.get("message") or "",
+                            service_port_ids=cached_service_port_ids,
+                            existing_tn=tn,
+                            existing_transcript=transcript,
+                            force_pon_cli=pon_tech_cli,
                         )
                         if not delete_result.get("ok"):
                             result["message"] = (
@@ -10039,9 +10245,20 @@ def authorize_autofind_onu(
                                 f"Warning: existing ONU was deleted from OLT, but DB cleanup failed: {exc}",
                             )
                         duplicate_sn_recovered = True
-                        retry_after_duplicate_sn_delete = True
+                        entered_config, config_output = _enter_global_config_mode(tn, transcript=transcript)
+                        if not entered_config:
+                            result["message"] = "Existing ONU was deleted, but configuration mode could not be re-entered for authorize retry."
+                            result["transcript"] = "\n\n".join(transcript)[:16000]
+                            return result
+                        interface_output = _run_telnet_authorize_command(tn, interface_command, enter_until_prompt=True)
+                        _append_authorize_transcript(transcript, interface_command, interface_output)
+                        if _authorize_cli_has_failure(interface_output):
+                            result["message"] = _clean_cli_response_text(interface_command, interface_output) or "Existing ONU was deleted, but PON interface could not be re-entered."
+                            result["transcript"] = "\n\n".join(transcript)[:16000]
+                            return result
+                        retry_after_duplicate_sn_delete = False
                         last_retryable_message = "Recovered duplicate SN by deleting the existing ONU."
-                        break
+                        continue
                     if _authorize_cli_duplicate_ont_name(add_output):
                         last_duplicate_name_output = add_output
                         continue

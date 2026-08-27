@@ -422,33 +422,6 @@
     .authorize-submit-row .btn {
         min-width: 180px;
     }
-    .debug-panel {
-        margin: 0 0 18px;
-        padding: 16px;
-        border-radius: 14px;
-        border: 1px solid rgba(82, 146, 255, 0.28);
-        background: rgba(9, 18, 36, 0.92);
-    }
-    .debug-panel h3 {
-        margin: 0 0 10px;
-        font-size: 14px;
-        font-weight: 800;
-        color: #f4f8ff;
-    }
-    .debug-panel pre {
-        margin: 0;
-        max-height: 420px;
-        overflow: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
-        border-radius: 12px;
-        background: rgba(2, 8, 22, 0.86);
-        border: 1px solid rgba(255,255,255,0.08);
-        padding: 14px;
-        color: #d6e6ff;
-        font-size: 12px;
-        line-height: 1.55;
-    }
     .authorize-empty {
         color: #8ea7cc;
         font-size: 12px;
@@ -499,7 +472,10 @@
         display: flex;
     }
     .olt-wait-card {
+        width: min(720px, calc(100vw - 28px));
         min-width: 280px;
+        max-height: calc(100vh - 36px);
+        overflow: auto;
         padding: 28px 32px;
         border-radius: 22px;
         border: 1px solid rgba(105, 165, 255, 0.28);
@@ -880,7 +856,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
     const renderWaitOverlayStage = () => setWaitStep(0, STEP_PROGRESS[0], 'Opening the Telnet session...');
-
     // ── progress polling (replaces time-based timeline) ──────────────────────
     let _pollTimer = null;
     const stopProgressPolling = () => {
@@ -1020,9 +995,10 @@ document.addEventListener('DOMContentLoaded', function () {
                             setWaitStep(4, 100, 'Configuration completed.');
                             window.location.href = result.redirect_url;
                         } else {
-                            hideWaitOverlay();
+                            const failedStep = Number(result.step || 0);
+                            const failedProgress = STEP_PROGRESS[failedStep] || 18;
+                            setWaitStep(failedStep, failedProgress, result.message || 'Authorize failed.');
                             if (submitButton) submitButton.disabled = false;
-                            window.alert(result.message || 'Authorize failed.');
                         }
                     });
                 } catch (error) {

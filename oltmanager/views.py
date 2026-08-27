@@ -5566,7 +5566,6 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
                     "step": 4 if ok else _AUTHORIZE_TASKS[task_id].get("step", 0),
                     "label": "Done" if ok else _AUTHORIZE_TASKS[task_id].get("label", ""),
                     "message": str(payload.get("message") or ""),
-                    "transcript": str(payload.get("transcript") or ""),
                     "redirect_url": redirect_url,
                     "ont_id": ont_id,
                     "service_port_ids": payload.get("service_port_ids") or [],
@@ -5580,7 +5579,6 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
                     "done": True,
                     "ok": False,
                     "message": f"Authorize task encountered an unexpected error: {exc}",
-                    "transcript": "",
                     "redirect_url": "",
                 })
 
@@ -5606,6 +5604,7 @@ def unconfigured_onu_authorize(request):
     slot = request.POST.get("slot", "0")
     port = request.POST.get("port", "0")
     sn = str(request.POST.get("sn") or "").strip()
+    pon_type_value = str(request.POST.get("pon_type") or "").strip().upper()
     onu_type_value = str(request.POST.get("onu_type") or "").strip()
     onu_mode = str(request.POST.get("onu_mode") or "").strip().lower()
     vlan_value = str(request.POST.get("vlan") or "").strip()
@@ -5625,6 +5624,8 @@ def unconfigured_onu_authorize(request):
         return _finish_error("Authorize failed: invalid OLT.")
     if not sn:
         return _finish_error("Authorize failed: serial is missing.")
+    if pon_type_value not in {"GPON", "EPON"}:
+        pon_type_value = "GPON"
     if not onu_type_value:
         return _finish_error("Authorize failed: select an ONU Type.")
     if onu_mode not in {"routing", "bridging"}:
@@ -5684,6 +5685,7 @@ def unconfigured_onu_authorize(request):
         slot=int(slot or 0),
         port=int(port or 0),
         sn=sn,
+        pon_type=pon_type_value,
         onu_type_name=onu_type_value,
         vlan_ids=[vlan_value],
         download_profile_index=download_profile_index,
@@ -5714,7 +5716,7 @@ def unconfigured_onu_authorize(request):
             _AUTHORIZE_TASKS[task_id] = {
                 "done": False, "ok": False, "step": 0,
                 "label": "Opening Telnet session...",
-                "message": "", "transcript": "", "redirect_url": "",
+                "message": "", "redirect_url": "",
                 "created_at": now_ts,
             }
         threading.Thread(
