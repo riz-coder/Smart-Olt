@@ -30,17 +30,14 @@ def expiring_olt_subscriptions(request):
             .only("id", "name", "pricing_expires_at", "pricing_mode")
             .order_by("pricing_expires_at", "name")[:10]
         )
-        for olt in expired:
-            olt.subscription_popup_expired = True
-        for olt in expiring:
-            olt.subscription_popup_expired = False
         olts = (expired + expiring)[:10]
-        alert_kind = "expired" if expired else "expiring"
     except Exception:
+        expired = []
+        expiring = []
         olts = []
-        alert_kind = "expiring"
 
     return {
         "expiring_olt_subscriptions": olts,
-        "subscription_alert_kind": alert_kind,
+        "expired_olt_subscriptions": expired,
+        "upcoming_olt_subscriptions": expiring,
     }

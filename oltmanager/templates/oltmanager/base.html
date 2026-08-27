@@ -701,7 +701,9 @@
             right: 18px;
             z-index: 90;
             display: flex;
+            flex-direction: column;
             justify-content: flex-end;
+            gap: 12px;
             width: min(420px, calc(100vw - 28px));
             pointer-events: none;
         }
@@ -717,7 +719,7 @@
             pointer-events: auto;
             animation: subscriptionToastIn 180ms ease-out both;
         }
-        .subscription-warning-overlay.expired .subscription-warning-card {
+        .subscription-warning-card.expired {
             border-color: rgba(255, 85, 110, 0.52);
             background:
                 radial-gradient(circle at 100% 0%, rgba(255, 85, 110, 0.18), transparent 36%),
@@ -768,8 +770,8 @@
             font-weight: 900;
             white-space: nowrap;
         }
-        .subscription-warning-overlay.expired .subscription-warning-kicker,
-        .subscription-warning-overlay.expired .subscription-warning-list small {
+        .subscription-warning-card.expired .subscription-warning-kicker,
+        .subscription-warning-card.expired .subscription-warning-list small {
             color: #ff9aaa;
         }
         .subscription-warning-actions {
@@ -805,7 +807,7 @@
             border-color: #f0b84b;
             box-shadow: 0 24px 70px rgba(45, 71, 110, 0.22);
         }
-        html[data-theme="light"] .subscription-warning-overlay.expired .subscription-warning-card {
+        html[data-theme="light"] .subscription-warning-card.expired {
             background:
                 radial-gradient(circle at 100% 0%, rgba(255, 69, 100, 0.16), transparent 38%),
                 #fff7f8;
@@ -815,8 +817,8 @@
         html[data-theme="light"] .subscription-warning-kicker {
             color: #a45b00;
         }
-        html[data-theme="light"] .subscription-warning-overlay.expired .subscription-warning-kicker,
-        html[data-theme="light"] .subscription-warning-overlay.expired .subscription-warning-list small {
+        html[data-theme="light"] .subscription-warning-card.expired .subscription-warning-kicker,
+        html[data-theme="light"] .subscription-warning-card.expired .subscription-warning-list small {
             color: #bf1630;
         }
         html[data-theme="light"] .subscription-warning-card h3 {
@@ -866,33 +868,22 @@
         </div>
     </header>
     {% endif %}
-    {% if expiring_olt_subscriptions %}
-    <div class="subscription-warning-overlay {{ subscription_alert_kind|default:'expiring' }}" data-subscription-warning>
-        <section class="subscription-warning-card" role="alert" aria-labelledby="subscriptionWarningTitle">
+    {% if expired_olt_subscriptions or upcoming_olt_subscriptions %}
+    <div class="subscription-warning-overlay" data-subscription-warning>
+        {% if expired_olt_subscriptions %}
+        <section class="subscription-warning-card expired" role="alert" aria-labelledby="subscriptionExpiredTitle">
             <div class="subscription-warning-kicker">
-                {% if subscription_alert_kind == "expired" %}Subscription required{% else %}Subscription warning{% endif %}
+                Subscription required
             </div>
-            <h3 id="subscriptionWarningTitle">
-                {% if subscription_alert_kind == "expired" %}OLT subscription expired{% else %}OLT subscription expiring soon{% endif %}
-            </h3>
+            <h3 id="subscriptionExpiredTitle">OLT subscription expired</h3>
             <p>
-                {% if subscription_alert_kind == "expired" %}
-                    The following OLT subscription has expired. Please renew the subscription to restore access.
-                {% else %}
-                    The following OLT subscription will expire within 48 hours. Please renew the subscription to avoid feature lock.
-                {% endif %}
+                The following OLT subscription has expired. Please renew the subscription to restore access.
             </p>
             <ul class="subscription-warning-list">
-                {% for warn_olt in expiring_olt_subscriptions %}
+                {% for warn_olt in expired_olt_subscriptions %}
                 <li>
                     <span>{{ warn_olt.name }}</span>
-                    <small>
-                        {% if warn_olt.subscription_popup_expired %}
-                            Expired
-                        {% else %}
-                            {{ warn_olt.pricing_expires_at|date:"d M Y, h:i A" }}
-                        {% endif %}
-                    </small>
+                    <small>Expired</small>
                 </li>
                 {% endfor %}
             </ul>
@@ -900,6 +891,27 @@
                 <button type="button" class="subscription-warning-close" data-subscription-warning-close>Close</button>
             </div>
         </section>
+        {% endif %}
+        {% if upcoming_olt_subscriptions %}
+        <section class="subscription-warning-card" role="alert" aria-labelledby="subscriptionWarningTitle">
+            <div class="subscription-warning-kicker">Subscription warning</div>
+            <h3 id="subscriptionWarningTitle">OLT subscription expiring soon</h3>
+            <p>
+                The following OLT subscription will expire within 48 hours. Please renew the subscription to avoid feature lock.
+            </p>
+            <ul class="subscription-warning-list">
+                {% for warn_olt in upcoming_olt_subscriptions %}
+                <li>
+                    <span>{{ warn_olt.name }}</span>
+                    <small>{{ warn_olt.pricing_expires_at|date:"d M Y, h:i A" }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="subscription-warning-actions">
+                <button type="button" class="subscription-warning-close" data-subscription-warning-close>Close</button>
+            </div>
+        </section>
+        {% endif %}
     </div>
     {% endif %}
     {% block content %}{% endblock %}
