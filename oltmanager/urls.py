@@ -74,4 +74,5 @@ urlpatterns = [
     path('save-config/<int:pk>/', views.olt_save_config, name='olt_save_config'),
     path('backup-config/<int:pk>/', views.olt_config_backup, name='olt_config_backup'),
     path('sync-config/<int:pk>/', views.olt_sync_config, name='olt_sync_config'),
+    path('sync-onu/<int:pk>/', views.olt_sync_single_onu, name='olt_sync_single_onu'),
 ]

@@ -797,6 +797,40 @@
         gap: 10px;
         margin-top: 8px;
     }
+    .single-onu-sync-form {
+        display: grid;
+        grid-template-columns: minmax(180px, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid rgba(120, 190, 255, 0.18);
+    }
+    .single-onu-sync-field label {
+        display: block;
+        margin-bottom: 6px;
+        color: #8fbcff;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .single-onu-sync-field input {
+        width: 100%;
+        min-height: 39px;
+        border: 1px solid #315a91;
+        border-radius: 10px;
+        background: rgba(4, 10, 22, 0.45);
+        color: #f5fbff;
+        padding: 9px 11px;
+        font: inherit;
+        font-weight: 800;
+        outline: none;
+    }
+    .single-onu-sync-field input:focus {
+        border-color: #55a7ff;
+        box-shadow: 0 0 0 3px rgba(47, 128, 255, 0.18);
+    }
     .sync-config-warning {
         border: 1px solid rgba(255, 88, 99, 0.58);
         border-radius: 11px;
@@ -923,6 +957,17 @@
     html[data-theme="light"] .sync-new-table td {
         color: #10213d;
         border-bottom-color: #d5e3f5;
+    }
+    html[data-theme="light"] .single-onu-sync-form {
+        border-top-color: #c8ddf5;
+    }
+    html[data-theme="light"] .single-onu-sync-field label {
+        color: #145aa3;
+    }
+    html[data-theme="light"] .single-onu-sync-field input {
+        color: #08213d;
+        border-color: #9bbce5;
+        background: #f7fbff;
     }
     .olt-wait-overlay {
         position: fixed;
@@ -2044,6 +2089,14 @@
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-primary" data-op="Sync Config">Sync Config</button>
                             </form>
+                            <form class="single-onu-sync-form" id="singleOnuSyncForm" method="post" action="{% url 'olt_sync_single_onu' olt.pk %}">
+                                {% csrf_token %}
+                                <div class="single-onu-sync-field">
+                                    <label for="singleOnuSerial">Per ONU Sync</label>
+                                    <input id="singleOnuSerial" name="serial" type="text" placeholder="Enter ONU serial number" autocomplete="off" required>
+                                </div>
+                                <button type="submit" class="btn btn-secondary" data-op="Per ONU Sync">Sync ONU</button>
+                            </form>
                             {% endif %}
                             <div class="sync-config-report" id="syncConfigReport" hidden>
                                 <p class="sync-report-title" id="syncReportTitle">Config Sync Report</p>
@@ -2098,8 +2151,8 @@
 <div class="olt-wait-overlay" id="syncConfigOverlay" hidden>
     <div class="olt-wait-card" role="status" aria-live="polite">
         <div class="olt-wait-wheel"></div>
-        <p class="olt-wait-title">Config Sync Running</p>
-        <p class="olt-wait-subtitle">Reading configured ONUs and updating the database...</p>
+        <p class="olt-wait-title" id="syncConfigOverlayTitle">Config Sync Running</p>
+        <p class="olt-wait-subtitle" id="syncConfigOverlaySubtitle">Reading configured ONUs and updating the database...</p>
     </div>
 </div>
 <div
@@ -2981,7 +3034,10 @@ terminal.addEventListener('click', () => terminal.focus());
     });
 
     const syncConfigForm = document.getElementById('syncConfigForm');
+    const singleOnuSyncForm = document.getElementById('singleOnuSyncForm');
     const syncConfigOverlay = document.getElementById('syncConfigOverlay');
+    const syncConfigOverlayTitle = document.getElementById('syncConfigOverlayTitle');
+    const syncConfigOverlaySubtitle = document.getElementById('syncConfigOverlaySubtitle');
     const syncConfigReport = document.getElementById('syncConfigReport');
     const syncEscapeHtml = (value) => String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -3003,7 +3059,7 @@ terminal.addEventListener('click', () => terminal.focus());
         const newOnuRows = document.getElementById('syncNewOnuRows');
         const reportType = payload.type || (ok ? 'Completed' : 'Failed');
         const count = payload.count ?? payload.actual_count ?? '-';
-        if (titleNode) titleNode.textContent = ok ? 'Config Sync Report' : 'Config Sync Report - Attention Required';
+        if (titleNode) titleNode.textContent = payload.report_title || (ok ? 'Config Sync Report' : 'Config Sync Report - Attention Required');
         if (typeNode) typeNode.textContent = reportType;
         if (countNode) countNode.textContent = count;
         if (timeNode) timeNode.textContent = payload.duration_seconds ? `${payload.duration_seconds}s` : '-';
@@ -3011,16 +3067,20 @@ terminal.addEventListener('click', () => terminal.focus());
         const newOnus = Array.isArray(payload.new_onus) ? payload.new_onus : [];
         if (newOnuBox && newOnuRows) {
             if (ok && newOnus.length) {
-                if (newOnuTitle) newOnuTitle.textContent = `New ONUs Detected (${newOnus.length})`;
+                if (newOnuTitle) newOnuTitle.textContent = payload.onu_list_title || `New ONUs Detected (${newOnus.length})`;
                 newOnuRows.innerHTML = newOnus.map((onu) => {
                     const frame = onu.frame ?? 0;
                     const slot = onu.slot ?? '-';
                     const port = onu.port ?? '-';
                     const ontId = onu.ont_id ?? '-';
                     const path = `${frame}/${slot}/${port} ONT ${ontId}`;
+                    const detailUrl = onu.detail_url || payload.detail_url || '';
+                    const pathHtml = detailUrl
+                        ? `<a href="${syncEscapeHtml(detailUrl)}" class="text-link">${syncEscapeHtml(path)}</a>`
+                        : syncEscapeHtml(path);
                     return `
                         <tr>
-                            <td>${syncEscapeHtml(path)}</td>
+                            <td>${pathHtml}</td>
                             <td>${syncEscapeHtml(onu.sn || '-')}</td>
                             <td>${syncEscapeHtml(onu.name || '-')}</td>
                             <td>${syncEscapeHtml(onu.onu_type || '-')}</td>
@@ -3050,6 +3110,8 @@ terminal.addEventListener('click', () => terminal.focus());
                 btn.textContent = 'Syncing config...';
             }
             if (syncConfigReport) syncConfigReport.hidden = true;
+            if (syncConfigOverlayTitle) syncConfigOverlayTitle.textContent = 'Config Sync Running';
+            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Reading configured ONUs and updating the database...';
             if (syncConfigOverlay) syncConfigOverlay.hidden = false;
             try {
                 const response = await fetch(syncConfigForm.action, {
@@ -3074,6 +3136,56 @@ terminal.addEventListener('click', () => terminal.focus());
                 if (btn) {
                     btn.disabled = false;
                     btn.textContent = originalText || 'Sync Config';
+                }
+            }
+        });
+    }
+    if (singleOnuSyncForm) {
+        singleOnuSyncForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const btn = singleOnuSyncForm.querySelector('button[type="submit"]');
+            const originalText = btn ? btn.textContent : '';
+            const serialInput = singleOnuSyncForm.querySelector('input[name="serial"]');
+            if (!String(serialInput?.value || '').trim()) {
+                if (serialInput) serialInput.focus();
+                return;
+            }
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Syncing ONU...';
+            }
+            if (syncConfigReport) syncConfigReport.hidden = true;
+            if (syncConfigOverlayTitle) syncConfigOverlayTitle.textContent = 'Per ONU Sync Running';
+            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Finding the ONU by serial and updating its DB record...';
+            if (syncConfigOverlay) syncConfigOverlay.hidden = false;
+            try {
+                const response = await fetch(singleOnuSyncForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    body: new FormData(singleOnuSyncForm),
+                });
+                let payload = {};
+                try {
+                    payload = await response.json();
+                } catch (err) {
+                    payload = { report_title: 'Per ONU Sync Report - Attention Required', message: 'Per ONU sync finished, but the response could not be parsed.' };
+                }
+                setSyncReport(payload, response.ok && payload.ok !== false);
+            } catch (err) {
+                setSyncReport({
+                    report_title: 'Per ONU Sync Report - Attention Required',
+                    type: 'Failed',
+                    message: `Per ONU sync request failed: ${err}`,
+                }, false);
+            } finally {
+                if (syncConfigOverlay) syncConfigOverlay.hidden = true;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = originalText || 'Sync ONU';
                 }
             }
         });

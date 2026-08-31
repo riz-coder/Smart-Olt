@@ -2214,18 +2214,41 @@ def execute_onu_cli_delete_action(
             "delete successfully",
         ))
 
+    def _parse_service_ports_from_config_output(output):
+        fsp = f"{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)}"
+        normalized_output = re.sub(r"\s+", " ", str(output or ""))
+        service_ports = []
+        service_port_pattern = re.compile(
+            rf"(?i)\bservice-port\s+(\d+)\b(?:(?!\bservice-port\s+\d+\b).)*\b(?:gpon|epon|xgpon)\s+"
+            rf"{re.escape(fsp)}\s+ont\s+{int(ont_id or 0)}\b"
+        )
+        for match in service_port_pattern.finditer(normalized_output):
+            sp_id = int(match.group(1))
+            if sp_id not in service_ports:
+                service_ports.append(sp_id)
+        return service_ports
+
     def _verify_onu_deleted():
         ont_verify_command = (
             f"display current-configuration ont "
             f"{int(frame or 0)}/{int(slot or 0)}/{int(port or 0)} {int(ont_id or 0)}"
         )
-        ont_verify_output = _run_telnet_command(
-            tn, ont_verify_command, enter_until_prompt=True, max_wait_seconds=10, step_timeout=0.35
+        ont_verify_output = _run_telnet_current_config_include_command(
+            tn, ont_verify_command, max_wait_seconds=18
         )
         _append_authorize_transcript(transcript, ont_verify_command, ont_verify_output)
         ont_cleaned = _clean_cli_response_text(ont_verify_command, ont_verify_output).lower()
         ont_exists = re.search(rf"\bont\s+add\s+{int(port or 0)}\s+{int(ont_id or 0)}\b", ont_cleaned)
-        return not bool(ont_exists)
+        remaining_service_ports = _parse_service_ports_from_config_output(ont_verify_output)
+        deleted_or_missing = _deleted_text(ont_verify_output) or (
+            not bool(ont_exists) and not remaining_service_ports
+        )
+        return {
+            "deleted": bool(deleted_or_missing),
+            "exists": bool(ont_exists),
+            "service_ports": remaining_service_ports,
+            "output": ont_verify_output,
+        }
 
     try:
         if close_session:
@@ -2416,8 +2439,37 @@ def execute_onu_cli_delete_action(
                 last_output = output
                 if _deleted_text(output):
                     return output, True, True
-                if _delete_success_text(output) or _verify_onu_deleted():
+                verify_state = _verify_onu_deleted()
+                for sp_id in verify_state.get("service_ports") or []:
+                    if sp_id not in delete_service_ports:
+                        delete_service_ports.append(sp_id)
+                if verify_state.get("deleted"):
                     return output, True, False
+                if verify_state.get("service_ports"):
+                    _append_authorize_transcript(
+                        transcript,
+                        "service-port cleanup retry",
+                        "Current configuration still shows service-port(s) bound to this ONU. Removing them before retrying ONT delete.",
+                    )
+                    if not _delete_discovered_service_ports():
+                        return output, False, False
+                    if not _reset_delete_interface_context():
+                        return output, False, False
+                    continue
+                if _delete_success_text(output):
+                    # Some MA5600/MA5800 builds print success before the config
+                    # view is fully updated. Give the exact current-config check
+                    # a short settle window before retrying the delete command.
+                    for settle_attempt in range(3):
+                        time.sleep(0.8 + (settle_attempt * 0.5))
+                        verify_state = _verify_onu_deleted()
+                        for sp_id in verify_state.get("service_ports") or []:
+                            if sp_id not in delete_service_ports:
+                                delete_service_ports.append(sp_id)
+                        if verify_state.get("deleted"):
+                            return output, True, False
+                        if verify_state.get("service_ports"):
+                            break
                 if _has_attached_service_ports_error(output):
                     _append_authorize_transcript(
                         transcript,
@@ -2501,15 +2553,7 @@ def execute_onu_cli_delete_action(
 def find_onu_location_by_sn_cli(olt, sn, *, existing_tn=None, transcript=None):
     """Find an existing ONU location on one OLT by serial number via CLI."""
     result = {"ok": False, "frame": None, "slot": None, "port": None, "ont_id": None, "message": ""}
-    candidates = []
-    for candidate in (
-        _preferred_sn_auth_serial(sn),
-        str(sn or "").strip(),
-        _format_epon_mac_auth(sn),
-    ):
-        candidate = str(candidate or "").strip()
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
+    candidates = _onu_info_by_sn_candidates(sn)
     if not candidates:
         result["message"] = "Serial is missing."
         return result
@@ -9238,8 +9282,79 @@ def _preferred_sn_auth_serial(value):
     hex_tokens = [token for token in tokens if re.fullmatch(r"[0-9A-F]{16}", token)]
     if hex_tokens:
         return sorted(hex_tokens)[0]
-    text = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+    extracted = _extract_serial_candidate_texts(value)
+    text = re.sub(r"[^A-Z0-9]+", "", str(extracted[0] if extracted else value or "").upper())
     return text[:64]
+
+
+def _extract_serial_candidate_texts(value):
+    """Extract likely ONU serial/MAC tokens from plain text, markdown, or URLs."""
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return []
+    candidates = []
+
+    # Huawei GPON serials are commonly shown as HWTC12345678, HWTC-12345678,
+    # or the CLI/auth hex form 4857544312345678.
+    for match in re.finditer(r"\b([A-Z]{4})[-_\s:]*([0-9A-F]{8})\b", raw):
+        candidates.append(f"{match.group(1)}{match.group(2)}")
+    for match in re.finditer(r"\b([0-9A-F]{16})\b", raw):
+        candidates.append(match.group(1))
+
+    # EPON autofind often uses a 12-hex MAC with separators.
+    for match in re.finditer(r"\b([0-9A-F]{4})[-:\s]?([0-9A-F]{4})[-:\s]?([0-9A-F]{4})\b", raw):
+        candidates.append("".join(match.groups()))
+
+    compact = re.sub(r"[^A-Z0-9]+", "", raw)
+    if not candidates and compact and len(compact) <= 64:
+        candidates.append(compact)
+
+    unique = []
+    for candidate in candidates:
+        candidate = re.sub(r"[^A-Z0-9]+", "", str(candidate or "").upper())
+        if candidate and candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
+def _onu_info_by_sn_candidates(value):
+    """Return safe CLI candidates for ``display ont info by-sn``.
+
+    For Huawei GPON, SmartOLT-style serials like HWTCD47D5FAE must be sent to
+    the OLT as the SN-auth hex form 48575443D47D5FAE. We keep the display form
+    as a fallback because older/variant firmware may accept it too.
+    """
+    candidates = []
+    for token in _extract_serial_candidate_texts(value):
+        token = re.sub(r"[^A-Z0-9]+", "", str(token or "").upper())
+        if not token:
+            continue
+        token_candidates = []
+        if re.fullmatch(r"[0-9A-F]{16}", token):
+            token_candidates.append(token)
+            try:
+                prefix = bytes.fromhex(token[:8]).decode("ascii", errors="strict")
+            except (TypeError, ValueError, UnicodeDecodeError):
+                prefix = ""
+            if prefix and re.fullmatch(r"[A-Z0-9]{4}", prefix.upper()):
+                token_candidates.append(f"{prefix.upper()}{token[8:]}")
+        elif re.fullmatch(r"[0-9A-F]{12}", token):
+            token_candidates.append(token)
+            token_candidates.append(f"{token[0:4]}-{token[4:8]}-{token[8:12]}")
+        elif re.fullmatch(r"[A-Z0-9]{4}[0-9A-F]{8}", token):
+            if not re.fullmatch(r"[0-9A-F]{4}", token[:4]):
+                try:
+                    token_candidates.append(token[:4].encode("ascii").hex().upper() + token[4:])
+                except UnicodeEncodeError:
+                    pass
+            token_candidates.append(token)
+        else:
+            token_candidates.append(token[:64])
+        for candidate in token_candidates:
+            candidate = str(candidate or "").strip().upper()
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+    return candidates[:6]
 
 
 def _format_epon_mac_auth(value):
@@ -12559,6 +12674,43 @@ def sync_onu_attached_vlans_for_olt(
     now = timezone.now()
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
+        if target_keys and len(records) == 1:
+            # Per-ONU sync must not dump the full OLT service-port table. Use the
+            # exact ONU filter so a single serial sync stays under normal CLI time.
+            for record in records:
+                checked += 1
+                sync_payload = _sync_record_attached_vlans_via_telnet(
+                    tn,
+                    record,
+                    now=now,
+                    max_wait_seconds=45,
+                )
+                if sync_payload.get("changed"):
+                    updated += 1
+                bulk.append(record)
+            ConfiguredONU.objects.bulk_update(
+                bulk,
+                [
+                    "attached_vlans_cache",
+                    "attached_vlans_synced_at",
+                    "service_port_id_cache",
+                    "user_vlan_cache",
+                    "download_profile_index_cache",
+                    "upload_profile_index_cache",
+                    "download_profile_name_cache",
+                    "upload_profile_name_cache",
+                    "onu_mode_cache",
+                ],
+                batch_size=50,
+            )
+            return {
+                "olt": olt.name,
+                "checked": checked,
+                "updated": updated,
+                "status": f"Targeted service-port VLANs checked {checked}, updated {updated}",
+                "last_pk": records[-1].id if records else (start_pk or 0),
+                "wrapped": wrapped,
+            }
         bulk_command = "display current-configuration | include service-port"
         bulk_output = _run_telnet_bulk_command(tn, bulk_command, max_wait_seconds=90)
         preview_detail_map = _parse_service_port_detail_map_from_current_config(bulk_output, {})
@@ -13821,25 +13973,37 @@ def _normalize_autofind_pon_type(value):
 
 
 def _serial_match_tokens(value):
-    text = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-    if not text:
+    extracted = _extract_serial_candidate_texts(value)
+    if not extracted:
+        text = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+        extracted = [text] if text else []
+    if not extracted:
         return set()
-    tokens = {text}
-    if re.fullmatch(r"[0-9A-F]{16}", text):
-        prefix_hex = text[:8]
-        suffix = text[8:]
-        try:
-            prefix = bytes.fromhex(prefix_hex).decode("ascii", errors="strict")
-        except (TypeError, ValueError, UnicodeDecodeError):
-            prefix = ""
-        if prefix and all(32 <= ord(ch) <= 126 for ch in prefix):
-            tokens.add(f"{prefix.upper()}{suffix}")
-    if len(text) == 12 and re.fullmatch(r"[A-Z0-9]{4}[0-9A-F]{8}", text):
-        try:
-            prefix_hex = text[:4].encode("ascii").hex().upper()
-            tokens.add(f"{prefix_hex}{text[4:]}")
-        except UnicodeEncodeError:
-            pass
+    tokens = set()
+    for text in extracted:
+        text = re.sub(r"[^A-Z0-9]+", "", str(text or "").upper())
+        if not text:
+            continue
+        tokens.add(text)
+        if re.fullmatch(r"[0-9A-F]{16}", text):
+            prefix_hex = text[:8]
+            suffix = text[8:]
+            try:
+                prefix = bytes.fromhex(prefix_hex).decode("ascii", errors="strict")
+            except (TypeError, ValueError, UnicodeDecodeError):
+                prefix = ""
+            if prefix and all(32 <= ord(ch) <= 126 for ch in prefix):
+                tokens.add(f"{prefix.upper()}{suffix}")
+        if (
+            len(text) == 12
+            and re.fullmatch(r"[A-Z0-9]{4}[0-9A-F]{8}", text)
+            and not re.fullmatch(r"[0-9A-F]{4}", text[:4])
+        ):
+            try:
+                prefix_hex = text[:4].encode("ascii").hex().upper()
+                tokens.add(f"{prefix_hex}{text[4:]}")
+            except UnicodeEncodeError:
+                pass
     return {token for token in tokens if token}
 
 

@@ -76,6 +76,7 @@ from .utils import (
     sync_single_onu_detail_fields,
     sync_onu_attached_vlans_for_olt,
     sync_single_onu_attached_vlans,
+    sync_detected_onu_keys_inventory,
     fetch_snmp_snapshot,
     fetch_telnet_version_snapshot,
     fetch_ont_autofind_snapshot,
@@ -8655,6 +8656,127 @@ def olt_sync_config(request, pk):
             }, status=500)
         messages.error(request, message)
     return redirect(f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=advanced")
+
+
+@login_required
+@admin_required
+@require_POST
+def olt_sync_single_onu(request, pk):
+    olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+
+    started_at = time.time()
+    sn = str(request.POST.get("serial") or request.POST.get("sn") or "").strip()
+    wants_json = (
+        request.headers.get("x-requested-with") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("accept", "")
+    )
+
+    def _single_response(payload, status=200):
+        if wants_json:
+            return JsonResponse(payload, status=status)
+        message = payload.get("message") or payload.get("status") or ""
+        if payload.get("ok"):
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        return redirect(f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=advanced")
+
+    if not sn:
+        return _single_response({
+            "ok": False,
+            "type": "Failed",
+            "report_title": "Per ONU Sync Report - Attention Required",
+            "message": "Enter an ONU serial number.",
+            "duration_seconds": round(time.time() - started_at, 1),
+        }, status=400)
+
+    try:
+        location = find_onu_location_by_sn_cli(olt, sn)
+        if not location.get("ok"):
+            return _single_response({
+                "ok": False,
+                "type": "Not Found",
+                "report_title": "Per ONU Sync Report - Attention Required",
+                "message": f"ONU serial was not found on {olt.name}: {_ui_telnet_error_message(location.get('message'))}",
+                "duration_seconds": round(time.time() - started_at, 1),
+            }, status=404)
+
+        key = {
+            "frame": int(location.get("frame") or 0),
+            "slot": int(location.get("slot") or 0),
+            "port": int(location.get("port") or 0),
+            "ont_id": int(location.get("ont_id") or 0),
+        }
+        target_keys = [key]
+        inventory = sync_detected_onu_keys_inventory(
+            olt,
+            [(key["frame"], key["slot"], key["port"], key["ont_id"])],
+        )
+        if int(inventory.get("count") or 0) <= 0:
+            return _single_response({
+                "ok": False,
+                "type": "Failed",
+                "report_title": "Per ONU Sync Report - Attention Required",
+                "message": f"ONU located at {key['frame']}/{key['slot']}/{key['port']} ONT {key['ont_id']}, but details were not imported: {_ui_telnet_error_message(inventory.get('status'))}",
+                "duration_seconds": round(time.time() - started_at, 1),
+                "status": inventory.get("status") or "",
+            }, status=502)
+
+        detail_fill = sync_onu_detail_fields_for_olt(olt, target_keys=target_keys)
+        vlan_fill = sync_onu_attached_vlans_for_olt(
+            olt,
+            fallback_missing=True,
+            only_missing=False,
+            imported_only=False,
+            target_keys=target_keys,
+        )
+        onu_rows = _sync_config_new_onu_report_rows(olt, target_keys)
+        detail_url = ""
+        if onu_rows:
+            first = onu_rows[0]
+            detail_url = reverse("configured_onu_detail", kwargs={
+                "olt_pk": olt.pk,
+                "slot": int(first.get("slot") or key["slot"]),
+                "port": int(first.get("port") or key["port"]),
+                "ont_id": int(first.get("ont_id") or key["ont_id"]),
+            })
+            first["detail_url"] = detail_url
+
+        duration_seconds = round(time.time() - started_at, 1)
+        message = (
+            f"Per ONU sync completed on {olt.name}: "
+            f"{key['frame']}/{key['slot']}/{key['port']} ONT {key['ont_id']} updated."
+        )
+        return _single_response({
+            "ok": True,
+            "type": "Completed",
+            "report_title": "Per ONU Sync Report",
+            "onu_list_title": "Synced ONU Detail",
+            "message": message,
+            "duration_seconds": duration_seconds,
+            "count": len(onu_rows) or int(inventory.get("count") or 0),
+            "new_count": int(inventory.get("new_count") or 0),
+            "new_onus": onu_rows,
+            "detail_url": detail_url,
+            "detail_fill_status": detail_fill.get("status") or "",
+            "vlan_fill_status": vlan_fill.get("status") or "",
+            "status": " | ".join(part for part in (
+                inventory.get("status") or "",
+                detail_fill.get("status") or "",
+                vlan_fill.get("status") or "",
+            ) if part),
+        })
+    except Exception as exc:
+        return _single_response({
+            "ok": False,
+            "type": "Failed",
+            "report_title": "Per ONU Sync Report - Attention Required",
+            "message": f"Per ONU sync failed on {olt.name}: {_ui_telnet_error_message(str(exc))}",
+            "duration_seconds": round(time.time() - started_at, 1),
+        }, status=500)
 
 
 @login_required
