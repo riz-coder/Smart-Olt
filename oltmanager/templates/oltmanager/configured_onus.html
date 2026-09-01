@@ -145,6 +145,35 @@
         background: #ffb347;
         box-shadow: 0 0 0 3px rgba(255,179,71,0.16);
     }
+    .status-reason-badge {
+        min-width: 24px;
+        height: 20px;
+        border-radius: 7px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 6px;
+        font-size: 10px;
+        font-weight: 1000;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        box-shadow: 0 0 0 3px rgba(255,255,255,0.05);
+    }
+    .status-reason-badge.admin-disabled {
+        background: #ffb347;
+        color: #1f1400;
+        box-shadow: 0 0 0 3px rgba(255,179,71,0.16), 0 0 14px rgba(255,179,71,0.26);
+    }
+    .status-reason-badge.power-failure {
+        background: #ff6b77;
+        color: #ffffff;
+        box-shadow: 0 0 0 3px rgba(255,107,119,0.16), 0 0 14px rgba(255,107,119,0.30);
+    }
+    .status-reason-badge.loss-of-signal {
+        background: #ff9a1f;
+        color: #1f1000;
+        box-shadow: 0 0 0 3px rgba(255,154,31,0.16), 0 0 14px rgba(255,154,31,0.28);
+    }
     .btn-mini {
         padding: 9px 16px;
         min-width: 80px;
@@ -632,7 +661,17 @@
                 <tbody>
                     {% for row in configured_onu_rows %}
                     <tr data-onu-row data-olt-id="{{ row.olt_id }}" data-slot="{{ row.slot }}" data-port="{{ row.port }}" data-ont-id="{{ row.ont_id }}" data-signal-bucket="{{ row.signal_class|default:'' }}" data-signal-visible="{% if row.signal_class %}1{% else %}0{% endif %}" data-status="{{ row.status_value }}">
-                        <td><span class="status-dot {{ row.status_class }}" data-status-dot title="{{ row.status_label }}"></span></td>
+                        <td data-status-cell>
+                            {% if row.status_value == "admin_disabled" %}
+                            <span class="status-reason-badge admin-disabled" data-status-badge title="{{ row.status_label }}">AD</span>
+                            {% elif row.status_value == "power_failure" %}
+                            <span class="status-reason-badge power-failure" data-status-badge title="{{ row.status_label }}">PF</span>
+                            {% elif row.status_value == "loss_of_signal" %}
+                            <span class="status-reason-badge loss-of-signal" data-status-badge title="{{ row.status_label }}">LOS</span>
+                            {% else %}
+                            <span class="status-dot {{ row.status_class }}" data-status-dot title="{{ row.status_label }}"></span>
+                            {% endif %}
+                        </td>
                         <td>
                             <a href="{% url 'configured_onu_detail' row.olt_id row.slot row.port row.ont_id %}" class="btn btn-primary btn-mini">View</a>
                         </td>
@@ -883,12 +922,34 @@
 
     const csrftoken = document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
 
-      const barsMarkup = (bucket) => `
+    const barsMarkup = (bucket) => `
         <span class="signal-stack">
             <span class="filter-bars ${bucket}" data-signal-bars title="${bucket === 'good' ? 'Good signal' : bucket === 'warn' ? 'Warning signal' : 'Critical signal'}"><i></i><i></i><i></i><i></i></span>
             <span class="signal-spinner" aria-hidden="true"></span>
         </span>
     `;
+    const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[char]));
+    const statusMarkup = (item) => {
+        const value = String(item?.status_value || '').trim();
+        const label = escapeHtml(item?.status_label || '');
+        if (value === 'admin_disabled') {
+            return `<span class="status-reason-badge admin-disabled" data-status-badge title="${label}">AD</span>`;
+        }
+        if (value === 'power_failure') {
+            return `<span class="status-reason-badge power-failure" data-status-badge title="${label}">PF</span>`;
+        }
+        if (value === 'loss_of_signal') {
+            return `<span class="status-reason-badge loss-of-signal" data-status-badge title="${label}">LOS</span>`;
+        }
+        const cls = escapeHtml(item?.status_class || 'bad');
+        return `<span class="status-dot ${cls}" data-status-dot title="${label}"></span>`;
+    };
 
     const payloadItems = () => rows.map((row) => ({
         olt_id: parseInt(row.dataset.oltId || '0', 10),
@@ -900,20 +961,17 @@
       const updateRow = (row, item) => {
           const signalCell = row.querySelector('[data-signal-cell]');
           if (!signalCell || !item) return;
-        const statusDot = row.querySelector('[data-status-dot]');
+        const statusCell = row.querySelector('[data-status-cell]');
         const bucket = String(item.signal_class || '').trim();
         if (bucket) {
             signalCell.innerHTML = barsMarkup(bucket);
         } else if (!signalCell.textContent.trim() || signalCell.textContent.trim() === '-') {
             signalCell.innerHTML = '<span class="signal-topline"><span class="signal-placeholder" data-signal-placeholder>-</span><span class="signal-spinner" aria-hidden="true"></span></span>';
         }
-          if (statusDot) {
-            statusDot.classList.remove('good', 'bad', 'warn');
-            if (item.status_class) {
-                statusDot.classList.add(String(item.status_class).trim());
-            }
-            statusDot.title = String(item.status_label || '').trim();
+          if (statusCell) {
+            statusCell.innerHTML = statusMarkup(item);
           }
+          if (item.status_value) row.dataset.status = String(item.status_value || '').trim();
           row.dataset.signalBucket = bucket;
           row.dataset.signalVisible = bucket ? '1' : '0';
           signalCell.classList.remove('is-refreshing');

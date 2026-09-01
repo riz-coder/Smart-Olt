@@ -3944,7 +3944,8 @@ def _signal_payload_from_values(onu_rx, olt_rx):
 
 def _debounced_onu_snmp_status(record, raw_status):
     raw_status = str(raw_status or "").strip().lower()
-    if record is None or raw_status not in {"online", "offline"}:
+    offline_statuses = {"offline", "admin_disabled", "power_failure", "loss_of_signal"}
+    if record is None or raw_status not in {"online", *offline_statuses}:
         return "", "", False
 
     current_status = _normalize_configured_status(record.derived_status, run_state=record.run_state)
@@ -4045,7 +4046,7 @@ def _configured_status_label(value, run_state=""):
         "offline": "Offline",
         "admin_disabled": "Admin Disabled",
         "power_failure": "Power Failure",
-        "loss_of_signal": "Loss Of Signal",
+        "loss_of_signal": "LOS",
     }
     return labels.get(normalized, "Offline")
 
@@ -6068,8 +6069,10 @@ def configured_onu_signals_refresh(request):
                 next_status, next_source, status_observed = _debounced_onu_snmp_status(record, snmp_status)
                 if status_observed:
                     now = timezone.now()
-                    if next_status in {"online", "offline"}:
-                        record.run_state = next_status
+                    if next_status == "online":
+                        record.run_state = "online"
+                    elif next_status in {"offline", "admin_disabled", "power_failure", "loss_of_signal"}:
+                        record.run_state = "offline"
                     if next_status != previous_status:
                         record.status_first_seen_at = now
                     elif not record.status_first_seen_at:
@@ -6133,8 +6136,10 @@ def configured_onu_signals_refresh(request):
                 if not snmp_status_observed:
                     next_status = _normalize_configured_status(record.derived_status, run_state=record.run_state)
                     next_source = record.status_source or "inventory"
-                if next_status in {"online", "offline"}:
-                    record.run_state = next_status
+                if next_status == "online":
+                    record.run_state = "online"
+                elif next_status in {"offline", "admin_disabled", "power_failure", "loss_of_signal"}:
+                    record.run_state = "offline"
                 signal = optical_map.get((slot, port, ont_id), {"onu_rx": "--", "olt_rx": "--", "tx_power": "--"})
                 fresh_signal_row = _signal_payload_from_values(signal.get("onu_rx"), signal.get("olt_rx"))
                 if (

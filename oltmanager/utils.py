@@ -1395,8 +1395,78 @@ def _snmp_onu_rows_to_key_map(rows, base_oid, gpon_indexes, formatter):
     return items
 
 
-def _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, pon_indexes, *, allow_direct_index=False):
+def _map_snmp_down_cause_to_status(raw_value):
+    text = str(raw_value if raw_value is not None else "").strip().strip('"').lower()
+    if not text:
+        return ""
+
+    match = re.search(r"-?\d+", text)
+    if match:
+        try:
+            cause = int(match.group(0))
+        except (TypeError, ValueError):
+            cause = None
+        if cause == 13:
+            return "power_failure"
+        if cause in {7, 8, 18, 30, 34}:
+            return "admin_disabled"
+        if cause in {1, 2, 3, 4, 5, 6, 15}:
+            return "loss_of_signal"
+
+    return map_onu_alarm_to_status("", text)
+
+
+def _snmp_down_cause_rows_to_key_map(rows, base_oid, pon_indexes, *, allow_direct_index=False):
     items = {}
+
+    def _put(key, raw_value):
+        status_value = _map_snmp_down_cause_to_status(raw_value)
+        if status_value:
+            items[key] = status_value
+
+    if allow_direct_index:
+        for oid_text, raw_value in (rows or {}).items():
+            suffix = str(oid_text or "")[len(base_oid) + 1:]
+            parts = suffix.split(".")
+            if len(parts) < 4:
+                continue
+            try:
+                slot = int(parts[-3])
+                port = int(parts[-2])
+                ont_id = int(parts[-1])
+            except (TypeError, ValueError):
+                continue
+            _put((slot, port, ont_id), raw_value)
+
+    for oid_text, raw_value in (rows or {}).items():
+        suffix = str(oid_text or "")[len(base_oid) + 1:]
+        parts = suffix.split(".")
+        if len(parts) < 2:
+            continue
+        if_index = str(parts[-2]).strip()
+        try:
+            ont_id = int(parts[-1])
+        except (TypeError, ValueError):
+            continue
+        fsp = pon_indexes.get(if_index)
+        if not fsp:
+            continue
+        _, slot, port = fsp
+        _put((slot, port, ont_id), raw_value)
+
+    return items
+
+
+def _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, pon_indexes, *, down_cause_rows=None, base_down_cause_oid=None, allow_direct_index=False):
+    items = {}
+    down_cause_items = {}
+    if down_cause_rows and base_down_cause_oid:
+        down_cause_items = _snmp_down_cause_rows_to_key_map(
+            down_cause_rows,
+            base_down_cause_oid,
+            pon_indexes,
+            allow_direct_index=allow_direct_index,
+        )
 
     config_by_suffix = {}
     for oid_text, raw_value in (config_rows or {}).items():
@@ -1406,6 +1476,8 @@ def _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_confi
 
     def _put(key, raw_run, config_suffix):
         status_value = _map_snmp_onu_status(raw_run, config_by_suffix.get(config_suffix))
+        if status_value == "offline":
+            status_value = down_cause_items.get(key) or status_value
         if status_value:
             items[key] = status_value
 
@@ -1753,19 +1825,24 @@ def fetch_single_onu_snmp_status(olt, slot, port, ont_id):
     if not if_index:
         result["status"] = "SNMP ONU status ifIndex lookup failed"
         return result
-    control_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15.{if_index}.{int(ont_id)}"
-    run_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16.{if_index}.{int(ont_id)}"
+    run_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15.{if_index}.{int(ont_id)}"
+    config_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16.{if_index}.{int(ont_id)}"
+    down_cause_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.46.1.24.{if_index}.{int(ont_id)}"
     last_error = ""
     for mp_model in (1, 0):
         try:
-            err_control, stat_control, _, vb_control = _snmp_get_value(olt, control_oid, mp_model=mp_model)
             err_run, stat_run, _, vb_run = _snmp_get_value(olt, run_oid, mp_model=mp_model)
-            if err_control or stat_control or err_run or stat_run:
-                last_error = str(err_control or stat_control or err_run or stat_run)
+            err_config, stat_config, _, vb_config = _snmp_get_value(olt, config_oid, mp_model=mp_model)
+            err_down, stat_down, _, vb_down = _snmp_get_value(olt, down_cause_oid, mp_model=mp_model)
+            if err_run or stat_run or err_config or stat_config:
+                last_error = str(err_run or stat_run or err_config or stat_config)
                 continue
-            control_value = vb_control[0][1] if _snmp_varbind_has_value(vb_control) else ""
             run_value = vb_run[0][1] if _snmp_varbind_has_value(vb_run) else ""
-            status_value = _map_snmp_onu_status(control_value, run_value)
+            config_value = vb_config[0][1] if _snmp_varbind_has_value(vb_config) else ""
+            down_value = "" if (err_down or stat_down) else (vb_down[0][1] if _snmp_varbind_has_value(vb_down) else "")
+            status_value = _map_snmp_onu_status(run_value, config_value)
+            if status_value == "offline":
+                status_value = _map_snmp_down_cause_to_status(down_value) or status_value
             if status_value:
                 return {"status": "SNMP ONU status fetched", "value": status_value}
         except Exception as exc:
@@ -1777,18 +1854,23 @@ def fetch_single_onu_snmp_status(olt, slot, port, ont_id):
             f"0.{int(slot)}.{int(port)}.{int(ont_id)}",
             f"{if_index}.{int(ont_id)}",
         ):
-            epon_run_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.56.1.15.{index_suffix}"
-            epon_config_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.56.1.16.{index_suffix}"
+            epon_run_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.57.1.15.{index_suffix}"
+            epon_config_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.57.1.16.{index_suffix}"
+            epon_down_cause_oid = f"1.3.6.1.4.1.2011.6.128.1.1.2.57.1.25.{index_suffix}"
             for mp_model in (1, 0):
                 try:
                     err_run, stat_run, _, vb_run = _snmp_get_value(olt, epon_run_oid, mp_model=mp_model)
                     err_config, stat_config, _, vb_config = _snmp_get_value(olt, epon_config_oid, mp_model=mp_model)
+                    err_down, stat_down, _, vb_down = _snmp_get_value(olt, epon_down_cause_oid, mp_model=mp_model)
                     if err_run or stat_run:
                         last_error = str(err_run or stat_run)
                         continue
                     run_value = vb_run[0][1] if _snmp_varbind_has_value(vb_run) else ""
                     config_value = "" if (err_config or stat_config) else (vb_config[0][1] if _snmp_varbind_has_value(vb_config) else "")
+                    down_value = "" if (err_down or stat_down) else (vb_down[0][1] if _snmp_varbind_has_value(vb_down) else "")
                     status_value = _map_snmp_onu_status(run_value, config_value)
+                    if status_value == "offline":
+                        status_value = _map_snmp_down_cause_to_status(down_value) or status_value
                     if status_value:
                         return {"status": "SNMP ONU status fetched (EPON)", "value": status_value}
                 except Exception as exc:
@@ -2673,8 +2755,10 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
         base_ifname_oid = "1.3.6.1.2.1.31.1.1.1.1"
         base_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15"
         base_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16"
-        base_epon_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1.15"
-        base_epon_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1.16"
+        base_down_cause_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.24"
+        base_epon_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.57.1.15"
+        base_epon_config_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.57.1.16"
+        base_epon_down_cause_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.57.1.25"
         ifname_limit, status_limit = _configured_onu_snmp_walk_limits(
             olt,
             ifname_limit=ifname_limit,
@@ -2727,6 +2811,16 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
                     walk_incomplete = True
                     last_error = str(exc)
                     config_rows = {}
+                try:
+                    down_cause_rows = _snmp_walk_rows(
+                        olt,
+                        base_down_cause_oid,
+                        limit=status_limit,
+                        mp_model=mp_model,
+                        operation_timeout=_remaining_timeout(),
+                    )
+                except Exception:
+                    down_cause_rows = {}
                 break
             except Exception as exc:
                 last_error = str(exc)
@@ -2761,10 +2855,19 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
                         has_epon_ports = True
                         break
 
-        gpon_items = _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_config_oid, gpon_indexes)
+        gpon_items = _snmp_status_rows_to_key_map(
+            run_rows,
+            config_rows,
+            base_run_oid,
+            base_config_oid,
+            gpon_indexes,
+            down_cause_rows=down_cause_rows,
+            base_down_cause_oid=base_down_cause_oid,
+        )
         items = dict(gpon_items)
         epon_rows = {}
         epon_config_rows = {}
+        epon_down_cause_rows = {}
         if has_epon_ports:
             try:
                 epon_rows = _snmp_walk_rows(
@@ -2786,12 +2889,24 @@ def fetch_olt_snmp_status_map(olt, *, ifname_limit=None, status_limit=None, max_
                     walk_incomplete = True
                     last_error = str(exc)
                     epon_config_rows = {}
+                try:
+                    epon_down_cause_rows = _snmp_walk_rows(
+                        olt,
+                        base_epon_down_cause_oid,
+                        limit=status_limit,
+                        mp_model=mp_model,
+                        operation_timeout=_remaining_timeout(),
+                    )
+                except Exception:
+                    epon_down_cause_rows = {}
                 epon_items = _snmp_status_rows_to_key_map(
                     epon_rows,
                     epon_config_rows,
                     base_epon_run_oid,
                     base_epon_config_oid,
                     gpon_indexes,
+                    down_cause_rows=epon_down_cause_rows,
+                    base_down_cause_oid=base_epon_down_cause_oid,
                     allow_direct_index=True,
                 )
                 items.update(epon_items)
@@ -13033,7 +13148,8 @@ def fetch_single_ont_mac_addresses(olt, slot, port, ont_id):
 
 def _debounced_snmp_runtime_status(record, snmp_status):
     status = str(snmp_status or "").strip().lower()
-    if status not in {"online", "offline"}:
+    offline_statuses = {"offline", "admin_disabled", "power_failure", "loss_of_signal"}
+    if status not in {"online", *offline_statuses}:
         return ""
     current_status = str(getattr(record, "derived_status", "") or "").strip().lower()
     control_flag = str(getattr(record, "control_flag", "") or "").strip().lower()
@@ -13380,7 +13496,7 @@ def sync_runtime_statuses_for_olt(
             if not snmp_status and snmp_complete:
                 snmp_status = "offline"
             debounced_snmp_status = _debounced_snmp_runtime_status(record, snmp_status)
-            runtime_run_state = "online" if debounced_snmp_status == "online" else "offline" if debounced_snmp_status == "offline" else ""
+            runtime_run_state = "online" if debounced_snmp_status == "online" else "offline" if debounced_snmp_status in {"offline", "admin_disabled", "power_failure", "loss_of_signal"} else ""
             if inventory_status and inventory_status.get("run_state"):
                 runtime_run_state = inventory_status["run_state"]
             if runtime_run_state and runtime_run_state != (record.run_state or "").strip().lower():
