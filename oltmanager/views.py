@@ -5380,7 +5380,16 @@ def configured_onus(request):
 
 @login_required
 def unconfigured_onus(request):
-    selected_olts = [value for value in request.GET.getlist("olts") if str(value).isdigit()]
+    selected_olts = []
+    seen_selected_olts = set()
+    for value in request.GET.getlist("olts"):
+        value = str(value)
+        if not value.isdigit() or value in seen_selected_olts:
+            continue
+        selected_olts.append(value)
+        seen_selected_olts.add(value)
+        if len(selected_olts) >= 6:
+            break
     search_query = (request.GET.get("q") or "").strip().lower()
     category_filter = str(request.GET.get("category") or "").strip().lower()
     if category_filter not in {"new", "resync"}:

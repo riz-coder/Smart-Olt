@@ -104,6 +104,14 @@
         cursor: pointer;
         padding: 0;
     }
+    .multi-filter-limit {
+        margin-left: auto;
+        color: #39ff88;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.03em;
+        text-shadow: 0 0 8px rgba(57, 255, 136, 0.5);
+    }
     .multi-filter-item {
         display: flex;
         align-items: flex-start;
@@ -673,6 +681,10 @@
     }
     html[data-theme="light"] .multi-filter-actions { border-bottom-color: rgba(20, 40, 80, 0.10); }
     html[data-theme="light"] .multi-filter-actions button { color: #1f65d1; }
+    html[data-theme="light"] .multi-filter-limit {
+        color: #008f4a;
+        text-shadow: 0 0 7px rgba(0, 143, 74, 0.28);
+    }
     html[data-theme="light"] .multi-filter-item { color: #2b3a57; }
     html[data-theme="light"] .multi-filter-item small { color: #5a6b86; }
     html[data-theme="light"] .sn-pill {
@@ -770,8 +782,8 @@
                             <input type="text" id="unconfigured-olt-filter" placeholder="Search by name or IP">
                         </div>
                         <div class="multi-filter-actions">
-                            <button type="button" id="unconfigured-select-all">Select All</button>
                             <button type="button" id="unconfigured-clear-all">Clear</button>
+                            <span class="multi-filter-limit" data-olt-limit-label>Max 6 OLTs</span>
                         </div>
                         {% for item in unconfigured_filter_olts %}
                         <label class="multi-filter-item" data-filter-text="{{ item.name|lower }} {{ item.ip|default:''|lower }}">
@@ -827,9 +839,26 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const filterInput = document.getElementById('unconfigured-olt-filter');
-    const selectAllBtn = document.getElementById('unconfigured-select-all');
     const clearAllBtn = document.getElementById('unconfigured-clear-all');
     const items = Array.from(document.querySelectorAll('.multi-filter-item'));
+    const oltLimitLabel = document.querySelector('[data-olt-limit-label]');
+    const oltSummaryText = document.querySelector('.multi-filter summary span:first-child');
+    const maxOltSelections = 6;
+    const oltCheckboxes = items
+        .map((item) => item.querySelector('input[type="checkbox"]'))
+        .filter(Boolean);
+    const syncOltSelectionLimit = () => {
+        const checkedCount = oltCheckboxes.filter((checkbox) => checkbox.checked).length;
+        oltCheckboxes.forEach((checkbox) => {
+            checkbox.disabled = !checkbox.checked && checkedCount >= maxOltSelections;
+        });
+        if (oltLimitLabel) {
+            oltLimitLabel.textContent = `${checkedCount}/${maxOltSelections} selected`;
+        }
+        if (oltSummaryText) {
+            oltSummaryText.textContent = checkedCount ? `${checkedCount} selected` : 'Select OLT(s)';
+        }
+    };
 
     if (filterInput) {
         filterInput.addEventListener('input', function () {
@@ -841,30 +870,25 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    if (selectAllBtn) {
-        selectAllBtn.addEventListener('click', function () {
-            items.forEach((item) => {
-                if (item.style.display === 'none') {
-                    return;
-                }
-                const checkbox = item.querySelector('input[type="checkbox"]');
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            });
+    oltCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', function () {
+            const checkedCount = oltCheckboxes.filter((node) => node.checked).length;
+            if (checkedCount > maxOltSelections) {
+                checkbox.checked = false;
+            }
+            syncOltSelectionLimit();
         });
-    }
+    });
 
     if (clearAllBtn) {
         clearAllBtn.addEventListener('click', function () {
-            items.forEach((item) => {
-                const checkbox = item.querySelector('input[type="checkbox"]');
-                if (checkbox) {
-                    checkbox.checked = false;
-                }
+            oltCheckboxes.forEach((checkbox) => {
+                checkbox.checked = false;
             });
+            syncOltSelectionLimit();
         });
     }
+    syncOltSelectionLimit();
 
     const waitOverlay = document.getElementById('olt-wait-overlay');
     const waitStage = document.getElementById('olt-wait-stage');
