@@ -235,6 +235,7 @@ _AUTOFIND_REFRESH_THREAD = None
 _AUTOFIND_ROWS_CACHE_LOCK = threading.Lock()
 _AUTOFIND_ROWS_CACHE = {}
 _AUTOFIND_ROWS_REFRESHING = set()
+_AUTOFIND_LIVE_FETCHING = set()
 _AUTHORIZE_TASKS_LOCK = threading.Lock()
 _AUTHORIZE_TASKS = {}
 _MAPPING_CONVERT_TASKS_LOCK = threading.Lock()
@@ -2157,6 +2158,73 @@ def _get_autofind_snapshot_for_view(olt):
     return snapshot
 
 
+def _get_live_autofind_snapshot_for_ajax(olt, *, max_attempts=3, retry_delay=2.0):
+    """Fetch live Autofind rows without blocking the main Autofind page render."""
+    olt_id = int(getattr(olt, "id", 0) or 0)
+    if olt_id <= 0:
+        return fetch_ont_autofind_snapshot(olt)
+    if _is_autofind_widget_unreachable(olt):
+        snapshot = {"status": "OLT Unreachable", "rows": []}
+        _store_autofind_rows_cache(olt_id, snapshot)
+        return snapshot
+
+    with _AUTOFIND_ROWS_CACHE_LOCK:
+        if olt_id in _AUTOFIND_LIVE_FETCHING:
+            return {
+                "status": "OLT is busy. Existing live autofind fetch is still running.",
+                "rows": [],
+                "pending": True,
+            }
+        _AUTOFIND_LIVE_FETCHING.add(olt_id)
+
+    last_snapshot = {"status": "Live autofind fetch did not run.", "rows": []}
+    try:
+        for attempt in range(1, max(1, int(max_attempts or 1)) + 1):
+            snapshot = fetch_ont_autofind_snapshot(olt)
+            status_text = str(snapshot.get("status") or "").strip()
+            lowered = status_text.lower()
+            rows = snapshot.get("rows") or []
+            success = status_text.startswith("Autofind ONUs fetched:")
+            retryable = any(
+                token in lowered
+                for token in (
+                    "busy",
+                    "timeout",
+                    "connection closed",
+                    "connection reset",
+                    "connection aborted",
+                    "telnet error",
+                    "could not be opened",
+                    "login failed",
+                )
+            )
+            if success:
+                _store_autofind_rows_cache(olt_id, snapshot)
+                return snapshot
+            if rows and not retryable:
+                _store_autofind_rows_cache(olt_id, snapshot)
+                return snapshot
+
+            if "busy" in lowered:
+                status_text = f"OLT is busy. Retry {attempt}/{max_attempts}."
+            elif retryable:
+                status_text = f"{status_text or 'Telnet fetch failed.'} Retry {attempt}/{max_attempts}."
+            last_snapshot = {**dict(snapshot or {}), "status": status_text, "rows": rows}
+            if attempt < max_attempts and retryable:
+                time.sleep(float(retry_delay or 0))
+                continue
+            break
+
+        OLT.objects.filter(pk=olt_id).update(
+            autofind_status=str(last_snapshot.get("status") or "")[:300],
+            autofind_refreshed_at=timezone.now(),
+        )
+        return last_snapshot
+    finally:
+        with _AUTOFIND_ROWS_CACHE_LOCK:
+            _AUTOFIND_LIVE_FETCHING.discard(olt_id)
+
+
 def _build_unconfigured_group(
     request,
     olt,
@@ -2167,8 +2235,9 @@ def _build_unconfigured_group(
     onu_type_options,
     download_speed_options,
     upload_speed_options,
+    snapshot_override=None,
 ):
-    snapshot = _get_autofind_snapshot_for_view(olt)
+    snapshot = snapshot_override if snapshot_override is not None else _get_autofind_snapshot_for_view(olt)
     status_text = snapshot.get("status") or "Autofind unavailable"
     lowered_status = str(status_text or "").strip().lower()
     is_busy = False
@@ -5318,31 +5387,6 @@ def unconfigured_onus(request):
         category_filter = ""
 
     all_olts = list(_ready_olts().only("id", "name", "ip_address").order_by("name"))
-    onu_type_options = _load_onu_type_option_rows()
-    speed_profile_templates = list(SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name"))
-    download_speed_options = []
-    upload_speed_options = []
-    for profile in speed_profile_templates:
-        base_name = (profile.name or "").strip()
-        base_name = re.sub(r"(?i)(?:-|_)?(up|down)$", "", base_name).strip(" -_") or (profile.name or "")
-        speed_display = (profile.speed_display or "").strip() or (
-            f"{profile.speed_mbps_value} Mbps" if profile.speed_mbps_value else "-"
-        )
-        download_speed_options.append(
-            {
-                "value": str(int(profile.index_number or 0)),
-                "label": (profile.download_name or f"{base_name}-DOWN").strip(),
-                "speed": speed_display,
-            }
-        )
-        upload_speed_options.append(
-            {
-                "value": str(int((profile.index_number or 0) + 1)),
-                "label": (profile.upload_name or f"{base_name}-UP").strip(),
-                "speed": speed_display,
-            }
-        )
-    existing_by_serial = {}
 
     grouped_rows = []
     group_targets = []
@@ -5350,16 +5394,6 @@ def unconfigured_onus(request):
     total_new = 0
     total_resync = 0
     if selected_olts:
-        existing_onus = list(
-            ConfiguredONU.objects.select_related("olt")
-            .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
-            .exclude(sn="")
-        )
-        for record in existing_onus:
-            for token in _normalize_onu_serial_token(record.sn):
-                if token and token not in existing_by_serial:
-                    existing_by_serial[token] = record
-
         selected_details = {
             str(olt.id): olt
             for olt in _ready_olts().filter(id__in=[int(value) for value in selected_olts])
@@ -5389,36 +5423,13 @@ def unconfigured_onus(request):
         )
 
         for index, olt in enumerate(selected_ordered, start=1):
-            if not grouped_rows:
-                payload = _build_unconfigured_group(
-                    request,
-                    olt,
-                    index,
-                    existing_by_serial,
-                    request.GET.get("q", "").strip().lower(),
-                    category_filter,
-                    onu_type_options,
-                    download_speed_options,
-                    upload_speed_options,
-                )
-                if payload["group"].get("is_pending"):
-                    group_targets.append({
-                        "index": index,
-                        "olt_id": olt.id,
-                        "olt_name": olt.name,
-                    })
-                    statuses.append(f"{olt.name} loading...")
-                else:
-                    grouped_rows.append(payload["group"])
-                    statuses.append(payload.get("status") or f"{olt.name} loaded.")
-            else:
-                group_targets.append({
-                    "index": index,
-                    "olt_id": olt.id,
-                    "olt_name": olt.name,
-                })
+            group_targets.append({
+                "index": index,
+                "olt_id": olt.id,
+                "olt_name": olt.name,
+            })
         if group_targets:
-            statuses.append("Remaining selected OLTs loading progressively...")
+            statuses.append("Selected OLTs loading live autofind data progressively...")
     else:
         total_rows = sum(group["count"] for group in grouped_rows)
     authorize_debug = request.session.pop("authorize_debug_payload", None)
@@ -5433,9 +5444,9 @@ def unconfigured_onus(request):
         "unconfigured_total": total_rows,
         "unconfigured_new_total": total_new,
         "unconfigured_resync_total": total_resync,
-        "unconfigured_onu_type_options": onu_type_options,
-        "unconfigured_download_speed_options": download_speed_options,
-        "unconfigured_upload_speed_options": upload_speed_options,
+        "unconfigured_onu_type_options": [],
+        "unconfigured_download_speed_options": [],
+        "unconfigured_upload_speed_options": [],
         "unconfigured_return_query": request.GET.urlencode(),
         "authorize_debug": authorize_debug,
     }
@@ -5497,6 +5508,7 @@ def unconfigured_onus_group_data(request, olt_id):
             }
         )
 
+    snapshot = _get_live_autofind_snapshot_for_ajax(olt)
     payload = _build_unconfigured_group(
         request=request,
         olt=olt,
@@ -5507,6 +5519,7 @@ def unconfigured_onus_group_data(request, olt_id):
         onu_type_options=onu_type_options,
         download_speed_options=download_speed_options,
         upload_speed_options=upload_speed_options,
+        snapshot_override=snapshot,
     )
     return JsonResponse({"ok": True, "pending": bool(payload.get("group", {}).get("is_pending")), **payload})
 

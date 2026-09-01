@@ -133,6 +133,14 @@
     .muted-cell {
         color: #9db0cf;
     }
+    .autofind-empty-alert {
+        color: #ff4d6d;
+        font-weight: 1000;
+        letter-spacing: 0.02em;
+        text-shadow:
+            0 0 7px rgba(255, 77, 109, 0.75),
+            0 0 18px rgba(255, 41, 87, 0.45);
+    }
     .olt-group {
         margin-top: 22px;
         padding-top: 18px;
@@ -452,11 +460,26 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #9db0cf;
+        color: #39ff88;
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 1000;
+        letter-spacing: 0.02em;
+        text-shadow:
+            0 0 8px rgba(57, 255, 136, 0.85),
+            0 0 22px rgba(0, 255, 132, 0.48);
         text-align: center;
         padding: 14px;
+        animation: autofindNeonBlink 1.05s ease-in-out infinite;
+    }
+    @keyframes autofindNeonBlink {
+        0%, 100% {
+            opacity: 1;
+            filter: saturate(1.25);
+        }
+        50% {
+            opacity: 0.42;
+            filter: saturate(1.8);
+        }
     }
     .olt-wait-overlay {
         position: fixed;
@@ -658,6 +681,12 @@
         color: #1f65d1;
     }
     html[data-theme="light"] .muted-cell { color: #5a6b86; }
+    html[data-theme="light"] .autofind-empty-alert {
+        color: #d90429;
+        text-shadow:
+            0 0 6px rgba(217, 4, 41, 0.38),
+            0 0 16px rgba(255, 25, 67, 0.24);
+    }
     html[data-theme="light"] .olt-group { border-top-color: rgba(20, 40, 80, 0.10); }
     html[data-theme="light"] .olt-group-title { color: #16233c; }
     html[data-theme="light"] .autofind-summary,
@@ -672,7 +701,10 @@
     html[data-theme="light"] .autofind-loading-body {
         background: #f4f8fe;
         border-color: #dce6f3;
-        color: #5a6b86;
+        color: #00b85f;
+        text-shadow:
+            0 0 6px rgba(0, 184, 95, 0.55),
+            0 0 18px rgba(0, 255, 132, 0.32);
     }
     html[data-theme="light"] .authorize-panel {
         background: #f4f8fe;
@@ -780,7 +812,7 @@
                     <tr>
                         <td colspan="9" class="muted-cell">
                             {% if unconfigured_selected_olts %}
-                                No autofind ONUs found for selected OLTs.
+                                <span class="autofind-empty-alert">No autofind ONUs found for selected OLTs.</span>
                             {% else %}
                                 Select OLT(s) and press Refresh.
                             {% endif %}
@@ -1021,6 +1053,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (newNode) newNode.textContent = String(loadedNew);
         if (resyncNode) resyncNode.textContent = String(loadedResync);
     };
+    const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const loadGroup = async (placeholder) => {
         const url = placeholder.getAttribute('data-group-url');
         if (!url) return;
@@ -1033,10 +1066,10 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.pending) {
                 const body = placeholder.querySelector('.autofind-loading-body');
                 if (body) {
-                    body.textContent = 'Loading autofind rows for this OLT...';
+                    body.textContent = data.status || 'OLT is busy. Retrying live autofind fetch...';
                 }
-                window.setTimeout(() => loadGroup(placeholder), 3000);
-                return;
+                await sleep(3000);
+                return loadGroup(placeholder);
             }
             const wrapper = document.createElement('div');
             wrapper.innerHTML = data.html || '';
@@ -1059,7 +1092,20 @@ document.addEventListener('DOMContentLoaded', function () {
     wireAuthorizeForms(document);
     const placeholders = Array.from(document.querySelectorAll('[data-unconfigured-group-placeholder]'));
     if (placeholders.length) {
-        placeholders.forEach((placeholder) => { loadGroup(placeholder); });
+        const maxParallel = 3;
+        let nextIndex = 0;
+        let active = 0;
+        const pump = () => {
+            while (active < maxParallel && nextIndex < placeholders.length) {
+                const placeholder = placeholders[nextIndex++];
+                active += 1;
+                loadGroup(placeholder).finally(() => {
+                    active -= 1;
+                    pump();
+                });
+            }
+        };
+        pump();
     }
 });
 </script>
