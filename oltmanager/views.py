@@ -3949,6 +3949,8 @@ def _debounced_onu_snmp_status(record, raw_status):
         return "", "", False
 
     current_status = _normalize_configured_status(record.derived_status, run_state=record.run_state)
+    if raw_status == "offline" and current_status in {"admin_disabled", "power_failure", "loss_of_signal"}:
+        return current_status, record.status_source or "snmp_refresh", True
     if current_status == "admin_disabled":
         return current_status, record.status_source or "inventory", False
     return raw_status, "snmp_refresh", True
