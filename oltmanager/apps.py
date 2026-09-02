@@ -29,7 +29,7 @@ SNMP_MONITOR_MAX_WORKERS = max(1, int(getattr(settings, "SNMP_MONITOR_MAX_WORKER
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
-ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 90) or 90))
+ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 180) or 180))
 ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600) or 3600))
 ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1) or 1))
 ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1) or 1))

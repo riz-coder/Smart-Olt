@@ -1514,6 +1514,114 @@ def _snmp_status_rows_to_key_map(run_rows, config_rows, base_run_oid, base_confi
     return items
 
 
+def _huawei_gpon_ifindex(frame, slot, port):
+    """Huawei GPON/XG-PON ONT control tables use ifIndex.ontId indexes."""
+    try:
+        return 4194304000 + (int(frame or 0) * 1048576) + (int(slot) * 8192) + (int(port) * 256)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snmp_get_oid_rows_chunked(olt, oid_list, *, mp_model=1, chunk_size=120, deadline_ts=None):
+    rows = {}
+    oid_list = [str(oid) for oid in (oid_list or []) if str(oid or "").strip()]
+    chunk_size = max(10, int(chunk_size or 120))
+    for start in range(0, len(oid_list), chunk_size):
+        if deadline_ts is not None and time.monotonic() >= deadline_ts:
+            break
+        chunk = oid_list[start:start + chunk_size]
+        values = _snmp_get_many_values(olt, chunk, mp_model=mp_model)
+        if not values and len(chunk) > 30:
+            for small_start in range(0, len(chunk), 30):
+                if deadline_ts is not None and time.monotonic() >= deadline_ts:
+                    break
+                values.update(_snmp_get_many_values(olt, chunk[small_start:small_start + 30], mp_model=mp_model))
+        for oid, value in (values or {}).items():
+            rows[str(oid)] = str(value)
+    return rows
+
+
+def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None):
+    """Fetch ONU runtime/down-cause statuses by direct indexed GETs.
+
+    Full walks over Huawei ONU status tables are slow on large OLTs and can
+    timeout before returning any rows. The configured ONU list already gives us
+    slot/port/ONT IDs, so querying only those indexed OIDs is much more stable.
+    """
+    result = {
+        "status": "SNMP ONU direct status map unavailable",
+        "items": {},
+        "truncated": False,
+    }
+    records = list(records or [])
+    if not records:
+        result["status"] = "No ONU records to check."
+        return result
+
+    base_run_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.15"
+    base_down_cause_oid = "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.24"
+    deadline_ts = None
+    if max_seconds and float(max_seconds) > 0:
+        deadline_ts = time.monotonic() + float(max_seconds)
+
+    run_oids = []
+    down_oids = []
+    pon_indexes = {}
+    skipped = 0
+    for record in records:
+        try:
+            frame = int(getattr(record, "frame", 0) or 0)
+            slot = int(record.slot)
+            port = int(record.port)
+            ont_id = int(record.ont_id)
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+        if str(_slot_pon_tech(olt, slot) or "").upper() == "EPON":
+            skipped += 1
+            continue
+        if_index = _huawei_gpon_ifindex(frame, slot, port)
+        if if_index is None:
+            skipped += 1
+            continue
+        pon_indexes[str(if_index)] = (frame, slot, port)
+        suffix = f"{if_index}.{ont_id}"
+        run_oid = f"{base_run_oid}.{suffix}"
+        down_oid = f"{base_down_cause_oid}.{suffix}"
+        run_oids.append(run_oid)
+        down_oids.append(down_oid)
+
+    if not run_oids:
+        result["status"] = "No GPON/XG-PON ONU records available for direct SNMP status fetch."
+        return result
+
+    last_error = ""
+    for mp_model in (1, 0):
+        try:
+            run_rows = _snmp_get_oid_rows_chunked(olt, run_oids, mp_model=mp_model, deadline_ts=deadline_ts)
+            down_cause_rows = _snmp_get_oid_rows_chunked(olt, down_oids, mp_model=mp_model, deadline_ts=deadline_ts)
+            items = _snmp_status_rows_to_key_map(
+                run_rows,
+                {},
+                base_run_oid,
+                "",
+                pon_indexes,
+                down_cause_rows=down_cause_rows,
+                base_down_cause_oid=base_down_cause_oid,
+            )
+            if items:
+                result["items"] = items
+                result["truncated"] = len(items) < len(run_oids)
+                suffix = " (partial)" if result["truncated"] else ""
+                result["status"] = f"SNMP ONU direct status map fetched: {len(items)}{suffix}"
+                return result
+        except Exception as exc:
+            last_error = str(exc)
+
+    result["status"] = f"SNMP ONU direct status map fetch failed: {last_error or 'no response'}"
+    return result
+
+
 def _snmp_epon_rows_to_key_map(rows, base_oid, gpon_indexes, formatter):
     """Parse EPON DDM OID rows.
 
@@ -13440,10 +13548,12 @@ def sync_runtime_statuses_for_olt(
             on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
         snmp_result = (
-            {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status walk for EPON batch."}
+            {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status fetch for EPON batch."}
             if all_records_are_epon
-            else fetch_olt_snmp_status_map(olt, max_seconds=_remaining_seconds())
+            else fetch_olt_snmp_status_map_for_records(olt, records, max_seconds=_remaining_seconds())
         )
+        if not all_records_are_epon and not (snmp_result.get("items") or {}):
+            snmp_result = fetch_olt_snmp_status_map(olt, max_seconds=_remaining_seconds())
         snmp_status_map = snmp_result.get("items") or {}
         epon_inventory_map = {}
         if epon_slots:
