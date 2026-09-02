@@ -6623,6 +6623,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
 
     ethernet_port_rows = []
     ethernet_port_count = 0
+    onu_wifi_supported = False
     onu_type_lookup_value = _normalize_onu_type_lookup_key(selected_onu.get("onu_type"))
     if onu_type_lookup_value and onu_type_lookup_value != "-":
         for row in _load_onu_type_catalog_rows():
@@ -6632,6 +6633,8 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
                     ethernet_port_count = int(str(row.get("ethernet_ports") or "0").strip() or "0")
                 except (TypeError, ValueError):
                     ethernet_port_count = 0
+                wifi_value = str(row.get("wifi") or "").strip()
+                onu_wifi_supported = wifi_value not in {"", "0", "-"}
                 break
     if ethernet_port_count <= 0:
         try:
@@ -6640,6 +6643,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             ethernet_port_count = 0
     if ethernet_port_count <= 0:
         ethernet_port_count = 1
+    onu_lan_led_labels = [f"LAN{port_number}" for port_number in range(1, max(ethernet_port_count, 1) + 1)]
     access_vlan_text = user_vlan_values[0] if user_vlan_values else ((selected_onu.get("attached_vlans") or "-").split(",")[0].strip() if str(selected_onu.get("attached_vlans") or "").strip() else "-")
     ethernet_port_config_map = _load_ethernet_port_config_cache(record)
     for port_number in range(1, max(ethernet_port_count, 0) + 1):
@@ -6702,6 +6706,8 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "onu_stability": stability_summary,
         "onu_has_catv": _onu_has_catv_port(record),
         "onu_catv_enabled": str(getattr(record, "catv_operational_cache", "") or "").strip().lower() != "disabled",
+        "onu_lan_led_labels": onu_lan_led_labels,
+        "onu_wifi_supported": onu_wifi_supported,
         "olt_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}",
         "olt_uplink_url": f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=uplink",
         "board_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}",
