@@ -144,7 +144,7 @@
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.1);
         overflow: hidden;
-        margin-bottom: 16px;
+        margin: 0 0 10px;
     }
     .olt-wait-fill {
         width: 12%;
@@ -152,6 +152,11 @@
         border-radius: inherit;
         background: linear-gradient(90deg, #4f8dff, #67d39c);
         transition: width .25s ease;
+    }
+    .olt-wait-percent {
+        color: #dff2ff;
+        font-size: 13px;
+        font-weight: 900;
     }
     .olt-wait-steps {
         display: grid;
@@ -274,6 +279,9 @@
     html[data-theme="light"] .olt-wait-track {
         background: rgba(20, 45, 80, 0.14);
     }
+    html[data-theme="light"] .olt-wait-percent {
+        color: #17365d;
+    }
     html[data-theme="light"] .olt-wait-steps li {
         color: #75859a;
     }
@@ -383,17 +391,8 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">ONU Mapping Converting</div>
-        <div class="olt-wait-log" data-olt-wait-log>Preparing mapping conversion...</div>
         <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
-        <ul class="olt-wait-steps" data-olt-wait-steps>
-            <li data-step-index="0">Preparing conversion details</li>
-            <li data-step-index="1">Deleting existing ONU and service-port(s)</li>
-            <li data-step-index="2">Opening authorization Telnet session</li>
-            <li data-step-index="3">Checking required profiles</li>
-            <li data-step-index="4">Preparing traffic tables</li>
-            <li data-step-index="5">Adding and binding the ONU</li>
-            <li data-step-index="6">Saving and refreshing OptiVerse</li>
-        </ul>
+        <div class="olt-wait-percent" data-olt-wait-percent>0%</div>
     </div>
 </div>
 <span id="mapping-progress-url-tpl" data-url="{% url 'configured_onu_mapping_convert_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
@@ -403,23 +402,18 @@
     const form = document.querySelector('[data-mapping-convert-form]');
     const overlay = document.querySelector('[data-olt-wait]');
     const fill = document.querySelector('[data-olt-wait-fill]');
-    const log = document.querySelector('[data-olt-wait-log]');
-    const steps = Array.from(document.querySelectorAll('[data-olt-wait-steps] [data-step-index]'));
+    const percentNode = document.querySelector('[data-olt-wait-percent]');
     const errorBox = document.querySelector('[data-mapping-error]');
     const progressTpl = document.getElementById('mapping-progress-url-tpl');
     const progressBase = progressTpl ? progressTpl.getAttribute('data-url') : '';
     const stepProgress = [12, 25, 38, 52, 66, 82, 94];
     let pollTimer = null;
 
-    const setStep = (activeIndex, label) => {
-        const index = Math.max(0, Math.min(Number(activeIndex || 0), steps.length - 1));
-        if (log) log.textContent = label || 'Waiting for OLT response...';
-        if (fill) fill.style.width = `${stepProgress[index] || 12}%`;
-        steps.forEach((node) => {
-            const nodeIndex = Number(node.getAttribute('data-step-index') || 0);
-            node.classList.toggle('is-done', nodeIndex < index);
-            node.classList.toggle('is-active', nodeIndex === index);
-        });
+    const setStep = (activeIndex) => {
+        const index = Math.max(0, Math.min(Number(activeIndex || 0), stepProgress.length - 1));
+        const value = stepProgress[index] || 12;
+        if (fill) fill.style.width = `${value}%`;
+        if (percentNode) percentNode.textContent = `${value}%`;
     };
 
     const showOverlay = () => {
@@ -463,6 +457,7 @@
                     }
                     if (data.ok && data.redirect_url) {
                         if (fill) fill.style.width = '100%';
+                        if (percentNode) percentNode.textContent = '100%';
                         setTimeout(() => { window.location.href = data.redirect_url; }, 350);
                     } else {
                         showError(data.message || 'Mapping conversion failed.');

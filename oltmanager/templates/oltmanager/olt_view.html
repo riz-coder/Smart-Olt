@@ -1029,6 +1029,11 @@
         box-shadow: 0 0 18px rgba(102, 226, 160, 0.35);
         transition: width 0.25s ease;
     }
+    .olt-wait-percent {
+        color: #dff2ff;
+        font-size: 13px;
+        font-weight: 900;
+    }
     .olt-wait-steps {
         display: grid;
         gap: 7px;
@@ -1086,6 +1091,9 @@
     html[data-theme="light"] .olt-wait-progress {
         background: #d9e7f8;
         border-color: #b6cae6;
+    }
+    html[data-theme="light"] .olt-wait-percent {
+        color: #17365d;
     }
     .cli-toolbar {
         display: flex;
@@ -2152,7 +2160,6 @@
     <div class="olt-wait-card" role="status" aria-live="polite">
         <div class="olt-wait-wheel"></div>
         <p class="olt-wait-title" id="syncConfigOverlayTitle">Config Sync Running</p>
-        <p class="olt-wait-subtitle" id="syncConfigOverlaySubtitle">Reading configured ONUs and updating the database...</p>
     </div>
 </div>
 <div
@@ -2167,14 +2174,8 @@
     <div class="olt-wait-card" role="status" aria-live="polite">
         <div class="olt-wait-wheel"></div>
         <p class="olt-wait-title" id="autoVlanRefreshTitle">Refreshing OLT data</p>
-        <p class="olt-wait-subtitle" id="autoVlanRefreshSubtitle">Preparing refresh...</p>
         <div class="olt-wait-progress"><span id="autoVlanRefreshProgress"></span></div>
-        <div class="olt-wait-steps">
-            <span class="olt-wait-step active" id="autoVlanStepConnect">Opening OLT session</span>
-            <span class="olt-wait-step" id="autoVlanStepRead">Reading VLAN information</span>
-            <span class="olt-wait-step" id="autoVlanStepSave">Updating local database</span>
-            <span class="olt-wait-step" id="autoVlanStepReload">Reloading section</span>
-        </div>
+        <div class="olt-wait-percent" id="autoVlanRefreshPercent">0%</div>
     </div>
 </div>
 <script>
@@ -2212,34 +2213,18 @@
         const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
         const csrfToken = csrfInput ? csrfInput.value : '';
         const titleNode = document.getElementById('autoVlanRefreshTitle');
-        const subtitleNode = document.getElementById('autoVlanRefreshSubtitle');
         const progressNode = document.getElementById('autoVlanRefreshProgress');
-        const stepConnect = document.getElementById('autoVlanStepConnect');
-        const stepRead = document.getElementById('autoVlanStepRead');
-        const stepSave = document.getElementById('autoVlanStepSave');
-        const stepReload = document.getElementById('autoVlanStepReload');
-        const setStep = (activeStep, width, message) => {
-            [stepConnect, stepRead, stepSave, stepReload].forEach((step) => {
-                if (!step) return;
-                step.classList.remove('active');
-                if (step === activeStep) step.classList.add('active');
-                if (
-                    (activeStep === stepRead && step === stepConnect) ||
-                    (activeStep === stepSave && [stepConnect, stepRead].includes(step)) ||
-                    (activeStep === stepReload && [stepConnect, stepRead, stepSave].includes(step))
-                ) {
-                    step.classList.add('done');
-                }
-            });
-            if (progressNode) progressNode.style.width = `${width}%`;
-            if (subtitleNode && message) subtitleNode.textContent = message;
+        const percentNode = document.getElementById('autoVlanRefreshPercent');
+        const setStep = (width) => {
+            const value = Math.max(0, Math.min(100, Number(width || 0)));
+            if (progressNode) progressNode.style.width = `${value}%`;
+            if (percentNode) percentNode.textContent = `${Math.round(value)}%`;
         };
         const runAutoVlanRefresh = async () => {
             if (titleNode) titleNode.textContent = autoVlanOverlay.dataset.title || 'Refreshing OLT data';
-            if (subtitleNode) subtitleNode.textContent = autoVlanOverlay.dataset.message || 'Reading data from the OLT...';
             autoVlanOverlay.hidden = false;
-            setStep(stepConnect, 28, 'Opening OLT session...');
-            window.setTimeout(() => setStep(stepRead, 58, autoVlanOverlay.dataset.message || 'Reading VLAN information...'), 450);
+            setStep(28);
+            window.setTimeout(() => setStep(58), 450);
             try {
                 const response = await fetch(autoVlanOverlay.dataset.url, {
                     method: 'POST',
@@ -2252,14 +2237,13 @@
                 });
                 const payload = await response.json().catch(() => ({}));
                 if (!response.ok || !payload.ok) {
-                    const msg = payload.message || 'OLT refresh could not be completed.';
-                    setStep(stepRead, 100, msg);
+                    setStep(100);
                     window.setTimeout(() => { autoVlanOverlay.hidden = true; }, 1800);
                     return;
                 }
-                setStep(stepSave, 82, payload.message || 'Database updated.');
+                setStep(82);
                 window.setTimeout(() => {
-                    setStep(stepReload, 100, 'Refresh complete. Reloading this section...');
+                    setStep(100);
                     window.setTimeout(() => {
                         const nextUrl = payload.redirect_url || window.location.href;
                         const resolvedNext = new URL(nextUrl, window.location.origin);
@@ -2271,7 +2255,7 @@
                     }, 450);
                 }, 450);
             } catch (error) {
-                setStep(stepRead, 100, 'Refresh request failed. Please try again.');
+                setStep(100);
                 window.setTimeout(() => { autoVlanOverlay.hidden = true; }, 1800);
             }
         };

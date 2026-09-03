@@ -59,7 +59,6 @@ from .utils import (
     fetch_uplink_sfp_ddm,
     fetch_single_onu_snmp_distance,
     fetch_single_onu_snmp_type,
-    execute_onu_cli_delete_action,
     find_onu_location_by_sn_cli,
     execute_onu_ethernet_port_access_config,
     execute_onu_catv_operational_state,
@@ -70,6 +69,7 @@ from .utils import (
     execute_onu_speed_profile_config,
     execute_onu_ethernet_port_transparent_config,
     execute_onu_snmp_control_action,
+    probe_onu_snmp_delete,
     execute_onu_eth_port_cli_admin_state,
     sync_onu_detail_fields_for_olt,
     sync_onu_equipment_ids_for_olt,
@@ -5000,7 +5000,7 @@ def dashboard_pon_traffic_graph(request):
 def dashboard_olt_uptimes(request):
     graph_range = (request.GET.get("graph_range") or "1h").strip().lower()
     _schedule_dashboard_snapshot_refreshes()
-    _refresh_missing_dashboard_snapshots_inline(limit=1)
+    _refresh_missing_dashboard_snapshots_inline(limit=6)
     selected_olt_filter = (request.GET.get("olt") or "").strip()
     onu_qs = ConfiguredONU.objects.all()
     selected_olt_id = None
@@ -6842,13 +6842,14 @@ def _execute_onu_mapping_conversion(olt, record, plan, user=None, *, on_progress
         mapping_mode=plan["target_mode"],
     )
 
-    _emit(1, f"Deleting existing ONU and service-port(s): {', '.join(old_service_ports) or '-'}")
-    delete_result = execute_onu_cli_delete_action(
+    _emit(1, "Deleting existing ONU via SNMP RowStatus destroy(6)")
+    delete_result = probe_onu_snmp_delete(
         olt,
         old_slot,
         old_port,
         old_ont_id,
         frame=old_frame,
+        apply=True,
         service_port_ids=old_service_ports,
     )
     if not delete_result.get("ok"):
@@ -7801,15 +7802,15 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
         service_port_ids = []
         if record is not None:
             service_port_ids = [part.strip() for part in str(record.service_port_id_cache or "").split(",") if part.strip()]
-
         frame_value = record.frame if record is not None else 0
 
-        snapshot = execute_onu_cli_delete_action(
+        snapshot = probe_onu_snmp_delete(
             olt,
             slot,
             port,
             ont_id,
             frame=frame_value,
+            apply=True,
             service_port_ids=service_port_ids,
         )
 
@@ -7822,7 +7823,7 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
                 olt,
                 request.user,
                 "delete_onu",
-                f"ONU deleted via CLI: 0/{int(slot)}/{int(port)} ont {int(ont_id)}",
+                f"ONU deleted via SNMP RowStatus destroy(6): 0/{int(slot)}/{int(port)} ont {int(ont_id)}",
                 request=request,
                 onu=f"0/{int(slot)}/{int(port)}:{int(ont_id)}",
             )
@@ -7833,6 +7834,9 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
                 "ok": bool(snapshot.get("ok")),
                 "message": _ui_telnet_error_message(snapshot.get("message")),
                 "action": action_key,
+                "oid": str(snapshot.get("entry_status_oid") or snapshot.get("oid") or ""),
+                "value": str(snapshot.get("destroy_value") or snapshot.get("value") or ""),
+                "snmp": snapshot,
                 "redirect_url": redirect_url,
                 "transcript": str(snapshot.get("transcript") or ""),
                 "status_value": "",

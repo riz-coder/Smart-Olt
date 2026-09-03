@@ -1936,6 +1936,11 @@
         box-shadow: 0 0 18px rgba(79, 141, 255, 0.28);
         transition: width 0.45s ease;
     }
+    .olt-wait-percent {
+        color: #dff2ff;
+        font-size: 13px;
+        font-weight: 900;
+    }
     .olt-wait-steps {
         margin: 0;
         padding: 0;
@@ -1979,6 +1984,7 @@
     html[data-theme="light"] .olt-wait-title { color: #16233c; }
     html[data-theme="light"] .olt-wait-log,
     html[data-theme="light"] .olt-wait-stage { color: #5a6b86; }
+    html[data-theme="light"] .olt-wait-percent { color: #17365d; }
     html[data-theme="light"] .olt-wait-progress {
         background: #e7eef8;
         border-color: #d9e4f2;
@@ -2388,7 +2394,6 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">Service Port Deleting</div>
-        <div class="olt-wait-log" data-sp-wait-log>Deleting service-port...</div>
     </div>
 </div>
 
@@ -2396,17 +2401,10 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">ONU Deleting</div>
-        <div class="olt-wait-stage" data-onu-delete-wait-log>Opening the Telnet session...</div>
         <div class="olt-wait-progress" aria-hidden="true">
             <div class="olt-wait-progress-bar" data-onu-delete-progress></div>
         </div>
-        <ul class="olt-wait-steps" data-onu-delete-steps>
-            <li data-delete-step-index="0" class="is-active">Opening the Telnet session</li>
-            <li data-delete-step-index="1">Finding service ports</li>
-            <li data-delete-step-index="2">Removing service ports</li>
-            <li data-delete-step-index="3">Deleting the ONU</li>
-            <li data-delete-step-index="4">Opening Autofind</li>
-        </ul>
+        <div class="olt-wait-percent" data-onu-delete-percent>0%</div>
     </div>
 </div>
 
@@ -2414,7 +2412,6 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">Fetching Current Config</div>
-        <div class="olt-wait-log" data-fetch-config-wait-log>Connecting to OLT...</div>
     </div>
 </div>
 {% endblock %}
@@ -2864,29 +2861,7 @@
         }
     };
 
-    const DELETE_WAIT_STEPS = [
-        { text: 'Opening the Telnet session...', progress: 14 },
-        { text: 'Finding ONU service ports...', progress: 34 },
-        { text: 'Removing ONU service ports...', progress: 56 },
-        { text: 'Deleting the ONU from the OLT...', progress: 78 },
-        { text: 'Opening Autofind...', progress: 94 },
-    ];
     let deleteWaitTimer = null;
-
-    const setDeleteWaitStep = (overlay, activeIndex, text, progress) => {
-        if (!overlay) return;
-        const log = overlay.querySelector('[data-onu-delete-wait-log]');
-        const bar = overlay.querySelector('[data-onu-delete-progress]');
-        const steps = Array.from(overlay.querySelectorAll('[data-delete-step-index]'));
-        if (log) log.textContent = text || DELETE_WAIT_STEPS[activeIndex]?.text || 'Waiting for OLT response...';
-        if (bar) bar.style.width = `${progress || DELETE_WAIT_STEPS[activeIndex]?.progress || 16}%`;
-        steps.forEach((node) => {
-            node.classList.remove('is-active', 'is-done');
-            const index = Number(node.getAttribute('data-delete-step-index') || 0);
-            if (index < activeIndex) node.classList.add('is-done');
-            if (index === activeIndex) node.classList.add('is-active');
-        });
-    };
 
     const startDeleteWaitProgress = (overlay) => {
         if (!overlay) return;
@@ -2894,32 +2869,33 @@
             clearInterval(deleteWaitTimer);
             deleteWaitTimer = null;
         }
+        const bar = overlay.querySelector('[data-onu-delete-progress]');
+        const percent = overlay.querySelector('[data-onu-delete-percent]');
+        let value = 8;
+        if (bar) bar.style.width = `${value}%`;
+        if (percent) percent.textContent = `${value}%`;
         overlay.hidden = false;
-        let index = 0;
-        setDeleteWaitStep(overlay, index, DELETE_WAIT_STEPS[index].text, DELETE_WAIT_STEPS[index].progress);
         deleteWaitTimer = setInterval(() => {
-            index = Math.min(index + 1, DELETE_WAIT_STEPS.length - 2);
-            setDeleteWaitStep(overlay, index, DELETE_WAIT_STEPS[index].text, DELETE_WAIT_STEPS[index].progress);
-            if (index >= DELETE_WAIT_STEPS.length - 2 && deleteWaitTimer) {
+            value = Math.min(94, value + (value < 70 ? 7 : 3));
+            if (bar) bar.style.width = `${value}%`;
+            if (percent) percent.textContent = `${value}%`;
+            if (value >= 94 && deleteWaitTimer) {
                 clearInterval(deleteWaitTimer);
                 deleteWaitTimer = null;
             }
-        }, 1800);
+        }, 700);
     };
 
-    const finishDeleteWaitProgress = (overlay, ok, message) => {
+    const finishDeleteWaitProgress = (overlay) => {
         if (!overlay) return;
         if (deleteWaitTimer) {
             clearInterval(deleteWaitTimer);
             deleteWaitTimer = null;
         }
-        const finalIndex = ok ? DELETE_WAIT_STEPS.length - 1 : 3;
-        setDeleteWaitStep(
-            overlay,
-            finalIndex,
-            message || (ok ? 'ONU deleted. Opening Autofind...' : 'ONU delete failed.'),
-            ok ? 100 : 82
-        );
+        const bar = overlay.querySelector('[data-onu-delete-progress]');
+        const percent = overlay.querySelector('[data-onu-delete-percent]');
+        if (bar) bar.style.width = '100%';
+        if (percent) percent.textContent = '100%';
     };
 
     const hideDeleteWaitProgress = (overlay) => {
@@ -3593,28 +3569,12 @@
 
     if (fetchConfigButton && fetchConfigUrl) {
         const fetchConfigOverlay = document.querySelector('[data-fetch-config-wait]');
-        const fetchConfigLog = document.querySelector('[data-fetch-config-wait-log]');
-        const setFetchLog = (text) => { if (fetchConfigLog) fetchConfigLog.textContent = text; };
 
         fetchConfigButton.addEventListener('click', async () => {
             fetchConfigButton.disabled = true;
-            // Show the full-page spinning wheel overlay and cycle through the real
-            // phases this fetch goes through while the OLT request is in flight.
             if (fetchConfigOverlay) fetchConfigOverlay.hidden = false;
-            const stages = [
-                'Connecting to OLT...',
-                'Reading service-ports & VLANs...',
-                'Parsing config...',
-            ];
-            let stageIndex = 0;
-            setFetchLog(stages[0]);
-            const stageTimer = window.setInterval(() => {
-                stageIndex = Math.min(stageIndex + 1, stages.length - 1);
-                setFetchLog(stages[stageIndex]);
-            }, 1400);
 
             const finish = () => {
-                window.clearInterval(stageTimer);
                 if (fetchConfigOverlay) fetchConfigOverlay.hidden = true;
                 fetchConfigButton.disabled = false;
             };
@@ -3625,19 +3585,11 @@
                     headers: { 'X-CSRFToken': getCookie('csrftoken') },
                 });
                 const data = await response.json();
-                window.clearInterval(stageTimer);
                 if (!response.ok || !data.ok) {
                     finish();
                     showConfigToast(data.message || 'Could not fetch current config.', true);
                     return;
                 }
-                // Show exactly what was read from the OLT before finishing.
-                const parts = [];
-                if (data.attached_vlans) parts.push('VLAN ' + data.attached_vlans);
-                if (data.service_ports) parts.push('Service-port ' + data.service_ports);
-                if (data.download_profiles) parts.push('Download ' + data.download_profiles);
-                if (data.upload_profiles) parts.push('Upload ' + data.upload_profiles);
-                setFetchLog(parts.length ? ('Fetched — ' + parts.join(' | ')) : 'Config read complete.');
 
                 if (data.updated) {
                     // DB changed — reload so the server re-renders the authoritative
@@ -3662,10 +3614,13 @@
     bindOnuAction(onuResetButton, onuResetUrl);
     bindOnuAction(onuDeleteButton, onuDeleteUrl);
 
-    // "DELETE ONU" link inside the imported-ONU notice triggers the real delete.
+    // Imported-ONU notice uses the same delete action after user confirmation.
     const importedDeleteLink = document.querySelector('[data-imported-delete]');
     if (importedDeleteLink && onuDeleteButton) {
-        importedDeleteLink.addEventListener('click', () => { onuDeleteButton.click(); });
+        importedDeleteLink.addEventListener('click', () => {
+            const ok = window.confirm('Are you sure you want to delete this ONU from the OLT?');
+            if (ok) onuDeleteButton.click();
+        });
     }
 
     if (contactEditForm) {
@@ -3695,7 +3650,6 @@
 <script>
 (() => {
     const overlay = document.querySelector('[data-sp-wait]');
-    const log = document.querySelector('[data-sp-wait-log]');
     const forms = Array.from(document.querySelectorAll('[data-sp-delete-form]'));
     if (!overlay || !forms.length) return;
 
@@ -3710,7 +3664,6 @@
             const confirmMsg = form.getAttribute('data-confirm') || 'Delete this service-port?';
             if (!window.confirm(confirmMsg)) return;
             overlay.hidden = false;
-            if (log) log.textContent = 'Deleting service-port...';
             try {
                 const response = await fetch(form.action, {
                     method: 'POST',
@@ -3722,7 +3675,6 @@
                 });
                 const data = await response.json();
                 if (response.ok && data.ok) {
-                    if (log) log.textContent = 'OK: ' + (data.message || 'Service-port deleted.');
                     window.setTimeout(() => {
                         window.location.href = data.redirect_url || window.location.href;
                     }, 500);

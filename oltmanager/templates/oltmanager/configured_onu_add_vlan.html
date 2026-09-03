@@ -190,14 +190,8 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">ONU VLAN Adding</div>
-        <div class="olt-wait-log" data-olt-wait-log>Preparing VLAN add...</div>
         <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
-        <ul class="olt-wait-steps" data-olt-wait-steps>
-            <li data-step-index="0">Opening OLT session</li>
-            <li data-step-index="1">Checking traffic tables</li>
-            <li data-step-index="2">Preparing service-port</li>
-            <li data-step-index="3">Applying configuration</li>
-        </ul>
+        <div class="olt-wait-percent" data-olt-wait-percent>0%</div>
     </div>
 </div>
 {% endblock %}
@@ -208,8 +202,7 @@
     const form = document.querySelector('[data-speed-profile-form]');
     const overlay = document.querySelector('[data-olt-wait]');
     const fill = document.querySelector('[data-olt-wait-fill]');
-    const log = document.querySelector('[data-olt-wait-log]');
-    const steps = Array.from(document.querySelectorAll('[data-olt-wait-steps] [data-step-index]'));
+    const percentNode = document.querySelector('[data-olt-wait-percent]');
     const PROGRESS_URL = "{% url 'configured_onu_speed_profile_progress' task_id='__TASK__' %}";
     const STEP_WIDTHS = [20, 45, 70, 92, 100];
     const STEP_LABELS = [
@@ -226,15 +219,10 @@
     };
 
     const setStep = (stepIndex, labelText, done) => {
-        if (!fill || !log) return;
+        if (!fill) return;
         const clamped = Math.max(0, Math.min(stepIndex, STEP_WIDTHS.length - 1));
         fill.style.width = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
-        log.textContent = labelText || STEP_LABELS[clamped] || 'Working...';
-        steps.forEach((node) => {
-            const index = Number(node.getAttribute('data-step-index') || 0);
-            node.classList.toggle('is-done', done || index < stepIndex);
-            node.classList.toggle('is-active', !done && index === stepIndex);
-        });
+        if (percentNode) percentNode.textContent = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
     };
 
     let pollTimer = null;

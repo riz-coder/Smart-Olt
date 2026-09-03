@@ -2,6 +2,7 @@ from django.test import SimpleTestCase
 
 from .utils import (
     _format_sfp_tx_dbm,
+    _parse_ont_autofind_blocks,
     _parse_pon_sfp_tx_from_text,
     _parse_service_port_detail_map_from_current_config,
     _parse_single_ont_optical_info,
@@ -31,6 +32,47 @@ class SnmpIfIndexParsingTests(SimpleTestCase):
         self.assertEqual(_parse_snmp_gpon_fsp_from_ifname("GPON0/0/1"), (0, 0, 1))
         self.assertEqual(_parse_snmp_gpon_fsp_from_ifname("GPON_0/0/1"), (0, 0, 1))
         self.assertEqual(_parse_snmp_gpon_fsp_from_ifname("0/0/1"), (0, 0, 1))
+
+
+class OntAutofindParsingTests(SimpleTestCase):
+    def test_parse_block_autofind_sn_from_display_value(self):
+        output = """
+        Number              : 1
+        F/S/P               : 0/1/1
+        Ont SN              : 48575443D47D5FAE (HWTCD47D5FAE)
+        Ont EquipmentID     : MT-1504
+        Ont autofind time   : 2026-09-03 13:09:56+05:00
+        ----------------------------------------------------------------------------
+        """
+
+        rows = _parse_ont_autofind_blocks(output)
+
+        self.assertEqual(rows[0]["sn"], "HWTCD47D5FAE")
+        self.assertEqual(rows[0]["slot"], 1)
+        self.assertEqual(rows[0]["port"], 1)
+
+    def test_parse_plain_12_hex_autofind_serial(self):
+        output = """
+        F/S/P               : 0/2/3
+        Ont SN              : 000062CD2C06
+        ----------------------------------------------------------------------------
+        """
+
+        rows = _parse_ont_autofind_blocks(output)
+
+        self.assertEqual(rows[0]["sn"], "000062CD2C06")
+
+    def test_parse_epon_mac_autofind_row(self):
+        output = """
+        F/S/P               : 0/3/4
+        Ont MAC             : E4A8-B6A4-2B92
+        ----------------------------------------------------------------------------
+        """
+
+        rows = _parse_ont_autofind_blocks(output)
+
+        self.assertEqual(rows[0]["sn"], "E4A8B6A42B92")
+        self.assertEqual(rows[0]["pon_type"], "EPON")
 
 
 class ServicePortProfileParsingTests(SimpleTestCase):

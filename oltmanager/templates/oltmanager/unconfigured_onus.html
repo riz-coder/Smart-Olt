@@ -561,6 +561,11 @@
         box-shadow: 0 0 18px rgba(79, 141, 255, 0.28);
         transition: width 0.45s ease;
     }
+    .olt-wait-percent {
+        color: #dff2ff;
+        font-size: 13px;
+        font-weight: 900;
+    }
     .olt-wait-steps {
         margin: 0;
         padding: 0;
@@ -629,6 +634,9 @@
     html[data-theme="light"] .olt-wait-progress-bar {
         background: linear-gradient(90deg, #2376ff 0%, #00d46a 100%);
         box-shadow: 0 0 18px rgba(0, 212, 106, 0.42);
+    }
+    html[data-theme="light"] .olt-wait-percent {
+        color: #17365d;
     }
     html[data-theme="light"] .olt-wait-steps li {
         color: #5d6f8d;
@@ -744,17 +752,10 @@
             <div class="olt-wait-card">
                 <div class="olt-wait-wheel"></div>
                 <h3>ONU Configuring</h3>
-                <p class="olt-wait-stage" id="olt-wait-stage">Starting the session...</p>
                 <div class="olt-wait-progress" aria-hidden="true">
                     <div class="olt-wait-progress-bar" id="olt-wait-progress-bar"></div>
                 </div>
-                <ul class="olt-wait-steps" id="olt-wait-steps">
-                    <li data-step-index="0" class="is-active">Opening the Telnet session</li>
-                    <li data-step-index="1">Checking required profiles</li>
-                    <li data-step-index="2">Preparing traffic tables</li>
-                    <li data-step-index="3">Adding and binding the ONU</li>
-                    <li data-step-index="4">Saving the configuration</li>
-                </ul>
+                <div class="olt-wait-percent" id="olt-wait-percent">0%</div>
                 <span id="authorize-progress-url-tpl" data-url="{% url 'unconfigured_onu_authorize_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
             </div>
         </div>
@@ -891,9 +892,8 @@ document.addEventListener('DOMContentLoaded', function () {
     syncOltSelectionLimit();
 
     const waitOverlay = document.getElementById('olt-wait-overlay');
-    const waitStage = document.getElementById('olt-wait-stage');
     const waitProgressBar = document.getElementById('olt-wait-progress-bar');
-    const waitSteps = Array.from(document.querySelectorAll('#olt-wait-steps [data-step-index]'));
+    const waitPercent = document.getElementById('olt-wait-percent');
     const _progressUrlTpl = document.getElementById('authorize-progress-url-tpl');
     const _progressUrlBase = _progressUrlTpl ? _progressUrlTpl.getAttribute('data-url') : '';
     const _getProgressUrl = (taskId) => _progressUrlBase.replace('TASK_ID_PLACEHOLDER', taskId);
@@ -901,15 +901,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // step → progress % mapping (matches backend step indices 0-4)
     const STEP_PROGRESS = [14, 32, 52, 74, 90];
 
-    const setWaitStep = (activeIndex, progress, text) => {
-        if (waitStage) waitStage.textContent = text || 'Waiting for OLT response...';
-        if (waitProgressBar) waitProgressBar.style.width = `${progress || 18}%`;
-        waitSteps.forEach((node) => {
-            node.classList.remove('is-active', 'is-done');
-            const index = Number(node.getAttribute('data-step-index') || 0);
-            if (index < activeIndex) node.classList.add('is-done');
-            if (index === activeIndex) node.classList.add('is-active');
-        });
+    const setWaitStep = (activeIndex, progress) => {
+        const value = Math.max(0, Math.min(100, Number(progress || 18)));
+        if (waitProgressBar) waitProgressBar.style.width = `${value}%`;
+        if (waitPercent) waitPercent.textContent = `${Math.round(value)}%`;
     };
     const renderWaitOverlayStage = () => setWaitStep(0, STEP_PROGRESS[0], 'Opening the Telnet session...');
     // ── progress polling (replaces time-based timeline) ──────────────────────

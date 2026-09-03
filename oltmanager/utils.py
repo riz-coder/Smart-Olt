@@ -256,13 +256,19 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
         def _pick_entity_metrics(mp_model):
             if not include_entity_metrics:
                 return {"temperature": "--", "cpu": "--", "memory": "--"}
-            try:
-                names = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.7"))
-                classes = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.2.1.47.1.1.1.1.5"))
-                cpus = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5"))
-                mems = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7"))
-                temps = _run_snmp_operation(_snmp_walk(mp_model, "1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11"))
-            except Exception:
+
+            def _safe_walk(base_oid):
+                try:
+                    return _run_snmp_operation(_snmp_walk(mp_model, base_oid))
+                except Exception:
+                    return {}
+
+            names = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.7")
+            classes = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.5")
+            cpus = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5")
+            mems = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7")
+            temps = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11")
+            if not any((names, classes, cpus, mems, temps)):
                 return {"temperature": "--", "cpu": "--", "memory": "--"}
 
             candidates = []
@@ -2256,6 +2262,613 @@ def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0)
     except Exception as exc:
         result["message"] = f"SNMP ONU action failed: {exc}"
         return result
+
+
+def _read_snmp_instance(olt, oid):
+    """Read one instance, trying SNMP v2c then v1."""
+    last = {"oid": oid, "ok": False, "error": "no response", "mp_model": None}
+    for mp_model in (1, 0):
+        try:
+            err_ind, err_stat, _, var_binds = _snmp_get_value(olt, oid, mp_model=mp_model)
+            if err_ind or err_stat:
+                last = {
+                    "oid": oid,
+                    "ok": False,
+                    "error": _snmp_error_text(err_ind, err_stat),
+                    "mp_model": mp_model,
+                }
+                continue
+            if _snmp_varbind_has_value(var_binds):
+                snmp_value = var_binds[0][1]
+                payload = {
+                    "oid": oid,
+                    "ok": True,
+                    "value": str(snmp_value),
+                    "value_type": snmp_value.__class__.__name__,
+                    "mp_model": mp_model,
+                }
+                try:
+                    payload["hex_value"] = bytes(snmp_value.asOctets()).hex()
+                except Exception:
+                    pass
+                return {
+                    **payload,
+                }
+            last = {"oid": oid, "ok": False, "error": "noSuchInstance", "mp_model": mp_model}
+            break
+        except Exception as exc:
+            last = {"oid": oid, "ok": False, "error": str(exc), "mp_model": mp_model}
+    return last
+
+
+def _snmp_instance_is_missing(read_result):
+    if bool((read_result or {}).get("ok")):
+        return False
+    error = str((read_result or {}).get("error") or "").lower().replace(" ", "")
+    return any(marker in error for marker in ("nosuchinstance", "nosuchobject", "endofmib"))
+
+
+def _parse_huawei_flow_index_list(value):
+    text = str(value or "").strip()
+    if not text:
+        return []
+    indexes = []
+
+    def _add(number):
+        try:
+            parsed = int(number)
+        except (TypeError, ValueError):
+            return
+        if parsed > 0 and parsed not in indexes:
+            indexes.append(parsed)
+
+    if re.fullmatch(r"[\d,\s;|]+", text):
+        for token in re.findall(r"\d+", text):
+            _add(token)
+        return indexes
+
+    hex_tokens = re.findall(r"(?i)0x([0-9a-f]{8})", text)
+    if hex_tokens:
+        for token in hex_tokens:
+            _add(int(token, 16))
+        if indexes:
+            return indexes
+
+    compact_hex = re.sub(r"[^0-9A-Fa-f]", "", text)
+    if compact_hex.startswith(("0x", "0X")):
+        compact_hex = compact_hex[2:]
+    if ("0x" in text.lower() or re.search(r"[^0-9,\s;|]+", text)) and len(compact_hex) >= 8 and len(compact_hex) % 8 == 0:
+        for pos in range(0, len(compact_hex), 8):
+            _add(int(compact_hex[pos:pos + 8], 16))
+        if indexes:
+            return indexes
+
+    for token in re.findall(r"\d+", text):
+        _add(token)
+    return indexes
+
+
+def _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id):
+    list_oid = f"1.3.6.1.4.1.2011.5.14.5.8.1.2.{int(if_index)}.{int(ont_id)}"
+    read_result = _read_snmp_instance(olt, list_oid)
+    indexes = []
+    if read_result.get("ok"):
+        indexes = _parse_huawei_flow_index_list(read_result.get("value") or "")
+        if not indexes:
+            indexes = _parse_huawei_flow_index_list(read_result.get("hex_value") or "")
+    return {
+        "oid": list_oid,
+        "ok": bool(read_result.get("ok")) and bool(indexes),
+        "read": read_result,
+        "flow_indexes": indexes,
+    }
+
+
+def _delete_huawei_service_ports_snmp(
+    olt,
+    service_port_ids,
+    *,
+    if_index=None,
+    ont_id=None,
+    apply=False,
+    verify_delay=0.4,
+    service_flow_index_offset=None,
+):
+    """Safely resolve and delete Huawei service-flow rows using RowStatus.
+
+    Huawei families disagree on whether the SNMP flow index is the CLI
+    service-port ID or that ID plus one.  Prefer an explicit offset when the
+    caller supplies one; otherwise preflight both layouts and use the direct
+    CLI service-port ID when neighboring active rows make the probe ambiguous.
+    """
+    row_status_base = "1.3.6.1.4.1.2011.5.14.5.2.1.15"
+    ids = []
+    for raw_value in list(service_port_ids or []):
+        text = str(raw_value or "").strip()
+        if not text.isdigit():
+            return {"ok": False, "message": f"Invalid cached service-port ID: {text or '-'}", "rows": []}
+        value = int(text)
+        if value not in ids:
+            ids.append(value)
+    configured_offset = service_flow_index_offset
+    if configured_offset is None:
+        configured_offset = getattr(settings, "HUAWEI_SERVICE_FLOW_INDEX_OFFSET", None)
+    if configured_offset not in (None, ""):
+        try:
+            configured_offset = int(configured_offset)
+        except (TypeError, ValueError):
+            return {
+                "ok": False,
+                "message": f"Invalid Huawei service-flow index offset: {configured_offset}",
+                "rows": [],
+            }
+        if configured_offset not in (0, 1):
+            return {
+                "ok": False,
+                "message": "Huawei service-flow index offset must be 0 or 1.",
+                "rows": [],
+            }
+
+    result = {
+        "ok": False,
+        "dry_run": not bool(apply),
+        "offset": None,
+        "offset_source": "configured" if configured_offset is not None else "auto",
+        "rows": [],
+        "flow_index_query": {},
+        "message": "",
+    }
+
+    discovered_flow_indexes = []
+    if if_index is not None and ont_id is not None:
+        result["flow_index_query"] = _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
+        discovered_flow_indexes = list(result["flow_index_query"].get("flow_indexes") or [])
+
+    def _resolve_discovered_rows(flow_indexes):
+        rows = []
+        missing = []
+        for reported_index in list(flow_indexes or []):
+            candidates = [int(reported_index)]
+            if configured_offset is not None:
+                candidates = [int(reported_index) + int(configured_offset)]
+            else:
+                for candidate in (int(reported_index) + 1, int(reported_index) - 1):
+                    if candidate > 0 and candidate not in candidates:
+                        candidates.append(candidate)
+            attempts = []
+            selected = None
+            for flow_index in candidates:
+                oid = f"{row_status_base}.{flow_index}"
+                before = _read_snmp_instance(olt, oid)
+                attempt = {
+                    "reported_flow_index": reported_index,
+                    "flow_index": flow_index,
+                    "oid": oid,
+                    "before": before,
+                }
+                attempts.append(attempt)
+                if before.get("ok") and selected is None:
+                    selected = {
+                        "service_port_id": "",
+                        "reported_flow_index": reported_index,
+                        "flow_index": flow_index,
+                        "oid": oid,
+                        "before": before,
+                        "candidate_attempts": attempts,
+                    }
+                    break
+            if selected is None:
+                missing.append({
+                    "reported_flow_index": reported_index,
+                    "candidate_attempts": attempts,
+                })
+            else:
+                rows.append(selected)
+        return rows, missing
+
+    if discovered_flow_indexes:
+        result["offset_source"] = "hwFlowIndexList"
+        result["offset"] = None
+        result["rows"], missing_rows = _resolve_discovered_rows(discovered_flow_indexes)
+        if missing_rows:
+            result["discovered_rows_missing"] = missing_rows
+            if ids:
+                result["rows"] = []
+                result["offset_source"] = "cached-id-fallback"
+            else:
+                discovered_flow_indexes = []
+            if not ids and not result["rows"]:
+                result["message"] = (
+                    "OLT returned service-flow index(es), but at least one RowStatus row could not be read "
+                    "and no cached service-port ID was available for fallback. Nothing was deleted."
+                )
+                return result
+        if not bool(apply):
+            result.update({"ok": True, "message": f"Dry run: OLT reported {len(result['rows'])} attached service-flow row(s)."})
+            return result
+    elif not ids:
+        result.update({"ok": True, "message": "No attached service-flow rows were reported by SNMP."})
+        return result
+
+    if not result["rows"]:
+        # Fallback for OLT software that does not expose hwFlowIndexList.
+        # No SET is sent until one layout is proven.
+        layouts = {}
+        for offset in (0, 1):
+            rows = []
+            for service_port_id in ids:
+                flow_index = service_port_id + offset
+                oid = f"{row_status_base}.{flow_index}"
+                rows.append({
+                    "service_port_id": service_port_id,
+                    "flow_index": flow_index,
+                    "oid": oid,
+                    "before": _read_snmp_instance(olt, oid),
+                })
+            layouts[offset] = rows
+
+        valid_offsets = [offset for offset, rows in layouts.items() if rows and all(row["before"].get("ok") for row in rows)]
+        if configured_offset is not None:
+            valid_offsets = [configured_offset] if configured_offset in valid_offsets else []
+
+        if not valid_offsets:
+            result["candidates"] = layouts
+            if configured_offset is None:
+                result["message"] = "Could not match every cached service-port to an SNMP service-flow row. Nothing was deleted."
+            else:
+                result["message"] = (
+                    f"Configured Huawei service-flow index offset {configured_offset} did not match every cached "
+                    "service-port. Nothing was deleted."
+                )
+            return result
+        if len(valid_offsets) > 1:
+            result["offset_source"] = "auto-direct-id-ambiguous"
+            valid_offsets = [0]
+
+        offset = valid_offsets[0]
+        result["offset"] = offset
+        if result.get("offset_source") == "hwFlowIndexList":
+            result["offset_source"] = "cached-id-fallback"
+        result["rows"] = layouts[offset]
+        if not bool(apply):
+            result.update({"ok": True, "message": f"Dry run: service-flow index offset {offset} resolved safely."})
+            return result
+
+    deleted_count = 0
+    discovery_mode = result.get("offset_source") == "hwFlowIndexList"
+    for _ in range(64):
+        current_rows = list(result["rows"])
+        for row in current_rows:
+            mp_model = row["before"].get("mp_model")
+            try:
+                err_ind, err_stat, err_idx, var_binds = _snmp_set_value(
+                    olt, row["oid"], 6, value_type="Integer", mp_model=mp_model,
+                )
+                row["set"] = {
+                    "mp_model": mp_model,
+                    "error_indication": str(err_ind or ""),
+                    "error_status": str(err_stat or ""),
+                    "error_index": str(err_idx or ""),
+                    "var_binds": [{"oid": str(oid), "value": str(value)} for oid, value in list(var_binds or [])],
+                }
+                if err_ind or err_stat:
+                    label = row["service_port_id"] or f"flow-index {row['flow_index']}"
+                    result["message"] = f"SNMP delete failed for service-port {label}: {_snmp_error_text(err_ind, err_stat)}"
+                    return result
+            except Exception as exc:
+                row["set"] = {"mp_model": mp_model, "exception": str(exc)}
+                label = row["service_port_id"] or f"flow-index {row['flow_index']}"
+                result["message"] = f"SNMP delete failed for service-port {label}: {exc}"
+                return result
+
+            if float(verify_delay or 0) > 0:
+                time.sleep(float(verify_delay))
+            row["after"] = _read_snmp_instance(olt, row["oid"])
+            if not _snmp_instance_is_missing(row["after"]):
+                label = row["service_port_id"] or f"flow-index {row['flow_index']}"
+                detail = "still exists" if row["after"].get("ok") else f"could not be verified: {row['after'].get('error') or 'no response'}"
+                result["message"] = f"Service-port {label} {detail} after SNMP destroy(6)."
+                return result
+            deleted_count += 1
+
+        if not discovery_mode:
+            break
+        followup_query = _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
+        result.setdefault("followup_flow_index_queries", []).append(followup_query)
+        next_indexes = list(followup_query.get("flow_indexes") or [])
+        if not next_indexes:
+            break
+        result["rows"], missing_rows = _resolve_discovered_rows(next_indexes)
+        if missing_rows:
+            result.setdefault("followup_discovered_rows_missing", []).extend(missing_rows)
+        if not result["rows"]:
+            result["message"] = "OLT reported another attached service-flow, but its RowStatus row could not be read."
+            return result
+    else:
+        result["message"] = "Stopped after deleting 64 service-flow rows; OLT still reports attached service-flow rows."
+        return result
+
+    result.update({"ok": True, "message": f"Deleted and verified {deleted_count} service-port(s) via SNMP."})
+    return result
+
+
+def probe_onu_snmp_delete(
+    olt,
+    slot,
+    port,
+    ont_id,
+    *,
+    frame=0,
+    apply=False,
+    verify_delay=0.4,
+    service_port_ids=None,
+    service_flow_index_offset=None,
+):
+    """Delete attached service-ports, then the Huawei XPON ONT via SNMP."""
+    result = {
+        "ok": False,
+        "dry_run": not bool(apply),
+        "message": "",
+        "tech": "",
+        "if_index": "",
+        "entry_status_oid": "",
+        "entry_status_name": "",
+        "destroy_value": 6,
+        "snmpset_template": "",
+        "verify_oids": {},
+        "before": {},
+        "after": {},
+        "mp_model": None,
+        "set_attempts": [],
+        "service_port_ids": [],
+        "service_port_delete": {},
+    }
+    for raw_value in list(service_port_ids or []):
+        value = str(raw_value or "").strip()
+        if value and value not in result["service_port_ids"]:
+            result["service_port_ids"].append(value)
+
+    def _return_with_cli_fallback(reason, force_pon_cli=""):
+        result["snmp_failed_message"] = str(reason or "").strip()
+        if not bool(apply):
+            result["message"] = result["snmp_failed_message"] or "SNMP ONU delete failed."
+            return result
+        cli_result = execute_onu_cli_delete_action(
+            olt,
+            slot,
+            port,
+            ont_id,
+            frame=frame,
+            service_port_ids=result["service_port_ids"],
+            force_pon_cli=force_pon_cli,
+        )
+        result["cli_fallback"] = cli_result
+        result["ok"] = bool(cli_result.get("ok"))
+        result["message"] = (
+            "SNMP delete failed; CLI fallback deleted the ONU."
+            if result["ok"]
+            else (
+                "SNMP delete failed and CLI fallback also failed: "
+                f"{cli_result.get('message') or result['snmp_failed_message'] or 'unknown error'}"
+            )
+        )
+        result["transcript"] = str(cli_result.get("transcript") or "")
+        return result
+
+    if not str(getattr(olt, "snmp_write_community", "") or "").strip():
+        return _return_with_cli_fallback("SNMP write community is not configured.")
+
+    try:
+        if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, frame=frame)
+        if not if_index:
+            return _return_with_cli_fallback("SNMP ifIndex lookup failed.")
+
+        tech = str(_slot_pon_tech(olt, slot) or "GPON").upper()
+        is_epon = tech == "EPON"
+        status_base = (
+            "1.3.6.1.4.1.2011.6.128.1.1.2.53.1.10"
+            if is_epon
+            else "1.3.6.1.4.1.2011.6.128.1.1.2.43.1.10"
+        )
+        status_name = (
+            "HUAWEI-XPON-MIB::hwEponDeviceOntEntryStatus"
+            if is_epon
+            else "HUAWEI-XPON-MIB::hwGponDeviceOntEntryStatus"
+        )
+        config_status_base = (
+            "1.3.6.1.4.1.2011.6.128.1.1.2.57.1.16"
+            if is_epon
+            else "1.3.6.1.4.1.2011.6.128.1.1.2.46.1.16"
+        )
+        entry_status_oid = f"{status_base}.{int(if_index)}.{int(ont_id)}"
+        config_status_oid = f"{config_status_base}.{int(if_index)}.{int(ont_id)}"
+
+        result.update({
+            "tech": tech,
+            "if_index": str(if_index),
+            "entry_status_oid": entry_status_oid,
+            "entry_status_name": status_name,
+            "snmpset_template": (
+                f"snmpset -v2c -c <write-community> {olt.ip_address}:{olt.snmp_port} "
+                f"{entry_status_oid} i 6"
+            ),
+            "verify_oids": {
+                "entry_status": entry_status_oid,
+                "config_status": config_status_oid,
+            },
+        })
+
+        def _read_verify_values():
+            return {label: _read_snmp_instance(olt, oid) for label, oid in result["verify_oids"].items()}
+
+        result["before"] = _read_verify_values()
+        entry_before = result["before"].get("entry_status") or {}
+        if not entry_before.get("ok"):
+            if _snmp_instance_is_missing(entry_before):
+                result["ok"] = True
+                result["message"] = "ONU is already deleted."
+                return result
+            return _return_with_cli_fallback((
+                "ONU SNMP row could not be read before deletion: "
+                f"{entry_before.get('error') or 'no response'}. Nothing was deleted."
+            ), force_pon_cli=tech.lower())
+        result["service_port_delete"] = _delete_huawei_service_ports_snmp(
+            olt,
+            result["service_port_ids"],
+            if_index=if_index,
+            ont_id=ont_id,
+            apply=bool(apply),
+            verify_delay=verify_delay,
+            service_flow_index_offset=service_flow_index_offset,
+        )
+        if not result["service_port_delete"].get("ok"):
+            if not bool(apply):
+                result["message"] = result["service_port_delete"].get("message") or "SNMP service-port deletion failed."
+                return result
+            result["message"] = result["service_port_delete"].get("message") or "SNMP service-port deletion will be retried."
+
+        if not bool(apply):
+            result["ok"] = True
+            result["message"] = "Dry run only. Service-port mapping resolved; use --apply to delete service-port(s), then ONU."
+            return result
+
+        def _snmp_rowstatus_value_is_active(read_result):
+            if not (read_result or {}).get("ok"):
+                return False
+            text = str((read_result or {}).get("value") or "").strip()
+            return text in {"1", "2", "3", "4", "5", "6"}
+
+        def _format_var_binds(var_binds):
+            formatted = []
+            for oid, value in list(var_binds or []):
+                formatted.append({
+                    "oid": str(oid),
+                    "value": str(value),
+                    "value_type": value.__class__.__name__,
+                })
+            return formatted
+
+        def _verify_onu_deleted(max_attempts=7):
+            verify_attempts = []
+            for attempt_no in range(max_attempts):
+                verify_values = _read_verify_values()
+                flow_query_after = (
+                    _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
+                    if if_index is not None and ont_id is not None
+                    else {}
+                )
+                verify_values["service_flow_query"] = flow_query_after
+                verify_attempts.append(verify_values)
+                entry_probe = verify_values.get("entry_status") or {}
+                config_probe = verify_values.get("config_status") or {}
+                service_flows_left = list((flow_query_after or {}).get("flow_indexes") or [])
+                if _snmp_instance_is_missing(entry_probe):
+                    return True, verify_attempts
+                if not service_flows_left and (
+                    _snmp_instance_is_missing(config_probe)
+                    or (
+                        entry_probe.get("ok")
+                        and not _snmp_rowstatus_value_is_active(entry_probe)
+                    )
+                ):
+                    return True, verify_attempts
+                if attempt_no < max_attempts - 1:
+                    time.sleep(max(float(verify_delay or 0), 0.8))
+            return False, verify_attempts
+
+        last_error = ""
+        for cycle in range(4):
+            if cycle:
+                retry_offset = service_flow_index_offset
+                if retry_offset is None:
+                    retry_offset = 1 if cycle % 2 == 1 else 0
+                cleanup = _delete_huawei_service_ports_snmp(
+                    olt,
+                    result["service_port_ids"],
+                    if_index=if_index,
+                    ont_id=ont_id,
+                    apply=True,
+                    verify_delay=verify_delay,
+                    service_flow_index_offset=retry_offset,
+                )
+                result.setdefault("service_port_delete_retries", []).append(cleanup)
+                if not cleanup.get("ok"):
+                    last_error = cleanup.get("message") or last_error
+                    time.sleep(max(float(verify_delay or 0), 0.8))
+
+            for mp_model in (1, 0):
+                attempt = {
+                    "cycle": cycle + 1,
+                    "mp_model": mp_model,
+                    "version": "v2c" if mp_model == 1 else "v1",
+                    "oid": entry_status_oid,
+                    "value": 6,
+                }
+                try:
+                    err_ind, err_stat, err_idx, var_binds = _snmp_set_value(
+                        olt,
+                        entry_status_oid,
+                        6,
+                        value_type="Integer",
+                        mp_model=mp_model,
+                    )
+                    attempt.update({
+                        "error_indication": str(err_ind or ""),
+                        "error_status": str(err_stat or ""),
+                        "error_status_type": err_stat.__class__.__name__ if err_stat else "",
+                        "error_index": str(err_idx or ""),
+                        "var_binds": _format_var_binds(var_binds),
+                    })
+                    result["set_attempts"].append(attempt)
+                    if err_ind or err_stat:
+                        last_error = (
+                            f"{attempt['version']} status={attempt['error_status'] or '-'} "
+                            f"index={attempt['error_index'] or '-'} oid={entry_status_oid}"
+                        )
+                        continue
+                    result["mp_model"] = mp_model
+                    break
+                except Exception as exc:
+                    attempt.update({
+                        "exception_type": exc.__class__.__name__,
+                        "exception": str(exc),
+                    })
+                    result["set_attempts"].append(attempt)
+                    last_error = (
+                        f"{attempt['version']} exception={exc.__class__.__name__}: {exc} "
+                        f"oid={entry_status_oid}"
+                    )
+
+            if float(verify_delay or 0) > 0:
+                time.sleep(float(verify_delay))
+            verified, verify_attempts = _verify_onu_deleted()
+            result.setdefault("after_attempt_cycles", []).append(verify_attempts)
+            result["after_attempts"] = verify_attempts
+            result["after"] = verify_attempts[-1] if verify_attempts else _read_verify_values()
+            if verified:
+                result["ok"] = True
+                result["message"] = "SNMP RowStatus destroy(6) sent and ONU deletion verified."
+                return result
+
+        if not result.get("after"):
+            flow_query_after = (
+                _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
+                if if_index is not None and ont_id is not None
+                else {}
+            )
+            result["after"] = _read_verify_values()
+            result["after"]["service_flow_query"] = flow_query_after
+        entry_after = result["after"].get("entry_status") or {}
+        service_port_note = ""
+        if not result["ok"] and result["service_port_ids"]:
+            service_port_note = f" Cached service-port(s): {', '.join(result['service_port_ids'])}."
+        result["message"] = (
+            "SNMP RowStatus destroy(6) sent, but deletion could not be verified after retries"
+            f" ({entry_after.get('error') or entry_after.get('value') or last_error or 'entry still exists'}).{service_port_note}"
+        )
+        return _return_with_cli_fallback(result["message"], force_pon_cli=tech.lower())
+    except Exception as exc:
+        return _return_with_cli_fallback(f"SNMP ONU delete probe failed: {exc}")
 
 
 def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admin_state, *, frame=0):
@@ -10548,18 +11161,21 @@ def authorize_autofind_onu(
                             _append_authorize_transcript(
                                 transcript,
                                 "read cached service-ports",
-                                f"Warning: could not read cached service-port IDs before duplicate-SN delete: {exc}",
+                                f"Warning: could not read cached service-port IDs before SNMP duplicate-SN delete: {exc}",
                             )
-                        delete_result = execute_onu_cli_delete_action(
+                        delete_result = probe_onu_snmp_delete(
                             olt,
                             old_slot,
                             old_port,
                             old_ont_id,
                             frame=old_frame,
+                            apply=True,
                             service_port_ids=cached_service_port_ids,
-                            existing_tn=tn,
-                            existing_transcript=transcript,
-                            force_pon_cli=pon_tech_cli,
+                        )
+                        _append_authorize_transcript(
+                            transcript,
+                            "SNMP duplicate-SN delete",
+                            json.dumps(delete_result, indent=2, default=str),
                         )
                         if not delete_result.get("ok"):
                             result["message"] = (
@@ -14119,13 +14735,53 @@ def _parse_ont_autofind_blocks(output):
     if summary_match:
         global_pon_type = summary_match.group(1).strip().upper()
 
+    def _clean_autofind_sn(value):
+        raw = str(value or "").strip()
+        if not raw or raw.strip("- ") == "":
+            return ""
+        bracket_match = re.search(r"\(([^)]+)\)", raw)
+        if bracket_match:
+            raw = bracket_match.group(1).strip()
+        mac_match = re.fullmatch(r"([0-9A-Fa-f]{4})[-:]?([0-9A-Fa-f]{4})[-:]?([0-9A-Fa-f]{4})", raw)
+        if mac_match:
+            return "".join(part.upper() for part in mac_match.groups())
+        return raw.strip().replace("-", "")
+
+    def _fallback_autofind_sn_from_block(block):
+        skip_keys = {"number", "f/s/p", "ont autofind time", "autofind_time"}
+        preferred_keys = (
+            "ont sn",
+            "sn",
+            "serial number",
+            "serial",
+            "password",
+            "loid",
+            "ont id",
+        )
+        items = list((block or {}).items())
+        for wanted in preferred_keys:
+            for key, value in items:
+                if wanted not in str(key or "").lower():
+                    continue
+                cleaned = _clean_autofind_sn(value)
+                if re.fullmatch(r"[A-Z0-9]{12,16}", cleaned or ""):
+                    return cleaned
+        for key, value in items:
+            if str(key or "").lower() in skip_keys:
+                continue
+            cleaned = _clean_autofind_sn(value)
+            if re.fullmatch(r"[A-Z0-9]{12,16}", cleaned or ""):
+                return cleaned
+        return ""
+
     current = {}
     for raw in text.splitlines():
         line = raw.strip()
         if not line:
             continue
         if re.match(r"^-{5,}$", line):
-            if current.get("f/s/p") and current.get("sn_display"):
+            sn_display = _clean_autofind_sn(current.get("sn_display") or "") or _fallback_autofind_sn_from_block(current)
+            if current.get("f/s/p") and sn_display:
                 fsp_match = re.match(r"^\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\s*$", str(current.get("f/s/p") or ""))
                 if fsp_match:
                     frame = int(fsp_match.group(1))
@@ -14138,7 +14794,7 @@ def _parse_ont_autofind_blocks(output):
                         "port": port,
                         "board": str(slot),
                         "pon_type": _normalize_autofind_pon_type(current.get("pon_type") or global_pon_type or "-"),
-                        "sn": current.get("sn_display") or "-",
+                        "sn": sn_display,
                         "type": (
                             current.get("ont equipmentid")
                             or current.get("ont equipment id")
@@ -14157,21 +14813,20 @@ def _parse_ont_autofind_blocks(output):
         value = value.strip()
         current[key] = value
         if key == "ont sn":
-            bracket_match = re.search(r"\(([^)]+)\)", value)
-            if bracket_match:
-                sn_display = bracket_match.group(1).strip().replace("-", "")
+            sn_display = _clean_autofind_sn(value)
+            if sn_display:
                 current["sn_display"] = sn_display
-                current["pon_type"] = _normalize_autofind_pon_type(global_pon_type or "-")
-            else:
-                current["sn_display"] = value.strip().replace("-", "")
-                current["pon_type"] = _normalize_autofind_pon_type(global_pon_type or "-")
+            current["pon_type"] = _normalize_autofind_pon_type(global_pon_type or "-")
         elif key == "ont mac" and value:
             # EPON autofind identifies ONTs by MAC (e.g. E4A8-B6A4-2B92), not SN.
             # Keep the dashed MAC form for display/authorize (mac-auth).
-            current["sn_display"] = value.strip()
+            sn_display = _clean_autofind_sn(value)
+            if sn_display:
+                current["sn_display"] = sn_display
             current["pon_type"] = _normalize_autofind_pon_type(global_pon_type or "EPON")
 
-    if current.get("f/s/p") and current.get("sn_display"):
+    sn_display = _clean_autofind_sn(current.get("sn_display") or "") or _fallback_autofind_sn_from_block(current)
+    if current.get("f/s/p") and sn_display:
         fsp_match = re.match(r"^\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\s*$", str(current.get("f/s/p") or ""))
         if fsp_match:
             frame = int(fsp_match.group(1))
@@ -14184,7 +14839,7 @@ def _parse_ont_autofind_blocks(output):
                 "port": port,
                 "board": str(slot),
                 "pon_type": _normalize_autofind_pon_type(current.get("pon_type") or global_pon_type or "-"),
-                "sn": current.get("sn_display") or "-",
+                "sn": sn_display,
                 "type": current.get("ont equipmentid") or current.get("ont equipment id") or "-",
                 "autofind_time": current.get("ont autofind time") or current.get("autofind_time") or "-",
             })
