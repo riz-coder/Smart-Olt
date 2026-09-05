@@ -71,6 +71,7 @@ from .utils import (
     execute_onu_snmp_control_action,
     probe_onu_snmp_delete,
     execute_onu_eth_port_cli_admin_state,
+    execute_onu_cli_reset_action,
     sync_onu_detail_fields_for_olt,
     sync_onu_equipment_ids_for_olt,
     sync_single_onu_detail_fields,
@@ -7859,7 +7860,11 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
             status=status_code,
         )
 
-    snapshot = execute_onu_snmp_control_action(olt, slot, port, ont_id, action)
+    if action_key == "reset":
+        frame_value = record.frame if record is not None else 0
+        snapshot = execute_onu_cli_reset_action(olt, slot, port, ont_id, frame=frame_value)
+    else:
+        snapshot = execute_onu_snmp_control_action(olt, slot, port, ont_id, action)
     if snapshot.get("ok") and record is not None:
         now = timezone.now()
         if action_key == "disable":
@@ -7887,6 +7892,7 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
             "message": _ui_telnet_error_message(snapshot.get("message")),
             "oid": str(snapshot.get("oid") or ""),
             "value": str(snapshot.get("value") or ""),
+            "transcript": str(snapshot.get("transcript") or ""),
             "action": str(action or ""),
             "status_value": (record.derived_status if record is not None else ""),
             "status_label": (_configured_status_label(record.derived_status, run_state=record.run_state) if record is not None else ""),

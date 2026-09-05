@@ -3079,6 +3079,145 @@ def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admi
         write_guard.__exit__(None, None, None)
 
 
+def execute_onu_cli_reset_action(olt, slot, port, ont_id, *, frame=0):
+    """Reset an ONU through Huawei CLI with confirmation.
+
+    Flow:
+      config
+      interface gpon/epon/xgpon <frame>/<slot>
+      ont reset <port> <ont_id>
+      y
+
+    No post verification is required; Huawei returns a clear Failure line when
+    the ONT cannot be reset (for example offline).
+    """
+    result = {"ok": False, "message": "ONU reset failed.", "transcript": ""}
+    transcript = []
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "CLI ONU reset",
+        f"{frame}/{slot}/{port} ont {ont_id}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
+
+    tn, status = open_telnet_authenticated_session(olt)
+    if tn is None:
+        result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
+        return result
+
+    try:
+        _prepare_telnet_cli_session(tn, use_paging=False)
+        board_tech = _slot_pon_tech(olt, int(slot or 0))
+        interface_kinds = _pon_interface_kinds_for_board(board_tech)
+        _mark_operation_stage(result, "enter_interface", "Preparing ONU reset")
+        board_kind, interface_output, entered_iface = _enter_interface_context(
+            tn,
+            interface_kinds,
+            int(frame or 0),
+            int(slot or 0),
+        )
+        _append_authorize_transcript(
+            transcript,
+            f"interface {board_kind or interface_kinds[0]} {int(frame or 0)}/{int(slot or 0)}",
+            interface_output,
+        )
+        if not entered_iface:
+            result["message"] = f"Unable to enter {board_tech} interface {int(frame or 0)}/{int(slot or 0)}."
+            return result
+
+        reset_command = f"ont reset {int(port or 0)} {int(ont_id or 0)}"
+        _mark_operation_stage(result, "reset_onu", "Resetting ONU")
+        reset_output = _run_ont_reset_confirm_command(tn, reset_command, max_wait_seconds=22)
+        _append_authorize_transcript(transcript, reset_command, reset_output)
+        cleaned = _clean_cli_response_text(reset_command, reset_output)
+        lowered = str(cleaned or reset_output or "").lower()
+        if "failure:" in lowered or re.search(r"(?i)\bfail(?:ed|ure)\b", str(cleaned or reset_output or "")):
+            result["message"] = cleaned or "ONU reset failed."
+            return result
+        if _cli_command_has_hard_failure(reset_output):
+            result["message"] = cleaned or "ONU reset failed."
+            return result
+
+        result["ok"] = True
+        result["message"] = "ONU reset command sent successfully."
+        _mark_operation_stage(result, "complete", result["message"], status="done")
+        return result
+    except (socket.timeout, TimeoutError):
+        result["message"] = "Telnet timeout while resetting ONU."
+        return result
+    except (EOFError, OSError) as exc:
+        result["message"] = f"Telnet error while resetting ONU: {exc}"
+        return result
+    finally:
+        result["transcript"] = "\n\n".join(part for part in transcript if part).strip()[:16000]
+        try:
+            _run_telnet_command(tn, "quit")
+            _run_telnet_command(tn, "quit")
+        except Exception:
+            pass
+        _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
+
+
+def _run_ont_reset_confirm_command(tn, command, *, max_wait_seconds=22):
+    if tn is None:
+        return "Telnet session not open."
+    _touch_telnet_session(tn)
+    try:
+        tn.read_very_eager()
+    except (OSError, EOFError):
+        pass
+    try:
+        tn.write((str(command or "") + "\r\n").encode("ascii", errors="ignore"))
+    except EOFError:
+        return ""
+
+    output = ""
+    start_ts = time.time()
+    confirm_sent = False
+    prompt_pattern = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
+    confirm_pattern = re.compile(rb"(?i)(are\s+you\s+sure|resetting\s+the\s+ont|y\s*/\s*n|\(y/n\)\s*\[[yn]\]\s*:)")
+    patterns = [confirm_pattern, prompt_pattern]
+    while (time.time() - start_ts) < float(max_wait_seconds or 22):
+        try:
+            idx, _, text = tn.expect(patterns, timeout=0.35)
+        except EOFError:
+            break
+        if text:
+            output += ANSI_ESCAPE_PATTERN.sub("", text.decode("ascii", errors="ignore"))
+        else:
+            try:
+                extra = tn.read_very_eager().decode("ascii", errors="ignore")
+            except EOFError:
+                break
+            if extra:
+                output += ANSI_ESCAPE_PATTERN.sub("", extra)
+        lowered_tail = output[-600:].lower()
+        if not confirm_sent and ("(y/n)" in lowered_tail or "are you sure" in lowered_tail):
+            _touch_telnet_session(tn)
+            tn.write(b"y\r\n")
+            confirm_sent = True
+            continue
+        if confirm_sent and idx == 1:
+            break
+        if confirm_sent and PROMPT_LINE_PATTERN.search(output):
+            break
+    if confirm_sent and not output.endswith("\n"):
+        try:
+            time.sleep(0.2)
+            extra = tn.read_very_eager().decode("ascii", errors="ignore")
+            if extra:
+                output += ANSI_ESCAPE_PATTERN.sub("", extra)
+        except Exception:
+            pass
+    return output
+
+
 def execute_onu_cli_delete_action(
     olt,
     slot,

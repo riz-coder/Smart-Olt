@@ -2214,6 +2214,7 @@
                     <div class="running-config-actions">
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-disable-button>{% if onu.status_value == 'admin_disabled' %}Enable ONU{% else %}Disable ONU{% endif %}</button>
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-restart-button>Restart ONU</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-onu-reset-button>Reset ONU</button>
                         <button type="button" class="btn btn-danger btn-pappu" data-onu-delete-button>Delete ONU</button>
                         {% if onu_has_catv %}
                         <label class="catv-toggle-card {% if not onu_catv_enabled %}catv-disabled{% endif %}" data-catv-card>
@@ -2927,11 +2928,21 @@
             if (!url) return;
             button.disabled = true;
             const originalText = button.textContent;
-            const isDeleteAction = originalText.trim().toLowerCase() === 'delete onu';
+            const actionLabel = originalText.trim();
+            const actionKey = actionLabel.toLowerCase();
+            const isDeleteAction = actionKey === 'delete onu';
+            const runningText = (() => {
+                if (actionKey === 'delete onu') return 'Deleting...';
+                if (actionKey === 'reset onu') return 'Resetting...';
+                if (actionKey === 'restart onu') return 'Restarting...';
+                if (actionKey === 'disable onu') return 'Disabling...';
+                if (actionKey === 'enable onu') return 'Enabling...';
+                return 'Processing...';
+            })();
             const deleteOverlay = isDeleteAction ? document.querySelector('[data-onu-delete-wait]') : null;
             if (deleteOverlay) startDeleteWaitProgress(deleteOverlay);
-            button.textContent = isDeleteAction ? 'Deleting...' : 'Sending...';
-            setOnuActionState(isDeleteAction ? 'ONU Deleting...' : `${originalText} command sending...`, false);
+            button.textContent = runningText;
+            setOnuActionState(runningText, false);
             try {
                 const response = await fetch(url, {
                     method: 'POST',
