@@ -192,6 +192,7 @@
         <div class="olt-wait-title">ONU VLAN Adding</div>
         <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
         <div class="olt-wait-percent" data-olt-wait-percent>0%</div>
+        <div class="olt-wait-label" data-olt-wait-label>Preparing request...</div>
     </div>
 </div>
 {% endblock %}
@@ -203,14 +204,15 @@
     const overlay = document.querySelector('[data-olt-wait]');
     const fill = document.querySelector('[data-olt-wait-fill]');
     const percentNode = document.querySelector('[data-olt-wait-percent]');
+    const labelNode = document.querySelector('[data-olt-wait-label]');
     const PROGRESS_URL = "{% url 'configured_onu_speed_profile_progress' task_id='__TASK__' %}";
     const STEP_WIDTHS = [20, 45, 70, 92, 100];
     const STEP_LABELS = [
-        'Opening OLT session...',
-        'Checking traffic tables...',
-        'Preparing service-port...',
-        'Applying configuration...',
-        'Done',
+        'Preparing request...',
+        'Validating details...',
+        'Preparing changes...',
+        'Applying changes...',
+        'Completed.',
     ];
 
     const getCookie = (name) => {
@@ -223,6 +225,7 @@
         const clamped = Math.max(0, Math.min(stepIndex, STEP_WIDTHS.length - 1));
         fill.style.width = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
         if (percentNode) percentNode.textContent = done ? '100%' : `${STEP_WIDTHS[clamped]}%`;
+        if (labelNode) labelNode.textContent = done ? 'Completed.' : (STEP_LABELS[clamped] || STEP_LABELS[0]);
     };
 
     let pollTimer = null;

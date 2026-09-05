@@ -61,6 +61,9 @@ PROMPT_LINE_PATTERN = re.compile(r"^[^\r\n]*[>#\]]\s*$")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _TELNET_SESSION_LOCK = threading.Lock()
 _TELNET_SESSIONS = {}
+_OLT_WRITE_OPERATION_LOCK = threading.Lock()
+_OLT_WRITE_OPERATION_ACTIVE = {}
+_OLT_WRITE_OPERATION_STALE_SECONDS = 45 * 60
 _OLT_SAVE_QUEUE_LOCK = threading.Lock()
 _OLT_SAVE_TIMERS = {}
 _ONU_TRAFFIC_IFINDEX_CACHE_LOCK = threading.Lock()
@@ -69,6 +72,100 @@ _DASHBOARD_STATUS_SAMPLE_LOCK = threading.Lock()
 _DASHBOARD_STATUS_SAMPLE_LAST_FORCE_TS = 0.0
 _ONU_SNMP_RUNTIME_STATUS_LOCK = threading.Lock()
 _ONU_SNMP_RUNTIME_STATUS_DEBOUNCE = {}
+
+
+def _olt_write_operation_key(olt):
+    pk = getattr(olt, "pk", None)
+    if pk:
+        return f"pk:{pk}"
+    return f"ip:{getattr(olt, 'ip_address', '') or id(olt)}"
+
+
+class OltWriteOperationGuard:
+    """Short, per-OLT, re-entrant guard for mutating CLI/SNMP operations.
+
+    Huawei CLI sessions get unstable when two write flows overlap on the same
+    chassis. This guard serializes only mutating operations and allows nested
+    calls from the same worker thread (for example mapping-convert: delete,
+    then authorize) without changing the command flow itself.
+    """
+
+    def __init__(self, olt, operation_label="", target_label=""):
+        self.olt = olt
+        self.key = _olt_write_operation_key(olt)
+        self.operation_label = str(operation_label or "OLT write operation").strip()
+        self.target_label = str(target_label or "").strip()
+        self.thread_id = threading.get_ident()
+        self.acquired = False
+        self.message = ""
+
+    def __enter__(self):
+        now = time.time()
+        with _OLT_WRITE_OPERATION_LOCK:
+            entry = _OLT_WRITE_OPERATION_ACTIVE.get(self.key)
+            if entry:
+                stale = now - float(entry.get("started_at") or now) > _OLT_WRITE_OPERATION_STALE_SECONDS
+                same_thread = entry.get("thread_id") == self.thread_id
+                if same_thread:
+                    entry["depth"] = int(entry.get("depth") or 1) + 1
+                    entry["updated_at"] = now
+                    self.acquired = True
+                    return self
+                if not stale:
+                    running = str(entry.get("operation") or "another OLT write operation").strip()
+                    target = str(entry.get("target") or "").strip()
+                    extra = f" ({target})" if target else ""
+                    self.message = f"{running}{extra} is already running on this OLT. Please wait for it to finish."
+                    return self
+
+            _OLT_WRITE_OPERATION_ACTIVE[self.key] = {
+                "thread_id": self.thread_id,
+                "operation": self.operation_label,
+                "target": self.target_label,
+                "started_at": now,
+                "updated_at": now,
+                "depth": 1,
+            }
+            self.acquired = True
+            return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.acquired:
+            return False
+        with _OLT_WRITE_OPERATION_LOCK:
+            entry = _OLT_WRITE_OPERATION_ACTIVE.get(self.key)
+            if entry and entry.get("thread_id") == self.thread_id:
+                depth = int(entry.get("depth") or 1) - 1
+                if depth > 0:
+                    entry["depth"] = depth
+                    entry["updated_at"] = time.time()
+                else:
+                    _OLT_WRITE_OPERATION_ACTIVE.pop(self.key, None)
+        return False
+
+    @property
+    def ok(self):
+        return bool(self.acquired)
+
+
+def _mark_operation_stage(result, key, label, status="running"):
+    if not isinstance(result, dict):
+        return
+    stages = result.setdefault("stages", [])
+    key = str(key or "").strip()
+    row = None
+    for item in stages:
+        if str((item or {}).get("key") or "") == key:
+            row = item
+            break
+    if row is None:
+        row = {"key": key}
+        stages.append(row)
+    row.update({
+        "label": str(label or "").strip(),
+        "status": str(status or "running").strip(),
+        "updated_at": timezone.now().isoformat(),
+    })
 
 
 def _telnet_auth_output_detected(text):
@@ -2658,6 +2755,19 @@ def probe_onu_snmp_delete(
     if not str(getattr(olt, "snmp_write_community", "") or "").strip():
         return _return_with_cli_fallback("SNMP write community is not configured.")
 
+    write_guard = None
+    if bool(apply):
+        write_guard = OltWriteOperationGuard(
+            olt,
+            "SNMP ONU delete",
+            f"{frame}/{slot}/{port} ont {ont_id}",
+        )
+        write_guard.__enter__()
+        if not write_guard.ok:
+            result["message"] = write_guard.message
+            return result
+        _mark_operation_stage(result, "snmp_delete_start", "Starting SNMP ONU delete")
+
     try:
         if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, frame=frame)
         if not if_index:
@@ -2869,6 +2979,9 @@ def probe_onu_snmp_delete(
         return _return_with_cli_fallback(result["message"], force_pon_cli=tech.lower())
     except Exception as exc:
         return _return_with_cli_fallback(f"SNMP ONU delete probe failed: {exc}")
+    finally:
+        if write_guard is not None:
+            write_guard.__exit__(None, None, None)
 
 
 def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admin_state, *, frame=0):
@@ -2892,9 +3005,20 @@ def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admi
         result["message"] = f"Unknown admin state '{admin_state}'."
         return result
 
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "ONU ethernet port admin state",
+        f"{frame}/{slot}/{port} ont {ont_id} eth {eth_port}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     try:
@@ -2952,6 +3076,7 @@ def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admi
         except Exception:
             pass
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def execute_onu_cli_delete_action(
@@ -2975,10 +3100,21 @@ def execute_onu_cli_delete_action(
     transcript = existing_transcript if existing_transcript is not None else []
     tn = existing_tn
     close_session = tn is None
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "CLI ONU delete",
+        f"{frame}/{slot}/{port} ont {ont_id}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     if tn is None:
         tn, status = open_telnet_authenticated_session(olt)
         if tn is None:
             result["message"] = status or "Telnet session could not be opened."
+            write_guard.__exit__(None, None, None)
             return result
 
     def _delete_failure_text(text):
@@ -3057,6 +3193,7 @@ def execute_onu_cli_delete_action(
         if close_session:
             _prepare_telnet_cli_session(tn, use_paging=True)
         # Seed with any service-ports we already know from the DB cache.
+        _mark_operation_stage(result, "discover_service_ports", "Discovering attached service-ports")
         delete_service_ports = []
         for raw_value in (service_port_ids or []):
             value = str(raw_value or "").strip()
@@ -3145,6 +3282,7 @@ def execute_onu_cli_delete_action(
             return True
 
         _discover_service_ports_for_onu()
+        _mark_operation_stage(result, "delete_service_ports", "Deleting attached service-ports")
         if not _delete_discovered_service_ports():
             return result
 
@@ -3296,6 +3434,7 @@ def execute_onu_cli_delete_action(
             return last_output, False, False
 
         ont_delete_command = f"ont delete {int(port or 0)} {int(ont_id or 0)}"
+        _mark_operation_stage(result, "delete_onu", f"Deleting ONU {int(port or 0)}/{int(ont_id or 0)}")
         delete_commands = [ont_delete_command]
 
         delete_command = delete_commands[0]
@@ -3318,6 +3457,7 @@ def execute_onu_cli_delete_action(
             result["already_deleted"] = True
             result["message"] = "This ONU is already deleted."
             result["transcript"] = "\n\n".join(transcript)[:16000]
+            _mark_operation_stage(result, "complete", result["message"], status="done")
             return result
 
         if not delete_done:
@@ -3336,6 +3476,7 @@ def execute_onu_cli_delete_action(
         result["ok"] = True
         result["message"] = "ONU deleted successfully."
         result["transcript"] = "\n\n".join(transcript)[:16000]
+        _mark_operation_stage(result, "complete", result["message"], status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout while deleting ONU."
@@ -3351,6 +3492,7 @@ def execute_onu_cli_delete_action(
                 _close_telnet_session(tn)
             except Exception:
                 pass
+        write_guard.__exit__(None, None, None)
 
 
 def find_onu_location_by_sn_cli(olt, sn, *, existing_tn=None, transcript=None):
@@ -8861,16 +9003,29 @@ def execute_onu_speed_profile_config(
         result["message"] = "Service-port ID missing."
         return result
 
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "ONU speed profile update",
+        f"{frame}/{slot}/{port} ont {ont_id} service-port {old_service_port_id}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+
     _progress(0, "Opening OLT session...")
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     transcript = []
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
         _progress(1, "Checking traffic tables...")
+        _mark_operation_stage(result, "traffic_tables", "Checking traffic tables")
         selected_profiles = _load_selected_speed_profile_templates(download_profile_index, upload_profile_index)
         if not selected_profiles.get("download") or not selected_profiles.get("upload"):
             result["message"] = "Selected speed profile config missing in DB."
@@ -8894,6 +9049,7 @@ def execute_onu_speed_profile_config(
         # mirrors the authorize flow and avoids CLI errors when the ONU was
         # provisioned with a different shape.
         _progress(2, "Preparing service-port...")
+        _mark_operation_stage(result, "prepare_service_port", "Preparing service-port")
         existing_line = _read_service_port_line_strict(tn, old_service_port_id, transcript)
         if not existing_line:
             result["message"] = f"Service-port {old_service_port_id} not found."
@@ -8932,6 +9088,7 @@ def execute_onu_speed_profile_config(
         # Rebuild from the existing line: always swap the speed (traffic-table)
         # indices; only change the outer service VLAN when an SVLAN was chosen.
         _progress(3, "Applying configuration...")
+        _mark_operation_stage(result, "apply_configuration", "Applying configuration")
         service_port_command = _rebuild_service_port_line_for_update(
             existing_line,
             new_service_port_id=new_service_port_id,
@@ -9064,6 +9221,7 @@ def execute_onu_speed_profile_config(
                 "upload_profile_name": upload_name or str(upload_index),
             }
         )
+        _mark_operation_stage(result, "complete", "Speed profile updated", status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout while updating speed profile."
@@ -9079,6 +9237,7 @@ def execute_onu_speed_profile_config(
         except Exception:
             pass
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def _parse_ont_line_profile_id(output_text):
@@ -9351,16 +9510,29 @@ def execute_onu_add_service_vlan_config(
     ).first()
     is_vlan_mapping_onu = str(getattr(record, "mapping_mode_cache", "") or "").strip().lower() == "vlan"
 
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "ONU VLAN service-port add",
+        f"{frame}/{slot}/{port} ont {ont_id} vlan {','.join(vlan_values or line_profile_vlan_values)}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+
     _progress(0, "Opening OLT session...")
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     transcript = []
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
         _progress(1, "Checking traffic tables...")
+        _mark_operation_stage(result, "traffic_tables", "Checking traffic tables")
         traffic_result = _ensure_selected_traffic_tables(
             tn,
             download_profile_index=download_profile_index,
@@ -9381,12 +9553,14 @@ def execute_onu_add_service_vlan_config(
         upload_index = int(traffic_result.get("upload_effective_index") or upload_profile_index)
         created_service_ports = []
         _progress(2, "Preparing service-port...")
+        _mark_operation_stage(result, "prepare_service_port", "Preparing service-port")
         total_vlans = len(vlan_values)
         frame_i, slot_i, port_i, ont_i = int(frame or 0), int(slot or 0), int(port or 0), int(ont_id)
         pon_cli = "epon" if str(_slot_pon_tech(olt, slot_i) or "").upper() == "EPON" else "gpon"
 
         if is_vlan_mapping_onu:
             _progress(2, "Updating VLAN mapping line profile...")
+            _mark_operation_stage(result, "line_profile_mapping", "Updating VLAN mapping line profile")
             line_result = _ensure_vlan_mapping_line_profile_vlans(
                 tn,
                 olt=olt,
@@ -9427,6 +9601,7 @@ def execute_onu_add_service_vlan_config(
         for vlan_position, vlan_value in enumerate(vlan_values, start=1):
             position = f", {vlan_position}/{total_vlans}" if total_vlans > 1 else ""
             _progress(3, f"Applying configuration (VLAN {vlan_value}{position})...")
+            _mark_operation_stage(result, f"apply_vlan_{vlan_value}", f"Applying VLAN {vlan_value}")
             vlan_done = False
             last_err = ""
             vlan_created = False
@@ -9587,6 +9762,7 @@ def execute_onu_add_service_vlan_config(
             "message": f"VLANs {', '.join(vlan_values)} added.",
             "service_port_id": ",".join(created_service_ports),
         })
+        _mark_operation_stage(result, "complete", "VLAN service-port add complete", status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout while adding VLAN service-port."
@@ -9602,6 +9778,7 @@ def execute_onu_add_service_vlan_config(
         except Exception:
             pass
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *, frame=0):
@@ -9644,20 +9821,33 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
     except Exception:
         record = None
 
+    write_guard = OltWriteOperationGuard(
+        olt,
+        "ONU service-port delete",
+        f"{frame}/{slot}/{port} ont {ont_id} service-port {sp_id}",
+    )
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     transcript = []
     try:
         _prepare_telnet_cli_session(tn, use_paging=True)
+        _mark_operation_stage(result, "enter_config", "Entering configuration mode")
         entered_config, _cfg = _enter_global_config_mode(tn, transcript=transcript)
         if not entered_config:
             result["message"] = "Unable to enter configuration mode."
             return result
 
         if is_vlan_mapping_onu:
+            _mark_operation_stage(result, "line_profile_mapping", "Deleting VLAN mapping line-profile row")
             mapping_result = _delete_vlan_mapping_line_profile_vlan(
                 tn,
                 olt=olt,
@@ -9677,6 +9867,7 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
                 return result
 
         undo_command = f"undo service-port {int(sp_id)}"
+        _mark_operation_stage(result, "delete_service_port", f"Deleting service-port {sp_id}")
         undo_output = _run_telnet_authorize_command(
             tn, undo_command, enter_until_prompt=True,
             busy_retries=6, max_wait_seconds=10, step_timeout=0.25, max_loops=80,
@@ -9694,6 +9885,7 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
             return result
 
         # Confirm it is actually gone (fast targeted check, thorough fallback).
+        _mark_operation_stage(result, "verify_service_port", f"Verifying service-port {sp_id} delete")
         present = _verify_service_port_robust(tn, sp_id, slot=int(slot or 0), port=int(port or 0), transcript=transcript)
         if present is None:
             present = bool(_verify_service_port_created(tn, sp_id, transcript, attempts=2, wait_seconds=0.8))
@@ -9708,6 +9900,7 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
 
         result["ok"] = True
         result["message"] = f"Service-port {sp_id} deleted."
+        _mark_operation_stage(result, "complete", result["message"], status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout while deleting service-port."
@@ -9723,6 +9916,7 @@ def execute_onu_delete_service_port(olt, slot, port, ont_id, service_port_id, *,
         except Exception:
             pass
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def _find_service_port_line(output_text, service_port_id):
@@ -10877,6 +11071,7 @@ def authorize_autofind_onu(
     subscriber_desc = _sanitize_onu_authorize_desc(subscriber_name)
 
     _emit(0, "Opening Telnet session...")
+    _mark_operation_stage(result, "open_session", "Opening Telnet session")
     last_retryable_message = ""
     duplicate_sn_recovered = False
     max_authorize_attempts = 3
@@ -10894,6 +11089,7 @@ def authorize_autofind_onu(
             retry_after_duplicate_sn_delete = False
 
             _emit(1, "Checking required profiles...")
+            _mark_operation_stage(result, "profiles", "Checking required profiles")
             _prepare_telnet_cli_session(tn, use_paging=False)
             entered_config, config_output = _enter_config_mode(tn)
             _append_authorize_transcript(transcript, "config", config_output)
@@ -11383,6 +11579,7 @@ def authorize_autofind_onu(
                     "record_id": record.id,
                 }
             )
+            _mark_operation_stage(result, "complete", "ONU authorized successfully", status="done")
             return result
         except (socket.timeout, TimeoutError, EOFError, OSError) as exc:
             last_retryable_message = str(exc or "").strip()
@@ -15155,14 +15352,22 @@ def add_vlan(olt, vlan_id, description="", uplink_port=""):
         result["message"] = "VLAN ID must be between 1 and 4094."
         return result
     description = str(description or "").strip()[:32]
+    write_guard = OltWriteOperationGuard(olt, "OLT VLAN create", f"vlan {vlan_id}")
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     transcript_parts = []
     try:
         _prepare_telnet_cli_session(tn, use_paging=False)
+        _mark_operation_stage(result, "enter_config", "Entering configuration mode")
         entered_config, config_output = _enter_config_mode(tn)
         if config_output:
             transcript_parts.append(str(config_output).strip())
@@ -15172,6 +15377,7 @@ def add_vlan(olt, vlan_id, description="", uplink_port=""):
             return result
 
         create_command = f"vlan {int(vlan_id)} smart"
+        _mark_operation_stage(result, "create_vlan", f"Creating VLAN {int(vlan_id)}")
         create_output = _run_telnet_command(tn, create_command, enter_until_prompt=True)
         if create_output:
             transcript_parts.append(str(create_output).strip())
@@ -15189,6 +15395,7 @@ def add_vlan(olt, vlan_id, description="", uplink_port=""):
         # must NOT break VLAN creation, so it is only a warning.
         description_warning = ""
         if description:
+            _mark_operation_stage(result, "vlan_description", f"Setting VLAN {int(vlan_id)} description")
             desc_command = f"vlan desc {int(vlan_id)} description {description}"
             desc_output = _run_telnet_command(tn, desc_command, enter_until_prompt=True)
             if desc_output:
@@ -15207,6 +15414,7 @@ def add_vlan(olt, vlan_id, description="", uplink_port=""):
         result["ok"] = True
         result["message"] = ("Already exists" if already_existed else "Created") + description_warning
         result["transcript"] = "\n".join(part for part in transcript_parts if part)
+        _mark_operation_stage(result, "complete", f"VLAN {int(vlan_id)} ready", status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout while creating VLAN."
@@ -15222,6 +15430,7 @@ def add_vlan(olt, vlan_id, description="", uplink_port=""):
         return result
     finally:
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def _parse_uplink_port_command_parts(port_name):
@@ -15746,14 +15955,23 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
         return result
     frame, slot, port = parsed_port
 
+    op_label = "OLT VLAN uplink remove" if remove else "OLT VLAN uplink add"
+    write_guard = OltWriteOperationGuard(olt, op_label, f"vlan {vlan_id} uplink {uplink_port}")
+    write_guard.__enter__()
+    if not write_guard.ok:
+        result["message"] = write_guard.message
+        return result
+    _mark_operation_stage(result, "open_session", "Opening OLT session")
     tn, status = open_telnet_authenticated_session(olt)
     if tn is None:
         result["message"] = status or "Telnet session could not be opened."
+        write_guard.__exit__(None, None, None)
         return result
 
     transcript_parts = []
     try:
         _prepare_telnet_cli_session(tn, use_paging=False)
+        _mark_operation_stage(result, "enter_config", "Entering configuration mode")
         entered_config, config_output = _enter_config_mode(tn)
         if config_output:
             transcript_parts.append(str(config_output).strip())
@@ -15763,6 +15981,7 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
             return result
 
         if create_vlan and not remove:
+            _mark_operation_stage(result, "create_vlan", f"Creating VLAN {vlan_id}")
             create_command = f"vlan {vlan_id} smart"
             create_output = _run_telnet_command(tn, create_command, enter_until_prompt=True)
             if create_output:
@@ -15778,6 +15997,7 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
             if remove
             else f"port vlan {vlan_id} {frame}/{slot} {port}"
         )
+        _mark_operation_stage(result, "apply_uplink", f"{'Removing' if remove else 'Adding'} VLAN {vlan_id} on uplink")
         action_output = _run_telnet_command(tn, action_command, enter_until_prompt=True)
         if action_output:
             transcript_parts.append(str(action_output).strip())
@@ -15790,6 +16010,7 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
             return result
 
         verify_command = f"display port vlan {frame}/{slot}/{port}"
+        _mark_operation_stage(result, "verify_uplink", f"Verifying VLAN {vlan_id} on uplink")
         verify_output = _run_telnet_command(tn, verify_command, enter_until_prompt=True)
         if verify_output:
             transcript_parts.append(str(verify_output).strip())
@@ -15816,6 +16037,7 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
             else f"VLAN {vlan_id} added to uplink {uplink_port}."
         )
         result["transcript"] = "\n".join(part for part in transcript_parts if part)
+        _mark_operation_stage(result, "complete", result["message"], status="done")
         return result
     except (socket.timeout, TimeoutError):
         result["message"] = "Telnet timeout during VLAN uplink command."
@@ -15831,6 +16053,7 @@ def configure_vlan_uplink_port(olt, vlan_id, uplink_port, *, create_vlan=False, 
         return result
     finally:
         _close_telnet_session(tn)
+        write_guard.__exit__(None, None, None)
 
 
 def _apply_snmp_pon_states_to_groups(groups, snmp_ports):

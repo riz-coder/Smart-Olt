@@ -2394,6 +2394,7 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">Service Port Deleting</div>
+        <div class="olt-wait-label">Processing request...</div>
     </div>
 </div>
 
@@ -2405,6 +2406,7 @@
             <div class="olt-wait-progress-bar" data-onu-delete-progress></div>
         </div>
         <div class="olt-wait-percent" data-onu-delete-percent>0%</div>
+        <div class="olt-wait-label" data-onu-delete-label>Preparing request...</div>
     </div>
 </div>
 
@@ -2412,6 +2414,7 @@
     <div class="olt-wait-box">
         <div class="olt-wait-wheel"></div>
         <div class="olt-wait-title">Fetching Current Config</div>
+        <div class="olt-wait-label">Loading latest details...</div>
     </div>
 </div>
 {% endblock %}
@@ -2871,14 +2874,23 @@
         }
         const bar = overlay.querySelector('[data-onu-delete-progress]');
         const percent = overlay.querySelector('[data-onu-delete-percent]');
+        const label = overlay.querySelector('[data-onu-delete-label]');
+        const updateLabel = () => {
+            if (!label) return;
+            if (value < 28) label.textContent = 'Preparing request...';
+            else if (value < 72) label.textContent = 'Removing from service...';
+            else label.textContent = 'Verifying completion...';
+        };
         let value = 8;
         if (bar) bar.style.width = `${value}%`;
         if (percent) percent.textContent = `${value}%`;
+        updateLabel();
         overlay.hidden = false;
         deleteWaitTimer = setInterval(() => {
             value = Math.min(94, value + (value < 70 ? 7 : 3));
             if (bar) bar.style.width = `${value}%`;
             if (percent) percent.textContent = `${value}%`;
+            updateLabel();
             if (value >= 94 && deleteWaitTimer) {
                 clearInterval(deleteWaitTimer);
                 deleteWaitTimer = null;
@@ -2894,8 +2906,10 @@
         }
         const bar = overlay.querySelector('[data-onu-delete-progress]');
         const percent = overlay.querySelector('[data-onu-delete-percent]');
+        const label = overlay.querySelector('[data-onu-delete-label]');
         if (bar) bar.style.width = '100%';
         if (percent) percent.textContent = '100%';
+        if (label) label.textContent = 'Completed.';
     };
 
     const hideDeleteWaitProgress = (overlay) => {

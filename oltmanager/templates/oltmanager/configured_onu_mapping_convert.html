@@ -393,6 +393,7 @@
         <div class="olt-wait-title">ONU Mapping Converting</div>
         <div class="olt-wait-track"><div class="olt-wait-fill" data-olt-wait-fill></div></div>
         <div class="olt-wait-percent" data-olt-wait-percent>0%</div>
+        <div class="olt-wait-label" data-olt-wait-label>Preparing conversion...</div>
     </div>
 </div>
 <span id="mapping-progress-url-tpl" data-url="{% url 'configured_onu_mapping_convert_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
@@ -403,10 +404,20 @@
     const overlay = document.querySelector('[data-olt-wait]');
     const fill = document.querySelector('[data-olt-wait-fill]');
     const percentNode = document.querySelector('[data-olt-wait-percent]');
+    const labelNode = document.querySelector('[data-olt-wait-label]');
     const errorBox = document.querySelector('[data-mapping-error]');
     const progressTpl = document.getElementById('mapping-progress-url-tpl');
     const progressBase = progressTpl ? progressTpl.getAttribute('data-url') : '';
     const stepProgress = [12, 25, 38, 52, 66, 82, 94];
+    const stepLabels = [
+        'Preparing conversion...',
+        'Checking current state...',
+        'Preparing new setup...',
+        'Applying changes...',
+        'Verifying result...',
+        'Saving changes...',
+        'Almost done...',
+    ];
     let pollTimer = null;
 
     const setStep = (activeIndex) => {
@@ -414,10 +425,11 @@
         const value = stepProgress[index] || 12;
         if (fill) fill.style.width = `${value}%`;
         if (percentNode) percentNode.textContent = `${value}%`;
+        if (labelNode) labelNode.textContent = stepLabels[index] || stepLabels[0];
     };
 
     const showOverlay = () => {
-        setStep(0, 'Preparing mapping conversion...');
+        setStep(0);
         if (overlay) overlay.hidden = false;
     };
 
@@ -449,7 +461,7 @@
                     showError(data.message || 'Progress check failed.');
                     return;
                 }
-                setStep(data.step || 0, data.label || '');
+                setStep(data.step || 0);
                 if (data.done) {
                     if (pollTimer) {
                         clearInterval(pollTimer);
@@ -458,6 +470,7 @@
                     if (data.ok && data.redirect_url) {
                         if (fill) fill.style.width = '100%';
                         if (percentNode) percentNode.textContent = '100%';
+                        if (labelNode) labelNode.textContent = 'Completed.';
                         setTimeout(() => { window.location.href = data.redirect_url; }, 350);
                     } else {
                         showError(data.message || 'Mapping conversion failed.');

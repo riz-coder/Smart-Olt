@@ -116,6 +116,7 @@ from .utils import (
     should_record_onu_optical_sample,
     _format_solt_onu_type_name,
     _pon_tech_from_board_type,
+    OltWriteOperationGuard,
 )
 
 
@@ -5547,7 +5548,11 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
                 _AUTHORIZE_TASKS[task_id]["label"] = label
 
     try:
-        payload = authorize_autofind_onu(**authorize_kwargs, on_progress=on_progress)
+        with OltWriteOperationGuard(olt, "ONU configuration", f"{frame}/{slot}/{port}") as write_guard:
+            if not write_guard.ok:
+                payload = {"ok": False, "message": write_guard.message}
+            else:
+                payload = authorize_autofind_onu(**authorize_kwargs, on_progress=on_progress)
         ok = bool(payload.get("ok"))
         ont_id = payload.get("ont_id")
         redirect_url = ""
@@ -5755,7 +5760,11 @@ def unconfigured_onu_authorize(request):
         return JsonResponse({"ok": True, "task_id": task_id})
 
     # Synchronous fallback for non-AJAX submissions
-    payload = authorize_autofind_onu(**authorize_kwargs)
+    with OltWriteOperationGuard(olt, "ONU configuration", f"{frame}/{slot}/{port}") as write_guard:
+        if not write_guard.ok:
+            payload = {"ok": False, "message": write_guard.message}
+        else:
+            payload = authorize_autofind_onu(**authorize_kwargs)
     if payload.get("ok"):
         request.session["authorize_debug_payload"] = {
             "title": f"Authorize Debug | {olt.name} | 0/{int(slot or 0)}/{int(port or 0)}",
@@ -6865,7 +6874,11 @@ def _execute_onu_mapping_conversion(olt, record, plan, user=None, *, on_progress
         mapped_step = min(max(int(step or 0) + 2, 2), 6)
         _emit(mapped_step, label or "Authorizing ONU...")
 
-    payload = authorize_autofind_onu(**authorize_kwargs, on_progress=_auth_progress)
+    with OltWriteOperationGuard(olt, "ONU mapping conversion", f"{old_frame}/{old_slot}/{old_port} ont {old_ont_id}") as write_guard:
+        if not write_guard.ok:
+            payload = {"ok": False, "message": write_guard.message}
+        else:
+            payload = authorize_autofind_onu(**authorize_kwargs, on_progress=_auth_progress)
     if not payload.get("ok"):
         result.update({
             "message": (

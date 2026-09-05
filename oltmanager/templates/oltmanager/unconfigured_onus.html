@@ -756,6 +756,7 @@
                     <div class="olt-wait-progress-bar" id="olt-wait-progress-bar"></div>
                 </div>
                 <div class="olt-wait-percent" id="olt-wait-percent">0%</div>
+                <div class="olt-wait-label" id="olt-wait-label">Preparing request...</div>
                 <span id="authorize-progress-url-tpl" data-url="{% url 'unconfigured_onu_authorize_progress' task_id='TASK_ID_PLACEHOLDER' %}" hidden></span>
             </div>
         </div>
@@ -894,6 +895,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const waitOverlay = document.getElementById('olt-wait-overlay');
     const waitProgressBar = document.getElementById('olt-wait-progress-bar');
     const waitPercent = document.getElementById('olt-wait-percent');
+    const waitLabel = document.getElementById('olt-wait-label');
     const _progressUrlTpl = document.getElementById('authorize-progress-url-tpl');
     const _progressUrlBase = _progressUrlTpl ? _progressUrlTpl.getAttribute('data-url') : '';
     const _getProgressUrl = (taskId) => _progressUrlBase.replace('TASK_ID_PLACEHOLDER', taskId);
@@ -901,12 +903,22 @@ document.addEventListener('DOMContentLoaded', function () {
     // step → progress % mapping (matches backend step indices 0-4)
     const STEP_PROGRESS = [14, 32, 52, 74, 90];
 
-    const setWaitStep = (activeIndex, progress) => {
+    const WAIT_LABELS = [
+        'Preparing request...',
+        'Validating details...',
+        'Applying changes...',
+        'Finalizing setup...',
+        'Completed.',
+    ];
+
+    const setWaitStep = (activeIndex, progress, labelText) => {
+        const labelIndex = Math.max(0, Math.min(Number(activeIndex || 0), WAIT_LABELS.length - 1));
         const value = Math.max(0, Math.min(100, Number(progress || 18)));
         if (waitProgressBar) waitProgressBar.style.width = `${value}%`;
         if (waitPercent) waitPercent.textContent = `${Math.round(value)}%`;
+        if (waitLabel) waitLabel.textContent = labelText || WAIT_LABELS[labelIndex] || WAIT_LABELS[0];
     };
-    const renderWaitOverlayStage = () => setWaitStep(0, STEP_PROGRESS[0], 'Opening the Telnet session...');
+    const renderWaitOverlayStage = () => setWaitStep(0, STEP_PROGRESS[0], WAIT_LABELS[0]);
     // ── progress polling (replaces time-based timeline) ──────────────────────
     let _pollTimer = null;
     const stopProgressPolling = () => {
@@ -926,7 +938,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const data = await res.json().catch(() => ({}));
                 const step = Number(data.step || 0);
                 const prog = STEP_PROGRESS[step] !== undefined ? STEP_PROGRESS[step] : 14;
-                setWaitStep(step, prog, data.label || '');
+                setWaitStep(step, prog);
                 if (data.done) {
                     stopProgressPolling();
                     onDone(data);
@@ -1043,12 +1055,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     // Server returned a task_id — start real-time progress polling
                     startProgressPolling(data.task_id, (result) => {
                         if (result.ok && result.redirect_url) {
-                            setWaitStep(4, 100, 'Configuration completed.');
+                            setWaitStep(4, 100, 'Completed.');
                             window.location.href = result.redirect_url;
                         } else {
                             const failedStep = Number(result.step || 0);
                             const failedProgress = STEP_PROGRESS[failedStep] || 18;
-                            setWaitStep(failedStep, failedProgress, result.message || 'Authorize failed.');
+                            setWaitStep(failedStep, failedProgress, 'Could not complete. Please try again.');
                             if (submitButton) submitButton.disabled = false;
                         }
                     });

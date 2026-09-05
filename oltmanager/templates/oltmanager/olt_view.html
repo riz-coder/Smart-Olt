@@ -2160,6 +2160,7 @@
     <div class="olt-wait-card" role="status" aria-live="polite">
         <div class="olt-wait-wheel"></div>
         <p class="olt-wait-title" id="syncConfigOverlayTitle">Config Sync Running</p>
+        <div class="olt-wait-label" id="syncConfigOverlaySubtitle">Updating records...</div>
     </div>
 </div>
 <div
@@ -2176,6 +2177,7 @@
         <p class="olt-wait-title" id="autoVlanRefreshTitle">Refreshing OLT data</p>
         <div class="olt-wait-progress"><span id="autoVlanRefreshProgress"></span></div>
         <div class="olt-wait-percent" id="autoVlanRefreshPercent">0%</div>
+        <div class="olt-wait-label" id="autoVlanRefreshLabel">Preparing refresh...</div>
     </div>
 </div>
 <script>
@@ -2215,10 +2217,14 @@
         const titleNode = document.getElementById('autoVlanRefreshTitle');
         const progressNode = document.getElementById('autoVlanRefreshProgress');
         const percentNode = document.getElementById('autoVlanRefreshPercent');
+        const labelNode = document.getElementById('autoVlanRefreshLabel');
         const setStep = (width) => {
             const value = Math.max(0, Math.min(100, Number(width || 0)));
             if (progressNode) progressNode.style.width = `${value}%`;
             if (percentNode) percentNode.textContent = `${Math.round(value)}%`;
+            if (labelNode) {
+                labelNode.textContent = value < 35 ? 'Preparing refresh...' : (value < 80 ? 'Updating list...' : 'Finalizing...');
+            }
         };
         const runAutoVlanRefresh = async () => {
             if (titleNode) titleNode.textContent = autoVlanOverlay.dataset.title || 'Refreshing OLT data';
@@ -3095,7 +3101,7 @@ terminal.addEventListener('click', () => terminal.focus());
             }
             if (syncConfigReport) syncConfigReport.hidden = true;
             if (syncConfigOverlayTitle) syncConfigOverlayTitle.textContent = 'Config Sync Running';
-            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Reading configured ONUs and updating the database...';
+            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Updating records...';
             if (syncConfigOverlay) syncConfigOverlay.hidden = false;
             try {
                 const response = await fetch(syncConfigForm.action, {
@@ -3141,7 +3147,7 @@ terminal.addEventListener('click', () => terminal.focus());
             }
             if (syncConfigReport) syncConfigReport.hidden = true;
             if (syncConfigOverlayTitle) syncConfigOverlayTitle.textContent = 'Per ONU Sync Running';
-            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Finding the ONU by serial and updating its DB record...';
+            if (syncConfigOverlaySubtitle) syncConfigOverlaySubtitle.textContent = 'Updating ONU record...';
             if (syncConfigOverlay) syncConfigOverlay.hidden = false;
             try {
                 const response = await fetch(singleOnuSyncForm.action, {
