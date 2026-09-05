@@ -2877,12 +2877,24 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
 
     degrade, fiber = [], []
 
+    def _alert_olt_id_from_key(alert):
+        key = str(getattr(alert, "dedup_key", "") or "")
+        match = re.match(r"^(?:pon_outage|signal_degrade):(\d+):", key)
+        if match:
+            try:
+                return int(match.group(1))
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def _alert_olt_name(alert=None, fallback_olt_id=None):
         if alert is not None and getattr(alert, "olt_id", None):
             name = str(getattr(getattr(alert, "olt", None), "name", "") or "").strip()
             if name and name not in {"-", "—"}:
                 return name
             fallback_olt_id = getattr(alert, "olt_id", None)
+        if alert is not None and not fallback_olt_id:
+            fallback_olt_id = _alert_olt_id_from_key(alert)
         if selected_olt is not None:
             name = str(getattr(selected_olt, "name", "") or "").strip()
             if name:

@@ -51,17 +51,25 @@ def raise_alert(*, alert_type, key, severity, title, message, olt=None, details=
     existing = AlertEvent.objects.filter(is_active=True, dedup_key=key).first()
     if existing:
         changed = False
+        update_fields = ["updated_at"]
+        if olt is not None and existing.olt_id != getattr(olt, "pk", None):
+            existing.olt = olt
+            changed = True
+            update_fields.append("olt")
         if existing.title != title:
             existing.title = title
             changed = True
+            update_fields.append("title")
         if existing.message != message:
             existing.message = message
             changed = True
+            update_fields.append("message")
         if details is not None and existing.details != details:
             existing.details = details
             changed = True
+            update_fields.append("details")
         if changed:
-            existing.save(update_fields=["title", "message", "details", "updated_at"])
+            existing.save(update_fields=update_fields)
         return existing
     return AlertEvent.objects.create(
         alert_type=alert_type,
