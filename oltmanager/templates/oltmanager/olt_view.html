@@ -969,6 +969,44 @@
         border-color: #9bbce5;
         background: #f7fbff;
     }
+    .db-desc-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+    .db-desc-text {
+        display: inline-block;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .db-desc-edit {
+        width: 26px;
+        height: 26px;
+        border: 1px solid rgba(120, 190, 255, 0.32);
+        border-radius: 8px;
+        background: rgba(31, 112, 242, 0.14);
+        color: #8fc5ff;
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+    }
+    .db-desc-edit:hover {
+        background: rgba(31, 112, 242, 0.28);
+        color: #ffffff;
+    }
+    .db-desc-edit.is-saving {
+        cursor: wait;
+        opacity: 0.65;
+    }
+    html[data-theme="light"] .db-desc-edit {
+        border-color: #b9d3f5;
+        background: #eef6ff;
+        color: #1d5fd6;
+    }
     .olt-wait-overlay {
         position: fixed;
         inset: 0;
@@ -1818,7 +1856,22 @@
                                 {% for row in uplink_data.rows %}
                                 <tr data-uplink-port="{{ row.port }}">
                                     <td>{{ row.port }}</td>
-                                    <td>{{ row.description }}</td>
+                                    <td>
+                                        <span class="db-desc-cell">
+                                            <span class="db-desc-text" data-uplink-desc-text>{{ row.description|default:"-" }}</span>
+                                            {% if user.is_staff or user.is_superuser %}
+                                            <button
+                                                type="button"
+                                                class="db-desc-edit"
+                                                title="Edit description in OptiVerse only"
+                                                data-db-desc-edit="uplink"
+                                                data-url="{% url 'olt_update_uplink_description' olt.pk %}"
+                                                data-key="{{ row.port }}"
+                                                data-current="{{ row.description|default:'' }}"
+                                            >&#9998;</button>
+                                            {% endif %}
+                                        </span>
+                                    </td>
                                     <td>{{ row.admin_status }}</td>
                                     <td class="{% if row.oper_status|upper == 'UP' %}status-normal{% else %}status-failed{% endif %}">{{ row.oper_status }}</td>
                                     <td class="{% if row.speed|default:'-' != '-' %}status-normal{% endif %}">{{ row.speed|default:"-" }}</td>
@@ -2056,7 +2109,22 @@
                                 {% for row in vlan_data.rows %}
                                 <tr>
                                     <td>{{ row.vlan_id }}</td>
-                                    <td>{{ row.description|default:"-" }}</td>
+                                    <td>
+                                        <span class="db-desc-cell">
+                                            <span class="db-desc-text" data-vlan-desc-text>{{ row.description|default:"-" }}</span>
+                                            {% if user.is_staff or user.is_superuser %}
+                                            <button
+                                                type="button"
+                                                class="db-desc-edit"
+                                                title="Edit description in OptiVerse only"
+                                                data-db-desc-edit="vlan"
+                                                data-url="{% url 'olt_update_vlan_description' olt.pk %}"
+                                                data-key="{{ row.vlan_id }}"
+                                                data-current="{{ row.description|default:'' }}"
+                                            >&#9998;</button>
+                                            {% endif %}
+                                        </span>
+                                    </td>
                                     <td>
                                         {% if user.is_staff or user.is_superuser %}
                                         <form method="post" action="{% url 'olt_delete_vlan' olt.pk %}" class="inline">
@@ -2210,10 +2278,60 @@
             }
         });
     }
+    const getPageCsrfToken = () => {
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        return csrfInput ? csrfInput.value : '';
+    };
+    document.querySelectorAll('[data-db-desc-edit]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            if (button.classList.contains('is-saving')) return;
+            const kind = button.getAttribute('data-db-desc-edit') || '';
+            const key = button.getAttribute('data-key') || '';
+            const current = button.getAttribute('data-current') || '';
+            const title = kind === 'uplink'
+                ? `Uplink ${key} description`
+                : `VLAN ${key} description`;
+            const nextValue = window.prompt(`${title}\n\nThis will update OptiVerse only.`, current === '-' ? '' : current);
+            if (nextValue === null) return;
+            const cleaned = String(nextValue || '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 80);
+            const body = new FormData();
+            if (kind === 'uplink') body.append('port', key);
+            else body.append('vlan_id', key);
+            body.append('description', cleaned);
+            button.classList.add('is-saving');
+            button.disabled = true;
+            try {
+                const response = await fetch(button.getAttribute('data-url') || window.location.href, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': getPageCsrfToken(),
+                    },
+                    credentials: 'same-origin',
+                    body,
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.ok) {
+                    window.alert(payload.message || 'Description update failed.');
+                    return;
+                }
+                const row = button.closest('tr');
+                const textNode = row ? row.querySelector(kind === 'uplink' ? '[data-uplink-desc-text]' : '[data-vlan-desc-text]') : null;
+                const displayText = payload.description || '-';
+                if (textNode) textNode.textContent = displayText;
+                button.setAttribute('data-current', displayText);
+            } catch (error) {
+                window.alert('Description update failed.');
+            } finally {
+                button.disabled = false;
+                button.classList.remove('is-saving');
+            }
+        });
+    });
     const autoVlanOverlay = document.getElementById('autoVlanRefreshOverlay');
     if (autoVlanOverlay && autoVlanOverlay.dataset.url) {
-        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
-        const csrfToken = csrfInput ? csrfInput.value : '';
+        const csrfToken = getPageCsrfToken();
         const titleNode = document.getElementById('autoVlanRefreshTitle');
         const progressNode = document.getElementById('autoVlanRefreshProgress');
         const percentNode = document.getElementById('autoVlanRefreshPercent');

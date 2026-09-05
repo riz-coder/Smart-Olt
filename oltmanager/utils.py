@@ -8150,6 +8150,17 @@ def refresh_saved_pon_counts_from_inventory(olt):
 def save_uplink_snapshot(olt, data):
     rows = (data or {}).get("rows") or []
     status = (data or {}).get("status") or ""
+    existing_by_port = {
+        str((row or {}).get("port") or "").strip(): str((row or {}).get("description") or "").strip()
+        for row in list(getattr(olt, "uplink_cache", []) or [])
+        if str((row or {}).get("port") or "").strip()
+    }
+    for row in rows:
+        port_name = str((row or {}).get("port") or "").strip()
+        new_desc = str((row or {}).get("description") or "").strip()
+        old_desc = existing_by_port.get(port_name, "")
+        if old_desc and new_desc.lower() in {"", "-", "none", "n/a", "null"}:
+            row["description"] = old_desc
     olt.uplink_cache = rows
     olt.uplink_status = status[:300]
     olt.uplink_refreshed_at = timezone.now()
@@ -11675,12 +11686,23 @@ def save_vlan_snapshot(olt, data):
     rows = (data or {}).get("rows") or []
     status = (data or {}).get("status") or ""
     existing_rows = list(getattr(olt, "vlan_cache", []) or [])
+    existing_desc_by_vlan = {
+        str((row or {}).get("vlan_id") or "").strip(): str((row or {}).get("description") or "").strip()
+        for row in existing_rows
+        if str((row or {}).get("vlan_id") or "").strip()
+    }
     if not rows and existing_rows and "VLANs fetched: 0" in status:
         olt.vlan_cache = existing_rows
         olt.vlan_status = f"{status[:220]} | Retained cached VLAN snapshot: {len(existing_rows)}"
         olt.vlan_refreshed_at = timezone.now()
         olt.save(update_fields=["vlan_cache", "vlan_status", "vlan_refreshed_at"])
         return
+    for row in rows:
+        vlan_id = str((row or {}).get("vlan_id") or "").strip()
+        new_desc = str((row or {}).get("description") or "").strip()
+        old_desc = existing_desc_by_vlan.get(vlan_id, "")
+        if old_desc and new_desc.lower() in {"", "-", "none", "n/a", "null"}:
+            row["description"] = old_desc
     olt.vlan_cache = rows
     olt.vlan_status = status[:300]
     olt.vlan_refreshed_at = timezone.now()

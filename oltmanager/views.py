@@ -10041,6 +10041,103 @@ def olt_remove_vlan_uplink(request, pk):
     return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
 
 
+def _clean_cache_description(value, max_length=80):
+    text = str(value or "").strip()
+    text = re.sub(r"[\r\n\t]+", " ", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text[:max_length]
+
+
+@login_required
+@require_POST
+@admin_required
+def olt_update_vlan_description(request, pk):
+    """Update VLAN description in OptiVerse DB cache only.
+
+    This intentionally does not touch the OLT; it only updates ``OLT.vlan_cache``.
+    """
+    olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    vlan_id = str(request.POST.get("vlan_id") or "").strip()
+    description = _clean_cache_description(request.POST.get("description"), 80)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if not vlan_id.isdigit():
+        if is_ajax:
+            return JsonResponse({"ok": False, "message": "Invalid VLAN ID."}, status=400)
+        messages.warning(request, "Invalid VLAN ID.")
+        return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+    rows = list(getattr(olt, "vlan_cache", []) or [])
+    found = False
+    for row in rows:
+        if str((row or {}).get("vlan_id") or "").strip() == vlan_id:
+            row["description"] = description or "-"
+            found = True
+            break
+    if not found:
+        rows.append({"vlan_id": int(vlan_id), "service_port_num": "-", "description": description or "-"})
+        try:
+            rows.sort(key=lambda item: int((item or {}).get("vlan_id") or 0))
+        except Exception:
+            pass
+    olt.vlan_cache = rows
+    olt.vlan_status = "VLAN description updated in OptiVerse."
+    olt.save(update_fields=["vlan_cache", "vlan_status"])
+    _record_olt_login(olt, request.user, "update_vlan_description", f"VLAN {vlan_id} description updated in OptiVerse DB.", request=request)
+
+    if is_ajax:
+        return JsonResponse({"ok": True, "vlan_id": vlan_id, "description": description or "-", "message": "Description updated."})
+    messages.success(request, "Description updated.")
+    return redirect(f"{redirect('olt_view', pk=pk).url}?section=vlans")
+
+
+@login_required
+@require_POST
+@admin_required
+def olt_update_uplink_description(request, pk):
+    """Update uplink description in OptiVerse DB cache only.
+
+    This intentionally does not touch the OLT; it only updates ``OLT.uplink_cache``.
+    """
+    olt = get_object_or_404(OLT, pk=pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    port_name = str(request.POST.get("port") or "").strip()
+    description = _clean_cache_description(request.POST.get("description"), 80)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if not port_name:
+        if is_ajax:
+            return JsonResponse({"ok": False, "message": "Invalid uplink port."}, status=400)
+        messages.warning(request, "Invalid uplink port.")
+        return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
+
+    rows = list(getattr(olt, "uplink_cache", []) or [])
+    found = False
+    for row in rows:
+        if str((row or {}).get("port") or "").strip() == port_name:
+            row["description"] = description or "-"
+            found = True
+            break
+    if not found:
+        if is_ajax:
+            return JsonResponse({"ok": False, "message": "Uplink port not found in DB cache."}, status=404)
+        messages.warning(request, "Uplink port not found in DB cache.")
+        return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
+
+    olt.uplink_cache = rows
+    olt.uplink_status = "Uplink description updated in OptiVerse."
+    olt.save(update_fields=["uplink_cache", "uplink_status"])
+    _record_olt_login(olt, request.user, "update_uplink_description", f"Uplink {port_name} description updated in OptiVerse DB.", request=request)
+
+    if is_ajax:
+        return JsonResponse({"ok": True, "port": port_name, "description": description or "-", "message": "Description updated."})
+    messages.success(request, "Description updated.")
+    return redirect(f"{redirect('olt_view', pk=pk).url}?section=uplink")
+
+
 @login_required
 @require_POST
 @admin_required
