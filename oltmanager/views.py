@@ -2876,9 +2876,26 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
         qs = qs.filter(olt=selected_olt)
 
     degrade, fiber = [], []
+
+    def _alert_olt_name(alert=None, fallback_olt_id=None):
+        if alert is not None and getattr(alert, "olt_id", None):
+            name = str(getattr(getattr(alert, "olt", None), "name", "") or "").strip()
+            if name and name not in {"-", "—"}:
+                return name
+            fallback_olt_id = getattr(alert, "olt_id", None)
+        if selected_olt is not None:
+            name = str(getattr(selected_olt, "name", "") or "").strip()
+            if name:
+                return name
+        if fallback_olt_id:
+            name = OLT.objects.filter(pk=fallback_olt_id).values_list("name", flat=True).first()
+            if name:
+                return str(name)
+            return f"OLT #{fallback_olt_id}"
+        return "Unknown OLT"
     for a in qs.order_by("-created_at")[: max(1, int(limit or 60)) * 2]:
         d = a.details or {}
-        olt_name = a.olt.name if a.olt_id else "—"
+        olt_name = _alert_olt_name(a)
         slot = d.get("slot")
         port = d.get("port")
         if a.alert_type == "signal_degrade":
@@ -2929,7 +2946,7 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             fallback_qs = fallback_qs.filter(olt=selected_olt)
         rows = []
         for onu in fallback_qs[: max(1, int(limit or 60)) * 8]:
-            olt_name = onu.olt.name if onu.olt_id else "-"
+            olt_name = str(getattr(getattr(onu, "olt", None), "name", "") or "").strip() or _alert_olt_name(fallback_olt_id=onu.olt_id)
             loc = f"0/{onu.slot}/{onu.port}:{onu.ont_id}"
             if (olt_name, loc) in existing_keys:
                 continue
@@ -2990,7 +3007,7 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
         existing_fiber_keys = {(item.get("olt_name"), item.get("loc")) for item in fiber}
         for group in groups:
             olt_id = group.get("olt_id")
-            olt_name = group.get("olt__name") or "-"
+            olt_name = str(group.get("olt__name") or "").strip() or _alert_olt_name(fallback_olt_id=olt_id)
             slot = group.get("slot")
             port = group.get("port")
             total = int(group.get("total") or 0)
@@ -3284,6 +3301,76 @@ def _get_dashboard_status_graph_cached(olt_id=None, range_key="24h"):
         payload = _build_dashboard_status_graph(olt_id, normalized_range)
         cache.set(cache_key, payload, 300)
     return payload
+
+
+def _history_location_slot(value):
+    text = str(value or "")
+    # Examples seen in history:
+    #   0/0/1/4:22
+    #   ONU converted PRI -> VLAN: 0/1/4 ont 22
+    patterns = (
+        r"\b\d+\s*/\s*(\d+)\s*/\s*\d+\s*/\s*\d+\s*(?::|\b)",
+        r"\b\d+\s*/\s*(\d+)\s*/\s*\d+\s+ont\s+\d+\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _build_dashboard_authorization_graph(olt_id=None, days=10):
+    local_tz = ZoneInfo("Asia/Karachi")
+    today = timezone.localtime(timezone.now(), local_tz).date()
+    start_date = today - timezone.timedelta(days=max(1, int(days or 10)) - 1)
+    since = timezone.make_aware(
+        datetime.datetime.combine(start_date, datetime.time.min),
+        local_tz,
+    )
+    qs = OLTLoginHistory.objects.filter(
+        action__in=["authorize_onu", "mapping_convert"],
+        logged_in_at__gte=since,
+    ).select_related("olt")
+    if olt_id:
+        qs = qs.filter(olt_id=olt_id)
+
+    buckets = {
+        start_date + timezone.timedelta(days=offset): {"gpon": 0, "epon": 0}
+        for offset in range(max(1, int(days or 10)))
+    }
+    for item in qs.only("logged_in_at", "onu", "details", "olt__pon_ports_cache", "olt__olt_cards_cache"):
+        local_date = timezone.localtime(item.logged_in_at, local_tz).date()
+        if local_date not in buckets:
+            continue
+        slot = _history_location_slot(item.onu) or _history_location_slot(item.details)
+        tech = _onu_tech_label(item.olt, slot) if slot is not None else "gpon"
+        key = "epon" if str(tech or "").lower().startswith("epon") else "gpon"
+        buckets[local_date][key] += 1
+
+    points = []
+    for day in sorted(buckets.keys()):
+        gpon = int(buckets[day]["gpon"])
+        epon = int(buckets[day]["epon"])
+        points.append({
+            "x": day.isoformat(),
+            "label": day.strftime("%d-%m-%Y"),
+            "gpon": gpon,
+            "epon": epon,
+            "total": gpon + epon,
+        })
+    latest = {
+        "gpon": sum(point["gpon"] for point in points),
+        "epon": sum(point["epon"] for point in points),
+        "total": sum(point["total"] for point in points),
+    }
+    return {
+        "range_label": f"Last {len(points)} days",
+        "points": points,
+        "latest": latest,
+    }
 
 
 def _build_dashboard_pon_traffic_graph(olt_id=None, range_key="24h"):
@@ -4937,6 +5024,7 @@ def olt_list(request):
         'dashboard_loss_of_signal_url': f"{configured_signal_base}?{urlencode(loss_of_signal_params)}",
         'dashboard_power_failure_url': f"{configured_signal_base}?{urlencode(power_failure_params)}",
         'dashboard_graph': _get_dashboard_status_graph_cached(selected_olt.pk if selected_olt else None, '1h'),
+        'dashboard_authorization_graph': _build_dashboard_authorization_graph(selected_olt.pk if selected_olt else None),
         'dashboard_pon_traffic_graph': dashboard_pon_traffic_graph,
         'dashboard_pon_traffic_port_choices': dashboard_pon_traffic_port_choices,
         'dashboard_pon_traffic_graph_url': dashboard_pon_traffic_graph_url,
@@ -5063,6 +5151,7 @@ def dashboard_olt_uptimes(request):
         "refreshed_at": refreshed_at,
         "dashboard_last_updated": dashboard_last_updated,
         "status_graph": _get_dashboard_status_graph_cached(selected_olt_id, graph_range),
+        "authorization_graph": _build_dashboard_authorization_graph(selected_olt_id),
         "pon_signal_alerts": _collect_dashboard_pon_signal_alerts(OLT.objects.filter(pk=selected_olt_id).first() if selected_olt_id else None),
         "updating": updating,
     })

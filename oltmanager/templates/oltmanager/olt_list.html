@@ -824,6 +824,97 @@
         height: 230px;
         display: block;
     }
+    .authorization-horizontal {
+        --auth-gpon: #35d07f;
+        --auth-gpon-soft: rgba(53, 208, 127, 0.18);
+        --auth-epon: #c084fc;
+        --auth-epon-soft: rgba(192, 132, 252, 0.18);
+        display: grid;
+        gap: 10px;
+        padding: 4px 2px 2px;
+    }
+    [data-authorization-graph-box] {
+        --auth-gpon: #35d07f;
+        --auth-epon: #c084fc;
+    }
+    [data-authorization-graph-box] .status-graph-canvas {
+        min-height: 405px;
+    }
+    .authorization-row {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+    }
+    .authorization-date {
+        color: #a9bee0;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        text-align: right;
+        white-space: nowrap;
+    }
+    .authorization-bars {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+    }
+    .authorization-bar-line {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 42px;
+        gap: 8px;
+        align-items: center;
+    }
+    .authorization-track {
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.055);
+        overflow: hidden;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.045);
+    }
+    .authorization-fill {
+        height: 100%;
+        min-width: 0;
+        border-radius: inherit;
+        transition: width 0.25s ease;
+    }
+    .authorization-fill.gpon {
+        background: linear-gradient(90deg, var(--auth-gpon-soft), var(--auth-gpon));
+        box-shadow: 0 0 14px color-mix(in srgb, var(--auth-gpon), transparent 34%);
+    }
+    .authorization-fill.epon {
+        background: linear-gradient(90deg, var(--auth-epon-soft), var(--auth-epon));
+        box-shadow: 0 0 14px color-mix(in srgb, var(--auth-epon), transparent 34%);
+    }
+    .authorization-count {
+        color: #f4f8ff;
+        font-size: 11px;
+        font-weight: 900;
+        white-space: nowrap;
+    }
+    .authorization-count.is-zero {
+        color: #6f819d;
+    }
+    html[data-theme="light"] .authorization-horizontal {
+        --auth-gpon: #128a4d;
+        --auth-gpon-soft: rgba(18, 138, 77, 0.14);
+        --auth-epon: #7c3aed;
+        --auth-epon-soft: rgba(124, 58, 237, 0.13);
+    }
+    html[data-theme="light"] [data-authorization-graph-box] {
+        --auth-gpon: #128a4d;
+        --auth-epon: #7c3aed;
+    }
+    html[data-theme="light"] .authorization-date {
+        color: #425a78;
+    }
+    html[data-theme="light"] .authorization-track {
+        background: #eef4fb;
+        box-shadow: inset 0 0 0 1px #d8e6f6;
+    }
+    html[data-theme="light"] .authorization-count {
+        color: #17243a;
+    }
     .status-graph-grid {
         stroke: rgba(255, 255, 255, 0.08);
         stroke-width: 1;
@@ -1616,6 +1707,27 @@
             </div>
             {{ dashboard_graph|json_script:"dashboardStatusGraphData" }}
         </section>
+
+        <section class="status-graph-box" data-authorization-graph-box>
+            <div class="status-graph-head">
+                <div>
+                    <h3 class="status-graph-title">ONU authorizations per day</h3>
+                    <p class="status-graph-sub">Daily authorized and reconfigured ONUs for the current dashboard scope.</p>
+                </div>
+            </div>
+            <div class="status-graph-canvas">
+                <div class="status-graph-meta">
+                    <span class="status-graph-range" data-authorization-range>{{ dashboard_authorization_graph.range_label }}</span>
+                    <div class="status-graph-latest" data-authorization-latest></div>
+                </div>
+                <div data-authorization-graph-inner></div>
+                <div class="status-graph-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background:var(--auth-gpon);"></span>GPON</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:var(--auth-epon);"></span>EPON</span>
+                </div>
+            </div>
+            {{ dashboard_authorization_graph|json_script:"dashboardAuthorizationGraphData" }}
+        </section>
         </div>
 
         <div class="dashboard-right-column">
@@ -2034,6 +2146,9 @@
                 if (payload.status_graph && window.__dashboardStatusGraphApi) {
                     window.__dashboardStatusGraphApi.render(payload.status_graph);
                 }
+                if (payload.authorization_graph && window.__dashboardAuthorizationGraphApi) {
+                    window.__dashboardAuthorizationGraphApi.render(payload.authorization_graph);
+                }
                 renderPonSignalAlerts(payload.pon_signal_alerts || []);
           } catch (error) {
               // Keep existing rendered values on transient network issues.
@@ -2294,6 +2409,67 @@
             renderGraph(JSON.parse(initialNode.textContent));
         } catch (error) {
             // Ignore broken inline payload.
+        }
+    }
+})();
+
+(() => {
+    const panel = document.querySelector('[data-authorization-graph-box]');
+    if (!panel) return;
+    const inner = panel.querySelector('[data-authorization-graph-inner]');
+    const latest = panel.querySelector('[data-authorization-latest]');
+    const rangeLabel = panel.querySelector('[data-authorization-range]');
+    const initialNode = document.getElementById('dashboardAuthorizationGraphData');
+
+    const renderAuthorizationGraph = (payload) => {
+        if (!inner) return;
+        const points = Array.isArray(payload?.points) ? payload.points : [];
+        if (rangeLabel) rangeLabel.textContent = payload?.range_label || 'Daily view';
+        const totals = payload?.latest || {};
+        if (latest) {
+            latest.innerHTML = `
+                <span><strong>GPON:</strong> ${totals.gpon ?? 0}</span>
+                <span><strong>EPON:</strong> ${totals.epon ?? 0}</span>
+                <span><strong>Total:</strong> ${totals.total ?? 0}</span>
+            `;
+        }
+        if (!points.length) {
+            inner.innerHTML = '<div class="status-graph-empty">No authorization history captured yet.</div>';
+            return;
+        }
+
+        const maxValue = Math.max(1, ...points.flatMap((point) => [Number(point.gpon || 0), Number(point.epon || 0)]));
+        const pct = (value) => `${Math.max(0, Math.min(100, (Number(value || 0) / maxValue) * 100))}%`;
+        inner.innerHTML = `
+            <div class="authorization-horizontal">
+                ${points.map((point) => `
+                    <div class="authorization-row" title="${point.label}: GPON ${point.gpon || 0}, EPON ${point.epon || 0}">
+                        <div class="authorization-date">${point.label}</div>
+                        <div class="authorization-bars">
+                            <div class="authorization-bar-line">
+                                <div class="authorization-track"><div class="authorization-fill gpon" style="width:${pct(point.gpon)}"></div></div>
+                                <span class="authorization-count${Number(point.gpon || 0) ? '' : ' is-zero'}">${point.gpon || 0}</span>
+                            </div>
+                            <div class="authorization-bar-line">
+                                <div class="authorization-track"><div class="authorization-fill epon" style="width:${pct(point.epon)}"></div></div>
+                                <span class="authorization-count${Number(point.epon || 0) ? '' : ' is-zero'}">${point.epon || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    };
+
+    window.__dashboardAuthorizationGraphApi = {
+        render: renderAuthorizationGraph,
+    };
+
+    if (initialNode) {
+        try {
+            renderAuthorizationGraph(JSON.parse(initialNode.textContent));
+        } catch (error) {
+            inner.innerHTML = '<div class="status-graph-empty">Authorization graph could not be loaded.</div>';
         }
     }
 })();
