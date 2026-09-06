@@ -566,6 +566,26 @@ def _onu_type_entry_for_record(record):
     }
 
 
+def _onu_type_entry_by_value(value):
+    normalized = _normalize_onu_type_key(value)
+    if not normalized:
+        return None
+    for item in _load_onu_type_option_rows():
+        if normalized in {
+            _normalize_onu_type_key(item.get("value")),
+            _normalize_onu_type_key(item.get("label")),
+        }:
+            return item
+    return None
+
+
+def _catalog_truthy(value):
+    text = str(value or "").strip()
+    if text.isdigit():
+        return int(text) > 0
+    return text not in {"", "0", "-"}
+
+
 def _ethernet_port_count_for_record(record):
     try:
         payload = json.loads(getattr(record, "ethernet_port_config_cache", "") or "{}")
@@ -6441,6 +6461,136 @@ def configured_onu_catv_action(request, olt_pk, slot, port, ont_id):
     )
 
 
+def _configured_onu_primary_vlan(record):
+    for raw in (
+        getattr(record, "user_vlan_cache", ""),
+        getattr(record, "attached_vlans_cache", ""),
+    ):
+        for item in str(raw or "").split(","):
+            text = item.strip()
+            if text and text not in {"-", "untagged"}:
+                return text
+    return ""
+
+
+def _apply_onu_type_ethernet_layout(olt, record, eth_count):
+    """Re-apply this ONU's saved ethernet mode across the selected type's ports."""
+    eth_count = max(1, int(eth_count or 1))
+    slot_i = int(getattr(record, "slot", 0) or 0)
+    port_i = int(getattr(record, "port", 0) or 0)
+    ont_i = int(getattr(record, "ont_id", 0) or 0)
+    port_config_map = _load_ethernet_port_config_cache(record)
+    if not isinstance(port_config_map, dict):
+        port_config_map = {}
+    template_config = dict(port_config_map.get("1") or {})
+    primary_vlan = _configured_onu_primary_vlan(record)
+    attached_vlans = [
+        item.strip()
+        for item in str(getattr(record, "attached_vlans_cache", "") or "").split(",")
+        if item.strip() and item.strip() != "-"
+    ]
+    updated_map = {}
+    failures = []
+    successes = 0
+
+    for eth_port in range(1, eth_count + 1):
+        cfg = dict(port_config_map.get(str(eth_port)) or template_config or {})
+        mode = str(cfg.get("mode") or "lan").strip().lower()
+        status = str(cfg.get("status") or "enabled").strip().lower() or "enabled"
+        if mode not in {"access", "transparent", "lan", "trunk"}:
+            mode = "lan"
+        snapshot = {"ok": False, "message": "Unsupported mode."}
+        if mode == "access":
+            vlan_id = str(cfg.get("vlan") or primary_vlan).strip()
+            if vlan_id and vlan_id.isdigit():
+                snapshot = execute_onu_ethernet_port_access_config(olt, slot_i, port_i, ont_i, eth_port, vlan_id)
+                if snapshot.get("ok"):
+                    cfg.update({"mode": "access", "vlan": str(snapshot.get("verified_vlan") or vlan_id), "allowed_vlans": ""})
+            else:
+                snapshot = {"ok": False, "message": f"ETH {eth_port}: access VLAN missing."}
+        elif mode == "transparent":
+            snapshot = execute_onu_ethernet_port_transparent_config(olt, slot_i, port_i, ont_i, eth_port)
+            if snapshot.get("ok"):
+                cfg.update({"mode": "transparent", "vlan": "1", "allowed_vlans": ""})
+        elif mode == "trunk":
+            allowed = [
+                item.strip()
+                for item in str(cfg.get("allowed_vlans") or "").split(",")
+                if item.strip()
+            ] or attached_vlans
+            if allowed:
+                snapshot = execute_onu_ethernet_port_trunk_config(olt, slot_i, port_i, ont_i, eth_port, allowed)
+                if snapshot.get("ok"):
+                    cfg.update({"mode": "trunk", "vlan": "", "allowed_vlans": ",".join(allowed)})
+            else:
+                snapshot = {"ok": False, "message": f"ETH {eth_port}: trunk VLANs missing."}
+        else:
+            snapshot = execute_onu_ethernet_port_lan_config(olt, slot_i, port_i, ont_i, eth_port)
+            if snapshot.get("ok"):
+                cfg.update({"mode": "lan", "vlan": "", "allowed_vlans": ""})
+
+        if snapshot.get("ok"):
+            successes += 1
+            if status in {"shutdown", "disabled"}:
+                admin_result = execute_onu_eth_port_cli_admin_state(olt, slot_i, port_i, ont_i, eth_port, "shutdown")
+                if not admin_result.get("ok"):
+                    failures.append(f"ETH {eth_port}: {_ui_telnet_error_message(admin_result.get('message')) or 'admin state failed'}")
+                cfg["status"] = "shutdown"
+            else:
+                cfg["status"] = "enabled"
+        else:
+            failures.append(f"ETH {eth_port}: {_ui_telnet_error_message(snapshot.get('message')) or 'port config failed'}")
+        updated_map[str(eth_port)] = cfg
+
+    return {"ok": not failures, "successes": successes, "failures": failures, "config_map": updated_map}
+
+
+@login_required
+@require_POST
+@admin_required
+def configured_onu_type_update(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
+    onu_type_value = str(request.POST.get("onu_type") or "").strip()
+    entry = _onu_type_entry_by_value(onu_type_value)
+    if not entry:
+        messages.error(request, "Selected ONU Type was not found in catalog.")
+        return redirect("configured_onu_detail", olt_pk=olt.pk, slot=slot, port=port, ont_id=ont_id)
+
+    try:
+        eth_count = int(str(entry.get("ethernet_ports") or "1").strip() or "1")
+    except (TypeError, ValueError):
+        eth_count = 1
+    eth_count = max(1, eth_count)
+
+    with OltWriteOperationGuard(olt, "ONU type port layout update", f"0/{slot}/{port} ont {ont_id}") as write_guard:
+        if not write_guard.ok:
+            messages.error(request, write_guard.message)
+            return redirect("configured_onu_detail", olt_pk=olt.pk, slot=slot, port=port, ont_id=ont_id)
+        port_result = _apply_onu_type_ethernet_layout(olt, record, eth_count)
+
+    record.onu_type_cache = str(entry.get("value") or onu_type_value).strip()
+    record.capability_synced_at = timezone.now()
+    record.ethernet_port_config_cache = json.dumps(port_result.get("config_map") or {}, separators=(",", ":"))
+    update_fields = ["onu_type_cache", "capability_synced_at", "ethernet_port_config_cache"]
+    if not _catalog_truthy(entry.get("catv")):
+        record.catv_operational_cache = ""
+        update_fields.append("catv_operational_cache")
+    record.save(update_fields=update_fields)
+
+    if port_result.get("ok"):
+        messages.success(request, f"ONU Type updated to {_format_solt_onu_type_name(entry.get('value'))}; {eth_count} ethernet port(s) aligned.")
+    else:
+        messages.warning(
+            request,
+            f"ONU Type updated, but some ethernet ports could not be aligned: {'; '.join(port_result.get('failures') or [])[:240]}",
+        )
+    return redirect("configured_onu_detail", olt_pk=olt.pk, slot=slot, port=port, ont_id=ont_id)
+
+
 @login_required
 def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
@@ -6795,6 +6945,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
     signal_history = _get_onu_signal_history(olt, slot, port, ont_id, hours=1)
     traffic_history = _get_onu_traffic_history(olt, slot, port, ont_id, hours=1)
     stability_summary = _build_onu_stability_summary(olt, slot, port, ont_id, record=record)
+    selected_onu_type_entry = _onu_type_entry_for_record(record) if record is not None else None
     authorize_debug = None
     if str(request.GET.get("auth_debug") or "").strip():
         debug_payload = request.session.pop("authorize_debug_payload", None)
@@ -6819,6 +6970,14 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "onu_catv_enabled": str(getattr(record, "catv_operational_cache", "") or "").strip().lower() != "disabled",
         "onu_lan_led_labels": onu_lan_led_labels,
         "onu_wifi_supported": onu_wifi_supported,
+        "onu_type_options": _load_onu_type_option_rows(),
+        "onu_type_selected_value": str((selected_onu_type_entry or {}).get("value") or selected_onu.get("onu_type") or "").strip(),
+        "onu_type_update_url": reverse("configured_onu_type_update", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
         "olt_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}",
         "olt_uplink_url": f"{reverse('olt_view', kwargs={'pk': olt.pk})}?section=uplink",
         "board_filter_url": f"{reverse('configured_onus')}?olt={olt.pk}&board={slot}",

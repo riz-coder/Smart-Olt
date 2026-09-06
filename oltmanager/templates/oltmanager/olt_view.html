@@ -2950,7 +2950,12 @@ terminal.addEventListener('click', () => terminal.focus());
         }
     };
 
-    window.setInterval(refreshPonPorts, 600000);
+    window.setInterval(() => {
+        if (!document.hidden) refreshPonPorts();
+    }, 600000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshPonPorts();
+    });
 })();
 </script>
 <script>

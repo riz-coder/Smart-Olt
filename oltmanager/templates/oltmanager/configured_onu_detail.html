@@ -2144,8 +2144,35 @@
                 <div class="detail-row">
                     <strong>ONU Type</strong>
                     <span></span>
-                    <div class="detail-value">{{ onu.onu_type_display|default:"-" }}</div>
+                    <div class="detail-value detail-value-name">
+                        <span>{{ onu.onu_type_display|default:"-" }}</span>
+                        {% if user.is_staff or user.is_superuser %}
+                        <a href="#" class="detail-pencil" title="Change ONU type" data-onu-type-edit-open>&#9998;</a>
+                        {% endif %}
+                    </div>
                 </div>
+                {% if user.is_staff or user.is_superuser %}
+                <form method="post" action="{{ onu_type_update_url }}" class="detail-edit-form" data-onu-type-edit-form>
+                    {% csrf_token %}
+                    <div class="detail-edit-grid">
+                        <div class="detail-edit-field">
+                            <label>ONU Type</label>
+                            <select name="onu_type" class="form-control" data-onu-type-select required>
+                                {% for option in onu_type_options %}
+                                <option value="{{ option.value }}"{% if option.value == onu_type_selected_value %} selected{% endif %}>
+                                    {{ option.label }} | ETH {{ option.ethernet_ports|default:"0" }}{% if option.wifi and option.wifi != "0" and option.wifi != "-" %} | WiFi{% endif %}{% if option.catv and option.catv != "0" and option.catv != "-" %} | CATV{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <span class="helptext">Only this ONU's type, port count/lights, and ethernet port mode layout will be aligned.</span>
+                        </div>
+                    </div>
+                    <div class="detail-edit-actions">
+                        <button type="submit" class="btn btn-primary btn-mini" data-onu-type-save>Save</button>
+                        <button type="button" class="btn btn-secondary btn-mini" data-onu-type-edit-close>Cancel</button>
+                    </div>
+                </form>
+                {% endif %}
                 <div class="detail-row">
                     <strong>Address</strong>
                     <span></span>
@@ -2477,6 +2504,10 @@
     const nameEditOpen = document.querySelector('[data-name-edit-open]');
     const nameEditForm = document.querySelector('[data-name-edit-form]');
     const nameEditClose = document.querySelector('[data-name-edit-close]');
+    const onuTypeEditOpen = document.querySelector('[data-onu-type-edit-open]');
+    const onuTypeEditForm = document.querySelector('[data-onu-type-edit-form]');
+    const onuTypeEditClose = document.querySelector('[data-onu-type-edit-close]');
+    const onuTypeSave = document.querySelector('[data-onu-type-save]');
     if (!panel || !chartNode || !chartEmptyNode || !currentOltNode || !maximumOltNode) return;
     const refreshUrl = panel.getAttribute('data-signal-refresh-url');
     const signalGraphUrl = panel.getAttribute('data-signal-graph-url');
@@ -3432,7 +3463,9 @@
             if (!document.hidden) refreshSignal();
         }, 60000);
         window.setTimeout(refreshTraffic, 900);
-        window.setInterval(refreshTraffic, 30000);
+        window.setInterval(() => {
+            if (!document.hidden) refreshTraffic();
+        }, 30000);
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 refreshSignal();
@@ -3667,6 +3700,23 @@
         });
         nameEditClose?.addEventListener('click', () => {
             nameEditForm.classList.remove('active');
+        });
+    }
+    if (onuTypeEditForm && onuTypeEditOpen) {
+        onuTypeEditOpen.addEventListener('click', (event) => {
+            event.preventDefault();
+            onuTypeEditForm.classList.add('active');
+            const select = onuTypeEditForm.querySelector('select[name="onu_type"]');
+            if (select) select.focus();
+        });
+        onuTypeEditClose?.addEventListener('click', () => {
+            onuTypeEditForm.classList.remove('active');
+        });
+        onuTypeEditForm.addEventListener('submit', () => {
+            if (onuTypeSave) {
+                onuTypeSave.disabled = true;
+                onuTypeSave.textContent = 'Saving...';
+            }
         });
     }
 })();

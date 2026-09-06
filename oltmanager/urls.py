@@ -18,6 +18,7 @@ urlpatterns = [
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/traffic-graph/', views.configured_onu_traffic_graph_data, name='configured_onu_traffic_graph_data'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/', views.configured_onu_detail, name='configured_onu_detail'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/catv/', views.configured_onu_catv_action, name='configured_onu_catv_action'),
+    path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/onu-type/', views.configured_onu_type_update, name='configured_onu_type_update'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/add-vlan/', views.configured_onu_add_vlan, name='configured_onu_add_vlan'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/service-port-delete/', views.configured_onu_service_port_delete, name='configured_onu_service_port_delete'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/speed-profile/<int:row_index>/', views.configured_onu_speed_profile_config, name='configured_onu_speed_profile_config'),

@@ -960,5 +960,87 @@
             });
         })();
     </script>
+    <script>
+        (function () {
+            if (!document.body || !document.body.classList.contains('authenticated')) return;
+            var prefetched = new Set();
+            var controllerSupport = typeof AbortController !== 'undefined';
+
+            function isSafeLink(link) {
+                if (!link || !link.href) return false;
+                if (link.target && link.target !== '_self') return false;
+                if (link.hasAttribute('download')) return false;
+                var href = link.getAttribute('href') || '';
+                if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return false;
+                try {
+                    var url = new URL(link.href, window.location.href);
+                    if (url.origin !== window.location.origin) return false;
+                    if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
+                    if (/\/logout\/?$/i.test(url.pathname)) return false;
+                    if (/\/progress\/|\/refresh|\/action\/|\/delete|\/catv|\/sync|\/terminal/i.test(url.pathname)) return false;
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            function prefetch(link) {
+                if (!isSafeLink(link)) return;
+                var url = new URL(link.href, window.location.href).href;
+                if (prefetched.has(url)) return;
+                prefetched.add(url);
+                if ('requestIdleCallback' in window) {
+                    window.requestIdleCallback(function () { warm(url); }, { timeout: 1200 });
+                } else {
+                    window.setTimeout(function () { warm(url); }, 160);
+                }
+            }
+
+            function warm(url) {
+                if (document.hidden) return;
+                var opts = {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'Prefetch' },
+                    cache: 'force-cache',
+                    priority: 'low'
+                };
+                if (controllerSupport) {
+                    var controller = new AbortController();
+                    opts.signal = controller.signal;
+                    window.setTimeout(function () { controller.abort(); }, 3500);
+                }
+                fetch(url, opts).catch(function () {});
+            }
+
+            document.addEventListener('pointerover', function (event) {
+                prefetch(event.target.closest && event.target.closest('a[href]'));
+            }, { passive: true });
+            document.addEventListener('focusin', function (event) {
+                prefetch(event.target.closest && event.target.closest('a[href]'));
+            });
+            document.addEventListener('touchstart', function (event) {
+                prefetch(event.target.closest && event.target.closest('a[href]'));
+            }, { passive: true });
+
+            var scrollKey = 'optiverse-scroll:' + window.location.pathname + window.location.search;
+            if ('scrollRestoration' in history) {
+                history.scrollRestoration = 'manual';
+            }
+            window.addEventListener('pagehide', function () {
+                try {
+                    sessionStorage.setItem(scrollKey, String(window.scrollY || document.documentElement.scrollTop || 0));
+                } catch (e) {}
+            });
+            window.addEventListener('pageshow', function () {
+                try {
+                    var saved = sessionStorage.getItem(scrollKey);
+                    if (saved !== null) {
+                        window.setTimeout(function () { window.scrollTo(0, Math.max(0, Number(saved) || 0)); }, 0);
+                    }
+                } catch (e) {}
+            });
+        })();
+    </script>
 </body>
 </html>
