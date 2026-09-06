@@ -4976,6 +4976,7 @@ def olt_list(request):
     if selected_olt:
         dashboard_history_rows = list(
             OLTLoginHistory.objects.filter(olt_id=selected_olt.pk)
+            .exclude(action__in=["save_scheduled", "save_running", "save_completed", "save_failed"])
             .order_by('-logged_in_at')
             .values('logged_in_at', 'action', 'details')[:80]
         )
@@ -9148,7 +9149,12 @@ def olt_view(request, pk):
     vlan_override = getattr(request, "_vlan_override", None)
     history_rows = []
     if selected_section == 'history':
-        history_rows = list(olt.login_history.select_related('olt').all()[:100])
+        history_rows = list(
+            olt.login_history
+            .select_related('olt')
+            .exclude(action__in=["save_scheduled", "save_running", "save_completed", "save_failed"])
+            .all()[:100]
+        )
 
     if selected_section == 'olt-cards':
         if olt.olt_cards_cache:

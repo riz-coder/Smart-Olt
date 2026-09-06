@@ -5976,21 +5976,10 @@ def _run_telnet_save_command(tn):
 
 
 def _record_olt_save_history(olt_id, action, details):
-    try:
-        from .models import OLT, OLTLoginHistory
-
-        olt = OLT.objects.filter(pk=int(olt_id)).filter(olt_background_enabled_q()).first()
-        if not olt:
-            return
-        OLTLoginHistory.objects.create(
-            olt=olt,
-            user=None,
-            username="system",
-            action=str(action or "save")[:50],
-            details=str(details or "")[:300],
-        )
-    except Exception:
-        pass
+    # Scheduled OLT-save lifecycle logs were temporary noise for debugging.
+    # Keep the save scheduler working, but do not write save_scheduled /
+    # save_running / save_completed / save_failed rows to OLT history.
+    return
 
 
 def _run_scheduled_olt_save(olt_id, reason):
@@ -6005,19 +5994,15 @@ def _run_scheduled_olt_save(olt_id, reason):
         olt = OLT.objects.filter(pk=int(olt_id)).first()
         if not olt:
             return
-        _record_olt_save_history(olt_id, "save_running", f"Scheduled save started: {reason}")
         tn, auth_status = open_telnet_authenticated_session(olt)
         if tn is None:
-            _record_olt_save_history(olt_id, "save_failed", auth_status)
             return
         _prepare_telnet_cli_session(tn, include_enable=False, use_paging=False)
         output = _run_telnet_save_command(tn)
         if _is_cli_error_text(output):
-            _record_olt_save_history(olt_id, "save_failed", _clean_cli_response_text("save", output) or "Save failed.")
             return
-        _record_olt_save_history(olt_id, "save_completed", f"Configuration saved. {reason}")
     except Exception as exc:
-        _record_olt_save_history(olt_id, "save_failed", f"Scheduled save failed: {exc}")
+        pass
     finally:
         _close_telnet_session(tn)
         close_old_connections()
@@ -6041,7 +6026,6 @@ def schedule_olt_save(olt, reason="configuration changed", delay_seconds=None):
         timer.daemon = True
         _OLT_SAVE_TIMERS[olt_id] = timer
         timer.start()
-    _record_olt_save_history(olt_id, "save_scheduled", f"Save scheduled in {delay}s: {reason}")
     return f"Save scheduled in {delay}s."
 
 
