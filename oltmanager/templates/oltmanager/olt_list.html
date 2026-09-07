@@ -1626,7 +1626,7 @@
                     <div class="donut-chart">
                         <div class="donut-center">
                             <div>
-                                <div class="donut-total">{{ dashboard_total_onus|default:0 }}</div>
+                                <div class="donut-total" data-dashboard-total>{{ dashboard_total_onus|default:0 }}</div>
                                 <div class="donut-label">Total ONUs</div>
                             </div>
                         </div>
@@ -1675,6 +1675,7 @@
         <section
             class="status-graph-box"
             data-status-graph-url="{% url 'dashboard_status_graph' %}"
+            data-onu-sync-progress-url="{% url 'configured_onu_status_sync_progress' %}"
             data-selected-olt="{% if dashboard_selected_olt %}{{ dashboard_selected_olt.pk }}{% endif %}"
         >
             <div class="status-graph-head">
@@ -1928,6 +1929,7 @@
       const panel = document.querySelector('[data-olt-uptime-url]');
       if (!panel) return;
     const url = panel.getAttribute('data-olt-uptime-url');
+    const onuSyncProgressUrl = document.querySelector('[data-onu-sync-progress-url]')?.getAttribute('data-onu-sync-progress-url') || '';
     const baseUrl = panel.getAttribute('data-dashboard-base-url') || '';
     const selectedOlt = panel.getAttribute('data-selected-olt') || '';
     const list = panel.querySelector('[data-olt-uptime-list]');
@@ -1937,6 +1939,7 @@
           orange: panel.querySelector('[data-health-count="orange"]'),
           red: panel.querySelector('[data-health-count="red"]'),
       };
+      const totalNode = document.querySelector('[data-dashboard-total]');
       const onlineNode = document.querySelector('[data-dashboard-online]');
       const offlineNode = document.querySelector('[data-dashboard-offline]');
       const signalTotalNode = document.querySelector('[data-dashboard-signal-total]');
@@ -1954,6 +1957,9 @@
       const downToastTimestamps = new Map();
       let activeHealthFilter = 'all';
       let lastRows = [];
+      let syncPollTimer = null;
+      let syncPollPending = false;
+      let sawOnuStatusSyncRunning = false;
 
       const showSnmpToast = (row) => {
           if (!toastStack || !row) return;
@@ -2033,6 +2039,7 @@
       };
       const renderSummary = (summary) => {
           const safe = summary || {};
+          if (totalNode) totalNode.textContent = String(safe.total_onus ?? totalNode.textContent ?? '0');
           if (onlineNode) onlineNode.textContent = String(safe.online_total ?? onlineNode.textContent ?? '0');
           if (offlineNode) offlineNode.textContent = String(safe.offline_total ?? offlineNode.textContent ?? '0');
           if (signalTotalNode) signalTotalNode.textContent = String(safe.signal_total ?? signalTotalNode.textContent ?? '0');
@@ -2173,9 +2180,56 @@
         } else {
             window.setTimeout(startLazyRefresh, 5000);
         }
+
+        const scheduleSyncPoll = (delay = 15000) => {
+            if (!onuSyncProgressUrl) return;
+            if (syncPollTimer) window.clearTimeout(syncPollTimer);
+            syncPollTimer = window.setTimeout(async () => {
+                await pollSyncProgress();
+                scheduleSyncPoll(nextSyncPollDelay());
+            }, delay);
+        };
+
+        const nextSyncPollDelay = () => {
+            if (document.hidden) return 60000;
+            return sawOnuStatusSyncRunning ? 3000 : 15000;
+        };
+
+        const pollSyncProgress = async () => {
+            if (!onuSyncProgressUrl || syncPollPending) return;
+            syncPollPending = true;
+            try {
+                const response = await fetch(onuSyncProgressUrl, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) return;
+                const payload = await response.json();
+                if (!payload.ok) return;
+                const progress = payload.progress || {};
+                const isRunning = Boolean(progress.running);
+                if (isRunning) {
+                    sawOnuStatusSyncRunning = true;
+                    return;
+                }
+                if (sawOnuStatusSyncRunning) {
+                    sawOnuStatusSyncRunning = false;
+                    await refresh();
+                }
+            } catch (error) {
+                // Keep dashboard values as-is if progress polling briefly fails.
+            } finally {
+                syncPollPending = false;
+            }
+        };
+
+        window.setTimeout(() => {
+            pollSyncProgress().finally(() => scheduleSyncPoll(nextSyncPollDelay()));
+        }, 3000);
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 scheduleRefresh(600000);
+                pollSyncProgress().finally(() => scheduleSyncPoll(nextSyncPollDelay()));
             }
         });
     })();
