@@ -14004,6 +14004,15 @@ def get_onu_status_sync_progress():
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
         snapshot = _onu_status_progress_snapshot_unlocked()
     file_snapshot = _read_onu_status_progress_file()
+    if file_snapshot:
+        snapshot_completed = str(snapshot.get("cycle_completed_at") or "")
+        file_completed = str(file_snapshot.get("cycle_completed_at") or "")
+        snapshot_started = str(snapshot.get("cycle_started_at") or "")
+        file_started = str(file_snapshot.get("cycle_started_at") or "")
+        if file_completed and file_completed != snapshot_completed:
+            return file_snapshot
+        if file_started and file_started != snapshot_started:
+            return file_snapshot
     if file_snapshot and (
         not snapshot.get("next_run_at")
         or (not snapshot.get("running") and not snapshot.get("olts") and file_snapshot.get("next_run_at"))

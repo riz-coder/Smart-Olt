@@ -1960,6 +1960,8 @@
       let syncPollTimer = null;
       let syncPollPending = false;
       let sawOnuStatusSyncRunning = false;
+      let syncProgressInitialized = false;
+      let lastSeenCycleCompletedAt = '';
 
       const showSnmpToast = (row) => {
           if (!toastStack || !row) return;
@@ -2208,8 +2210,18 @@
                 if (!payload.ok) return;
                 const progress = payload.progress || {};
                 const isRunning = Boolean(progress.running);
+                const completedAt = String(progress.cycle_completed_at || '');
+                if (!syncProgressInitialized) {
+                    syncProgressInitialized = true;
+                    lastSeenCycleCompletedAt = completedAt;
+                }
                 if (isRunning) {
                     sawOnuStatusSyncRunning = true;
+                    return;
+                }
+                if (completedAt && completedAt !== lastSeenCycleCompletedAt) {
+                    lastSeenCycleCompletedAt = completedAt;
+                    await refresh();
                     return;
                 }
                 if (sawOnuStatusSyncRunning) {
