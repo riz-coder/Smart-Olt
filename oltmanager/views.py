@@ -8002,14 +8002,6 @@ def health_report(request):
     olts = list(OLT.objects.filter(is_ready=True).order_by("name"))
     olt_ids = [o.id for o in olts]
 
-    # Pull every ONU once, bucket in Python (avoids N per-OLT queries).
-    onus = list(
-        ConfiguredONU.objects.filter(olt_id__in=olt_ids).only(
-            "olt_id", "slot", "port", "ont_id", "derived_status", "signal_bucket",
-            "onu_rx", "description", "configured_via_app", "created_at",
-        )
-    )
-
     def _blank_stat():
         return {
             "total": 0, "online": 0, "offline": 0, "admin_disabled": 0,
@@ -8020,46 +8012,58 @@ def health_report(request):
 
     per_olt = {oid: _blank_stat() for oid in olt_ids}
     totals = _blank_stat()
-    worst_signals = []  # (dbm, olt_name, slot, port, ont_id, desc)
-
     olt_name_by_id = {o.id: o.name for o in olts}
 
-    for onu in onus:
-        for bucket in (per_olt.get(onu.olt_id), totals):
-            if bucket is None:
-                continue
-            bucket["total"] += 1
-            ds = str(onu.derived_status or "").strip().lower() or "offline"
-            if ds == "online":
-                bucket["online"] += 1
-            elif ds == "admin_disabled":
-                bucket["admin_disabled"] += 1
-            else:
-                bucket["offline"] += 1
-                if ds == "power_failure":
-                    bucket["power_failure"] += 1
-                elif ds == "loss_of_signal":
-                    bucket["loss_of_signal"] += 1
-            sb = str(onu.signal_bucket or "").strip().lower()
-            if sb == "good":
-                bucket["sig_good"] += 1
-            elif sb == "warn":
-                bucket["sig_warn"] += 1
-            elif sb == "bad":
-                bucket["sig_bad"] += 1
-            if onu.configured_via_app and onu.created_at and timezone.localtime(onu.created_at).date() == today:
-                bucket["new_today"] += 1
+    today_start = timezone.make_aware(datetime.datetime.combine(today, datetime.time.min))
+    tomorrow_start = today_start + timezone.timedelta(days=1)
+    onu_stats = (
+        ConfiguredONU.objects
+        .filter(olt_id__in=olt_ids)
+        .values("olt_id")
+        .annotate(
+            total=Count("id"),
+            online=Count("id", filter=Q(derived_status__iexact="online")),
+            admin_disabled=Count("id", filter=Q(derived_status__iexact="admin_disabled")),
+            power_failure=Count("id", filter=Q(derived_status__iexact="power_failure")),
+            loss_of_signal=Count("id", filter=Q(derived_status__iexact="loss_of_signal")),
+            sig_good=Count("id", filter=Q(signal_bucket__iexact="good")),
+            sig_warn=Count("id", filter=Q(signal_bucket__iexact="warn")),
+            sig_bad=Count("id", filter=Q(signal_bucket__iexact="bad")),
+            new_today=Count(
+                "id",
+                filter=Q(configured_via_app=True, created_at__gte=today_start, created_at__lt=tomorrow_start),
+            ),
+        )
+    )
+    for stat_row in onu_stats:
+        olt_id = stat_row.get("olt_id")
+        bucket = per_olt.get(olt_id)
+        if bucket is None:
+            continue
+        for key in ("total", "online", "admin_disabled", "power_failure", "loss_of_signal", "sig_good", "sig_warn", "sig_bad", "new_today"):
+            bucket[key] = int(stat_row.get(key) or 0)
+            totals[key] += bucket[key]
+        bucket["offline"] = max(0, bucket["total"] - bucket["online"] - bucket["admin_disabled"])
+        totals["offline"] += bucket["offline"]
 
-        # Worst-signal candidates: online ONUs with a readable Rx power.
-        if str(onu.derived_status or "").lower() == "online":
-            dbm = _report_parse_dbm(onu.onu_rx)
-            if dbm is not None:
-                worst_signals.append({
-                    "dbm": dbm,
-                    "olt": olt_name_by_id.get(onu.olt_id, "-"),
-                    "loc": f"0/{onu.slot}/{onu.port}:{onu.ont_id}",
-                    "desc": onu.description or "",
-                })
+    # Worst-signal candidates: use lightweight values() rows instead of loading
+    # full ConfiguredONU model instances for every ONU in the report.
+    worst_signals = []
+    for onu in (
+        ConfiguredONU.objects
+        .filter(olt_id__in=olt_ids, derived_status__iexact="online")
+        .exclude(onu_rx="")
+        .exclude(onu_rx__in=["-", "--"])
+        .values("olt_id", "slot", "port", "ont_id", "onu_rx", "description")
+    ):
+        dbm = _report_parse_dbm(onu.get("onu_rx"))
+        if dbm is not None:
+            worst_signals.append({
+                "dbm": dbm,
+                "olt": olt_name_by_id.get(onu.get("olt_id"), "-"),
+                "loc": f"0/{onu.get('slot')}/{onu.get('port')}:{onu.get('ont_id')}",
+                "desc": onu.get("description") or "",
+            })
 
     worst_signals.sort(key=lambda r: r["dbm"])
     worst_signals = worst_signals[:10]
@@ -8087,7 +8091,11 @@ def health_report(request):
 
     # Alerts.
     active_alerts = list(
-        AlertEvent.objects.filter(is_active=True).select_related("olt").order_by("-created_at")[:50]
+        AlertEvent.objects
+        .filter(is_active=True)
+        .select_related("olt")
+        .only("created_at", "severity", "alert_type", "title", "message", "olt__name")
+        .order_by("-created_at")[:50]
     )
     sev_counts = {"critical": 0, "warning": 0, "info": 0}
     for a in active_alerts:
