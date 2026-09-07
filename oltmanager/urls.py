@@ -29,6 +29,7 @@ urlpatterns = [
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/running-config/', views.configured_onu_running_config, name='configured_onu_running_config'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/last-down-history/', views.configured_onu_last_down_history, name='configured_onu_last_down_history'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/fetch-config/', views.configured_onu_fetch_config, name='configured_onu_fetch_config'),
+    path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/mapping-verify/', views.configured_onu_mapping_verify, name='configured_onu_mapping_verify'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/mapping-convert/', views.configured_onu_mapping_convert, name='configured_onu_mapping_convert'),
     path('configured/mapping-convert/progress/<str:task_id>/', views.configured_onu_mapping_convert_progress, name='configured_onu_mapping_convert_progress'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/action/<str:action>/', views.configured_onu_action, name='configured_onu_action'),

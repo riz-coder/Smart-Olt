@@ -725,81 +725,18 @@ def _build_onu_mapping_conversion_plan(record):
     }
 
 
-def _refresh_new_olt_vlan_fill_worker(olt_id):
+def _refresh_onu_attached_vlan_worker(olt_id, slot, port, ont_id, allow_empty_overwrite=False):
     try:
         olt = OLT.objects.filter(pk=olt_id).first()
         if not olt:
             return
-        sync_configured_onus_inventory(olt)
-        result = sync_onu_attached_vlans_for_olt(olt, fallback_missing=True)
-        olt.attached_vlan_sync_status = (
-            f"New OLT one-time service profile fill | {result.get('status') or ''}"
-        )[:300]
-        olt.attached_vlan_sync_updated_at = timezone.now()
-        olt.attached_vlan_sync_cursor_pk = int(result.get("last_pk") or 0)
-        olt.save(update_fields=[
-            "attached_vlan_sync_status",
-            "attached_vlan_sync_updated_at",
-            "attached_vlan_sync_cursor_pk",
-        ])
-    finally:
-        with _NEW_OLT_VLAN_FILL_LOCK:
-            _NEW_OLT_VLAN_FILLING.discard(int(olt_id))
-
-
-def _refresh_onu_attached_vlan_worker(olt_id, slot, port, ont_id):
-    try:
-        olt = OLT.objects.filter(pk=olt_id).first()
-        if not olt:
-            return
-        sync_single_onu_attached_vlans(olt, slot, port, ont_id)
+        sync_single_onu_attached_vlans(olt, slot, port, ont_id, allow_empty_overwrite=allow_empty_overwrite)
     finally:
         with _ONU_ATTACHED_VLAN_SYNC_LOCK:
             _ONU_ATTACHED_VLAN_SYNCING.discard((olt_id, int(slot), int(port), int(ont_id)))
 
 
-def _refresh_imported_onu_config_worker(olt_id):
-    try:
-        olt = OLT.objects.filter(pk=olt_id).first()
-        if not olt:
-            return
-        result = sync_onu_attached_vlans_for_olt(
-            olt,
-            fallback_missing=True,
-            only_missing=True,
-            imported_only=True,
-        )
-        status_text = str(result.get("status") or "").strip()
-        if status_text:
-            olt.attached_vlan_sync_status = f"Imported ONU auto config sync | {status_text}"[:300]
-            olt.attached_vlan_sync_updated_at = timezone.now()
-            olt.attached_vlan_sync_cursor_pk = int(result.get("last_pk") or 0)
-            olt.save(
-                update_fields=[
-                    "attached_vlan_sync_status",
-                    "attached_vlan_sync_updated_at",
-                    "attached_vlan_sync_cursor_pk",
-                ]
-            )
-    finally:
-        with _ONU_IMPORTED_CONFIG_SYNC_LOCK:
-            _ONU_IMPORTED_CONFIG_SYNCING.discard(int(olt_id))
-
-
-def _schedule_imported_onu_config_sync(olt_id):
-    sync_key = int(olt_id)
-    with _ONU_IMPORTED_CONFIG_SYNC_LOCK:
-        if sync_key in _ONU_IMPORTED_CONFIG_SYNCING:
-            return
-        _ONU_IMPORTED_CONFIG_SYNCING.add(sync_key)
-    threading.Thread(
-        target=_refresh_imported_onu_config_worker,
-        args=(olt_id,),
-        daemon=True,
-    ).start()
-
-
-def _schedule_onu_attached_vlan_sync(olt_id, slot, port, ont_id):
+def _schedule_onu_attached_vlan_sync(olt_id, slot, port, ont_id, allow_empty_overwrite=False):
     sync_key = (int(olt_id), int(slot), int(port), int(ont_id))
     with _ONU_ATTACHED_VLAN_SYNC_LOCK:
         if sync_key in _ONU_ATTACHED_VLAN_SYNCING:
@@ -807,7 +744,7 @@ def _schedule_onu_attached_vlan_sync(olt_id, slot, port, ont_id):
         _ONU_ATTACHED_VLAN_SYNCING.add(sync_key)
     threading.Thread(
         target=_refresh_onu_attached_vlan_worker,
-        args=(olt_id, slot, port, ont_id),
+        args=(olt_id, slot, port, ont_id, allow_empty_overwrite),
         daemon=True,
     ).start()
 
@@ -914,18 +851,6 @@ def _schedule_pon_refresh(olt_id):
     threading.Thread(target=_refresh_pon_worker, args=(olt_id,), daemon=True).start()
 
 
-def _refresh_vlan_worker(olt_id):
-    try:
-        olt = OLT.objects.filter(pk=olt_id).first()
-        if not olt:
-            return
-        vlan_data = fetch_vlan_snapshot(olt)
-        save_vlan_snapshot(olt, vlan_data)
-    finally:
-        with _VLAN_REFRESH_LOCK:
-            _VLAN_REFRESHING.discard(olt_id)
-
-
 def _safe_session_set(request, key, value):
     try:
         request.session[key] = value
@@ -1001,16 +926,6 @@ def _format_onu_serial_display(value):
 
 def _normalize_search_token(value):
     return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
-
-
-def _normalize_serial_search_token(value):
-    token = _normalize_search_token(value)
-    return token.translate(str.maketrans({
-        "O": "0",
-        "I": "1",
-        "L": "1",
-        "B": "8",
-    }))
 
 
 def _normalize_onu_serial_token(value):
@@ -1478,59 +1393,6 @@ def _sync_onu_type_distance_from_snmp(olt, *, allow_single_fallback=True, progre
         "distance_ready": ConfiguredONU.objects.filter(olt=olt).exclude(ont_distance_m="").count(),
         "status": snmp_maps.get("status") or "",
     }
-
-
-def _sync_onu_details_background_worker(olt_id):
-    try:
-        olt = OLT.objects.filter(pk=olt_id).first()
-        if not olt:
-            return
-        counts = _onu_onboarding_counts(olt)
-        _record_olt_system_history(
-            olt,
-            "onu_type_distance_sync",
-            f"Background ONU type/distance SNMP fill started. type {counts['detail_ready']}/{counts['total']}, distance {counts['distance_ready']}/{counts['total']}.",
-        )
-        last_history_saved = -1
-        while True:
-            pending = ConfiguredONU.objects.filter(olt=olt).filter(
-                Q(onu_type_cache="") | Q(ont_distance_m="")
-            ).count()
-            if pending <= 0:
-                break
-
-            def _progress(total, saved):
-                nonlocal last_history_saved
-                counts_now = _onu_onboarding_counts(olt)
-                message = (
-                    "Background SNMP ONU type/distance fill: "
-                    f"type {counts_now['detail_ready']}/{counts_now['total']}, "
-                    f"distance {counts_now['distance_ready']}/{counts_now['total']}."
-                )
-                _update_olt_onboarding(olt_id, message=message)
-                if saved == 0 or saved == last_history_saved:
-                    return
-                last_history_saved = saved
-                _record_olt_system_history(olt, "onu_type_distance_sync", message)
-
-            result = _sync_onu_type_distance_from_snmp(olt, allow_single_fallback=False, progress_callback=_progress)
-            counts = _onu_onboarding_counts(olt)
-            message = (
-                "Background SNMP ONU type/distance fill: "
-                f"type {counts['detail_ready']}/{counts['total']}, "
-                f"distance {counts['distance_ready']}/{counts['total']}."
-            )
-            _update_olt_onboarding(olt_id, message=message)
-            _record_olt_system_history(olt, "onu_type_distance_sync", message)
-            if int(result.get("updated") or 0) <= 0:
-                break
-            time.sleep(3)
-        counts = _onu_onboarding_counts(olt)
-        final_message = f"Background SNMP fill finished. {_format_onu_onboarding_counts(counts)}"
-        _update_olt_onboarding(olt_id, message=final_message)
-        _record_olt_system_history(olt, "onu_type_distance_sync", final_message)
-    finally:
-        pass
 
 
 def _onboarding_count_rows(value):
@@ -3071,24 +2933,6 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
     return data
 
 
-def _dashboard_summary_from_latest_sample(olt_id=None):
-    sample = ensure_dashboard_status_samples_for_scope(olt_id=olt_id)
-    if not sample:
-        return None
-    return {
-        'total_onus': int(getattr(sample, 'total_onus', 0) or 0),
-        'online_onus': int(getattr(sample, 'online_onus', 0) or 0),
-        'wait_for_authorize_total': int(getattr(sample, 'wait_for_authorize_total', 0) or 0),
-        'wait_for_authorize_new_total': int(getattr(sample, 'wait_for_authorize_new_total', 0) or 0),
-        'wait_for_authorize_resync_total': int(getattr(sample, 'wait_for_authorize_resync_total', 0) or 0),
-        'admin_disabled': int(getattr(sample, 'admin_disabled', 0) or 0),
-        'power_failure': int(getattr(sample, 'power_failure', 0) or 0),
-        'loss_of_signal': int(getattr(sample, 'loss_of_signal', 0) or 0),
-        'signal_warn': int(getattr(sample, 'signal_warn', 0) or 0),
-        'signal_bad': int(getattr(sample, 'signal_bad', 0) or 0),
-    }
-
-
 def _dashboard_summary_counts(onu_qs, olt_id=None):
     # Cards should reflect the current database state. The background worker is
     # responsible for updating ConfiguredONU every 10 minutes; graph history still
@@ -3764,106 +3608,6 @@ def _flatten_pon_port_choices(groups, only_up=False, include_all=False):
     return choices
 
 
-def _build_latest_pon_port_traffic_map(olt_id):
-    rows = list(
-        PONPortTrafficSample.objects.filter(olt_id=olt_id)
-        .order_by("slot", "port", "-sampled_at")
-        .values("slot", "port", "sampled_at", "in_octets", "out_octets", "in_packets", "out_packets")
-    )
-    if not rows:
-        return {}
-
-    def _counter_delta(current_value, previous_value):
-        current_int = int(current_value or 0)
-        previous_int = int(previous_value or 0)
-        delta = current_int - previous_int
-        if delta >= 0:
-            return delta
-        max_32 = 4294967295
-        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
-            return (max_32 - previous_int) + current_int + 1
-        return None
-
-    latest_map = {}
-    grouped = {}
-    for row in rows:
-        key = (int(row.get("slot") or 0), int(row.get("port") or 0))
-        grouped.setdefault(key, []).append(row)
-    for key, port_rows in grouped.items():
-        if len(port_rows) < 2:
-            continue
-        current = port_rows[0]
-        previous = port_rows[1]
-        current_at = current.get("sampled_at")
-        previous_at = previous.get("sampled_at")
-        if not current_at or not previous_at:
-            continue
-        elapsed = (current_at - previous_at).total_seconds()
-        if elapsed <= 0:
-            continue
-        delta_in_octets = _counter_delta(current.get("in_octets"), previous.get("in_octets"))
-        delta_out_octets = _counter_delta(current.get("out_octets"), previous.get("out_octets"))
-        if delta_in_octets is None or delta_out_octets is None:
-            continue
-        latest_map[key] = {
-            "download_mbps": round(((delta_in_octets * 8) / elapsed) / 1_000_000, 2),
-            "upload_mbps": round(((delta_out_octets * 8) / elapsed) / 1_000_000, 2),
-            "sampled_at": timezone.localtime(current_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p"),
-        }
-    return latest_map
-
-
-def _build_latest_uplink_traffic_map(olt_id):
-    rows = list(
-        UplinkPortTrafficSample.objects.filter(olt_id=olt_id)
-        .order_by("port_name", "-sampled_at")
-        .values("port_name", "sampled_at", "in_octets", "out_octets")
-    )
-    if not rows:
-        return {}
-
-    def _counter_delta(current_value, previous_value):
-        current_int = int(current_value or 0)
-        previous_int = int(previous_value or 0)
-        delta = current_int - previous_int
-        if delta >= 0:
-            return delta
-        max_32 = 4294967295
-        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
-            return (max_32 - previous_int) + current_int + 1
-        return None
-
-    latest_map = {}
-    grouped = {}
-    for row in rows:
-        key = str(row.get("port_name") or "").strip()
-        if not key:
-            continue
-        grouped.setdefault(key, []).append(row)
-    for key, port_rows in grouped.items():
-        if len(port_rows) < 2:
-            continue
-        current = port_rows[0]
-        previous = port_rows[1]
-        current_at = current.get("sampled_at")
-        previous_at = previous.get("sampled_at")
-        if not current_at or not previous_at:
-            continue
-        elapsed = (current_at - previous_at).total_seconds()
-        if elapsed <= 0:
-            continue
-        delta_in_octets = _counter_delta(current.get("in_octets"), previous.get("in_octets"))
-        delta_out_octets = _counter_delta(current.get("out_octets"), previous.get("out_octets"))
-        if delta_in_octets is None or delta_out_octets is None:
-            continue
-        latest_map[key] = {
-            "download_mbps": round(((delta_in_octets * 8) / elapsed) / 1_000_000, 2),
-            "upload_mbps": round(((delta_out_octets * 8) / elapsed) / 1_000_000, 2),
-            "sampled_at": timezone.localtime(current_at, ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %I:%M:%S %p"),
-        }
-    return latest_map
-
-
 def _get_cached_port_traffic_payload(cache_key, builder, ttl=None):
     now_ts = time.time()
     effective_ttl = PORT_TRAFFIC_GRAPH_CACHE_TTL if ttl is None else ttl
@@ -4131,26 +3875,6 @@ def _hide_offline_onu_power(row):
         row["tx_power"] = "--"
         row["signal_bucket"] = ""
     return row
-
-
-def _recent_onu_signal_visibilities(olt, slot, port, ont_id, minutes=15, limit=8):
-    since = timezone.now() - timezone.timedelta(minutes=minutes)
-    rows = (
-        ONUOpticalSample.objects.filter(
-            olt=olt,
-            slot=slot,
-            port=port,
-            ont_id=ont_id,
-            sampled_at__gte=since,
-        )
-        .order_by("-sampled_at")
-        .values("onu_rx", "olt_rx")[:limit]
-    )
-    visibilities = []
-    for row in reversed(list(rows)):
-        visible = any(str(row.get(key) or "").strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
-        visibilities.append(bool(visible))
-    return visibilities
 
 
 def _normalize_configured_status(value, run_state=""):
@@ -4589,20 +4313,6 @@ def _get_catv_supported_onu_type_values():
     values = [value for value in distinct_types if _onu_type_has_catv_port(value)]
     cache.set(cache_key, values, 300)
     return values
-
-
-def _catv_onu_type_query():
-    query = Q(pk__in=[])
-    for item in _load_onu_type_option_rows():
-        catv_value = str(item.get("catv") or "").strip()
-        has_catv = int(catv_value) > 0 if catv_value.isdigit() else catv_value not in {"", "0", "-"}
-        if not has_catv:
-            continue
-        for value in (item.get("value"), item.get("label"), f"{item.get('value')}_SOLT"):
-            text = str(value or "").strip()
-            if text:
-                query |= Q(onu_type_cache__iexact=text) | Q(onu_type_cache__icontains=text)
-    return query
 
 
 def _onu_signal_graph_config(range_key):
@@ -7020,6 +6730,12 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
             "port": port,
             "ont_id": ont_id,
         }),
+        "onu_mapping_verify_url": reverse("configured_onu_mapping_verify", kwargs={
+            "olt_pk": olt.pk,
+            "slot": slot,
+            "port": port,
+            "ont_id": ont_id,
+        }),
         "onu_mapping_convert_url": reverse("configured_onu_mapping_convert", kwargs={
             "olt_pk": olt.pk,
             "slot": slot,
@@ -7073,6 +6789,40 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
         "authorize_debug": authorize_debug,
     }
     return render(request, "oltmanager/configured_onu_detail.html", context)
+
+
+@login_required
+def configured_onu_mapping_verify(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
+    previous_mode = str(record.mapping_mode_cache or "").strip().lower()
+    snapshot = fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id) or {}
+    raw_mode = str(snapshot.get("mapping_mode") or "").strip().lower()
+    if not raw_mode:
+        return JsonResponse({
+            "ok": False,
+            "updated": False,
+            "mapping_mode": previous_mode or "priority",
+            "mapping_label": "VLAN Mapping" if previous_mode == "vlan" else "PRI Mapping",
+            "message": "Mapping mode could not be read from ONU.",
+        }, status=502)
+
+    mapping_mode = "vlan" if "vlan" in raw_mode else "priority"
+    updated = mapping_mode != previous_mode
+    if updated:
+        record.mapping_mode_cache = mapping_mode
+        record.runtime_synced_at = timezone.now()
+        record.save(update_fields=["mapping_mode_cache", "runtime_synced_at"])
+
+    return JsonResponse({
+        "ok": True,
+        "updated": updated,
+        "mapping_mode": mapping_mode,
+        "mapping_label": "VLAN Mapping" if mapping_mode == "vlan" else "PRI Mapping",
+    })
 
 
 def _execute_onu_mapping_conversion(olt, record, plan, user=None, *, on_progress=None):
@@ -7631,13 +7381,10 @@ def configured_onu_service_port_delete(request, olt_pk, slot, port, ont_id):
     message = _ui_telnet_error_message(snapshot.get("message"))
     if snapshot.get("ok"):
         _remove_service_port_cache_row(record, sp_id)
-        # Re-read the ONU so the service-port row and the attached-VLAN list both
-        # drop accurately (the deleted VLAN disappears when nothing else uses it).
+        # Keep the user-facing delete fast. The selected row is removed from DB
+        # immediately, while the heavier OLT re-read runs behind the scenes.
         if not snapshot.get("not_found"):
-            try:
-                sync_single_onu_attached_vlans(olt, slot, port, ont_id, record=record, allow_empty_overwrite=True)
-            except Exception:
-                pass
+            _schedule_onu_attached_vlan_sync(olt.pk, slot, port, ont_id, allow_empty_overwrite=True)
         _record_olt_login(
             olt, request.user, "delete_service_port",
             f"Service-port {sp_id} deleted: 0/{int(slot)}/{int(port)} ont {int(ont_id)}",

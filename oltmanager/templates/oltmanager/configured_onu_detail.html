@@ -998,13 +998,26 @@
         margin-left: 8px;
         padding: 3px 9px;
         border-radius: 999px;
-        border: 1px solid rgba(47, 128, 255, 0.48);
-        background: rgba(47, 128, 255, 0.15);
-        color: #b9d8ff;
         font-size: 11px;
         font-weight: 900;
         white-space: nowrap;
         vertical-align: middle;
+        text-transform: uppercase;
+        letter-spacing: .02em;
+    }
+    .mapping-badge-priority {
+        border: 1px solid rgba(112, 255, 209, 0.6);
+        background: radial-gradient(circle at 20% 15%, rgba(112, 255, 209, 0.24), rgba(10, 55, 55, 0.22));
+        color: #baffec;
+        box-shadow: 0 0 14px rgba(82, 255, 202, 0.22), inset 0 0 10px rgba(82, 255, 202, 0.08);
+        text-shadow: 0 0 8px rgba(82, 255, 202, 0.42);
+    }
+    .mapping-badge-vlan {
+        border: 1px solid rgba(187, 122, 255, 0.72);
+        background: radial-gradient(circle at 20% 15%, rgba(187, 122, 255, 0.28), rgba(56, 18, 92, 0.28));
+        color: #ead7ff;
+        box-shadow: 0 0 16px rgba(187, 122, 255, 0.26), inset 0 0 10px rgba(187, 122, 255, 0.09);
+        text-shadow: 0 0 9px rgba(187, 122, 255, 0.48);
     }
     .mapping-badge-action {
         text-decoration: none;
@@ -1774,10 +1787,19 @@
     html[data-theme="light"] .snapshot-meta strong,
     html[data-theme="light"] .onu-config-table-label { color: #16233c; }
     html[data-theme="light"] .detail-value { color: #1f4f8f; }
-    html[data-theme="light"] .mapping-badge {
-        border-color: #8db6f0;
-        background: #eaf3ff;
-        color: #174b91;
+    html[data-theme="light"] .mapping-badge-priority {
+        border-color: rgba(0, 168, 117, 0.62);
+        background: #e5fff5;
+        color: #007554;
+        box-shadow: 0 0 15px rgba(0, 168, 117, 0.22), inset 0 0 10px rgba(0, 168, 117, 0.08);
+        text-shadow: 0 0 8px rgba(0, 168, 117, 0.22);
+    }
+    html[data-theme="light"] .mapping-badge-vlan {
+        border-color: rgba(132, 72, 255, 0.58);
+        background: #f0e9ff;
+        color: #5f2ad5;
+        box-shadow: 0 0 15px rgba(132, 72, 255, 0.2), inset 0 0 10px rgba(132, 72, 255, 0.08);
+        text-shadow: 0 0 8px rgba(132, 72, 255, 0.2);
     }
     html[data-theme="light"] .pon-tech-badge {
         border-color: #00a875;
@@ -2098,7 +2120,7 @@
         </div>
     </div>
 
-    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-last-down-history-url="{{ onu_last_down_history_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-olt-uplink-url="{{ olt_uplink_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
+    <section class="panel" data-signal-refresh-url="{{ onu_signal_refresh_url }}" data-signal-graph-url="{{ onu_signal_graph_url }}" data-traffic-graph-url="{{ onu_traffic_graph_url }}" data-catv-url="{{ onu_catv_url }}" data-mac-address-url="{{ onu_mac_address_url }}" data-running-config-url="{{ onu_running_config_url }}" data-last-down-history-url="{{ onu_last_down_history_url }}" data-fetch-config-url="{{ onu_fetch_config_url }}" data-mapping-verify-url="{{ onu_mapping_verify_url }}" data-olt-uplink-url="{{ olt_uplink_url }}" data-onu-disable-url="{{ onu_disable_url }}" data-onu-enable-url="{{ onu_enable_url }}" data-onu-restart-url="{{ onu_restart_url }}" data-onu-reset-url="{{ onu_reset_url }}" data-onu-delete-url="{{ onu_delete_url }}" data-olt-unreachable="{% if olt_unreachable %}1{% else %}0{% endif %}" data-olt-id="{{ olt.id }}" data-slot="{{ slot }}" data-port="{{ port }}" data-ont-id="{{ ont_id }}">
         <div class="onu-view">
             <div class="detail-list">
                 <div class="detail-row">
@@ -2108,9 +2130,9 @@
                         {{ onu.sn|default:"-" }}
                         {% if onu.mapping_label %}
                             {% if user.is_staff or user.is_superuser %}
-                            <a class="mapping-badge mapping-badge-action" href="{{ onu_mapping_convert_url }}" title="Convert mapping mode">{{ onu.mapping_label }}</a>
+                            <a class="mapping-badge mapping-badge-action {% if onu.is_vlan_mapping %}mapping-badge-vlan{% else %}mapping-badge-priority{% endif %}" href="{{ onu_mapping_convert_url }}" title="Convert mapping mode" data-mapping-badge>{{ onu.mapping_label }}</a>
                             {% else %}
-                            <span class="mapping-badge">{{ onu.mapping_label }}</span>
+                            <span class="mapping-badge {% if onu.is_vlan_mapping %}mapping-badge-vlan{% else %}mapping-badge-priority{% endif %}" data-mapping-badge>{{ onu.mapping_label }}</span>
                             {% endif %}
                         {% endif %}
                     </div>
@@ -2517,6 +2539,7 @@
     const runningConfigUrl = panel.getAttribute('data-running-config-url');
     const lastDownHistoryUrl = panel.getAttribute('data-last-down-history-url');
     const fetchConfigUrl = panel.getAttribute('data-fetch-config-url');
+    const mappingVerifyUrl = panel.getAttribute('data-mapping-verify-url');
     const oltUplinkUrl = panel.getAttribute('data-olt-uplink-url') || '';
     const onuDisableUrl = panel.getAttribute('data-onu-disable-url');
     const onuEnableUrl = panel.getAttribute('data-onu-enable-url');
@@ -3664,6 +3687,36 @@
                 showConfigToast('OLT is busy. Please try again in a few seconds.', true);
             }
         });
+    }
+
+    if (mappingVerifyUrl && panel.getAttribute('data-olt-unreachable') !== '1') {
+        const mappingBadge = document.querySelector('[data-mapping-badge]');
+        let mappingVerifyBusy = false;
+        const applyMappingMode = (mode, label) => {
+            if (!mappingBadge || !label) return;
+            mappingBadge.textContent = label;
+            mappingBadge.classList.toggle('mapping-badge-vlan', mode === 'vlan');
+            mappingBadge.classList.toggle('mapping-badge-priority', mode !== 'vlan');
+        };
+        const verifyMappingMode = async () => {
+            if (mappingVerifyBusy) return;
+            mappingVerifyBusy = true;
+            try {
+                const response = await fetch(`${mappingVerifyUrl}?_=${Date.now()}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    cache: 'no-store',
+                });
+                const data = await response.json();
+                if (response.ok && data.ok) {
+                    applyMappingMode(data.mapping_mode, data.mapping_label);
+                }
+            } catch (error) {
+                // Mapping verification is a silent background correction.
+            } finally {
+                mappingVerifyBusy = false;
+            }
+        };
+        window.setTimeout(verifyMappingMode, 1000);
     }
 
     bindOnuAction(onuDisableButton, () => ((onuDisableButton?.textContent || '').trim() === 'Enable ONU' ? onuEnableUrl : onuDisableUrl));
