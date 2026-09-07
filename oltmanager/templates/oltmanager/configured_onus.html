@@ -736,12 +736,42 @@
         </div>
         {% else %}
         <p class="subtle">No configured ONU records found from the current OLTs.</p>
+        {% if configured_onu_search_query %}
+        {% if user.is_staff or user.is_superuser %}
+        <div class="missing-onu-sync">
+            <p class="subtle">ONU already added on the OLT but not imported yet? Select its OLT and use Per ONU Sync. You can also clear the search filters and try again.</p>
+            <div class="search-bar">
+                <div class="search-group">
+                    <label for="missing-onu-olt">OLT</label>
+                    <select id="missing-onu-olt" class="search-select" required>
+                        <option value="">Select OLT</option>
+                        {% for item in configured_onu_filter_olts %}
+                        <option value="{% url 'olt_view' item.id %}?section=advanced&amp;serial={{ configured_onu_search_query|urlencode }}#singleOnuSyncForm" {% if configured_onu_olt_filter == item.id %}selected{% endif %}>{{ item.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" data-open-per-onu-sync>Per ONU Sync</button>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
         {% endif %}
     </section>
 </div>
 {% endblock %}
 
 {% block extra_js %}
+  <script>
+  (() => {
+      const button = document.querySelector('[data-open-per-onu-sync]');
+      const select = document.getElementById('missing-onu-olt');
+      if (!button || !select) return;
+      button.addEventListener('click', () => {
+          if (!select.reportValidity()) return;
+          window.location.assign(select.value);
+      });
+  })();
+  </script>
   <script>
   (() => {
       const widget = document.querySelector('[data-onu-sync-widget]');

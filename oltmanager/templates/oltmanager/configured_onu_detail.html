@@ -1266,6 +1266,23 @@
         font-weight: 700;
         white-space: nowrap;
     }
+    .distance-refresh-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 23px;
+        height: 23px;
+        padding: 3px;
+        border: 1px solid rgba(96, 181, 255, .45);
+        border-radius: 50%;
+        color: #70bdff;
+        background: rgba(52, 143, 232, .12);
+        cursor: pointer;
+    }
+    .distance-refresh-button svg { width: 15px; height: 15px; }
+    .distance-refresh-button:disabled { cursor: wait; opacity: .7; }
+    .distance-refresh-button.is-loading svg { animation: signal-spin .8s linear infinite; }
+    .distance-refresh-error { font-size: 11px; color: #ff8c96; }
     .status-since-line {
         display: inline-flex;
         align-items: center;
@@ -2087,7 +2104,11 @@
                             <span class="distance-line">
                                 <span class="distance-pin" aria-hidden="true"></span>
                                 <span data-detail-distance-text>{{ onu.signal_distance_text|default:"-" }}</span>
+                                <button type="button" class="distance-refresh-button" data-distance-refresh-url="{% url 'configured_onu_distance_refresh' olt.pk slot port ont_id %}" title="Refresh distance" aria-label="Refresh ONU distance">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>
+                                </button>
                             </span>
+                            <span class="distance-refresh-error" data-distance-refresh-error role="status" hidden></span>
                         </div>
                     </div>
                 </div>
@@ -3702,6 +3723,35 @@
             } catch (error) {
                 finish();
                 showConfigToast('OLT is busy. Please try again in a few seconds.', true);
+            }
+        });
+    }
+
+    const distanceRefreshButton = document.querySelector('[data-distance-refresh-url]');
+    const distanceRefreshError = document.querySelector('[data-distance-refresh-error]');
+    if (distanceRefreshButton) {
+        distanceRefreshButton.addEventListener('click', async () => {
+            if (distanceRefreshButton.disabled) return;
+            distanceRefreshButton.disabled = true;
+            distanceRefreshButton.classList.add('is-loading');
+            distanceRefreshButton.setAttribute('aria-busy', 'true');
+            distanceRefreshError.hidden = true;
+            try {
+                const response = await fetch(distanceRefreshButton.dataset.distanceRefreshUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCookie('csrftoken'), 'X-Requested-With': 'XMLHttpRequest' },
+                    cache: 'no-store',
+                });
+                const data = await response.json();
+                if (!response.ok || !data.ok) throw new Error('Distance could not be refreshed. Please try again.');
+                if (distanceTextNode) distanceTextNode.textContent = data.signal_distance_text;
+            } catch (error) {
+                distanceRefreshError.textContent = 'Distance could not be refreshed. Please try again.';
+                distanceRefreshError.hidden = false;
+            } finally {
+                distanceRefreshButton.disabled = false;
+                distanceRefreshButton.classList.remove('is-loading');
+                distanceRefreshButton.removeAttribute('aria-busy');
             }
         });
     }

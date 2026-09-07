@@ -11667,7 +11667,7 @@ def _parse_ont_runtime_snapshot(output):
     }
 
 
-def fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id):
+def fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id, *, frame=0):
     result = {
         "online_duration": "",
         "last_up_time": "",
@@ -11692,7 +11692,7 @@ def fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id):
         _prepare_telnet_cli_session(tn, use_paging=True)
         output = _run_telnet_command(
             tn,
-            f"display ont info 0 {int(slot)} {int(port)} {int(ont_id)}",
+            f"display ont info {int(frame)} {int(slot)} {int(port)} {int(ont_id)}",
             enter_until_prompt=True,
         )
         parsed = _parse_ont_runtime_snapshot(output)

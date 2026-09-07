@@ -2169,7 +2169,7 @@
                                 {% csrf_token %}
                                 <div class="single-onu-sync-field">
                                     <label for="singleOnuSerial">Per ONU Sync</label>
-                                    <input id="singleOnuSerial" name="serial" type="text" placeholder="Enter ONU serial number" autocomplete="off" required>
+                                    <input id="singleOnuSerial" name="serial" type="text" value="{{ request.GET.serial }}" placeholder="Enter ONU serial number" autocomplete="off" required>
                                 </div>
                                 <button type="submit" class="btn btn-secondary" data-op="Per ONU Sync">Sync ONU</button>
                             </form>

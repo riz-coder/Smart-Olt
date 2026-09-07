@@ -6799,6 +6799,25 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
 
 
 @login_required
+@require_POST
+def configured_onu_distance_refresh(request, olt_pk, slot, port, ont_id):
+    olt = get_object_or_404(OLT, pk=olt_pk)
+    locked_response = _deny_olt_access_if_locked(request, olt)
+    if locked_response:
+        return locked_response
+    record = get_object_or_404(ConfiguredONU, olt=olt, slot=slot, port=port, ont_id=ont_id)
+    snapshot = fetch_single_ont_runtime_snapshot(olt, slot, port, ont_id, frame=record.frame or 0) or {}
+    raw_distance = str(snapshot.get("ont_distance_m") or "").strip()
+    match = re.fullmatch(r"(\d+)\s*(?:m)?", raw_distance, flags=re.IGNORECASE)
+    if not match:
+        return JsonResponse({"ok": False, "message": "Distance could not be read. Please try again."}, status=502)
+    distance = str(int(match.group(1)))
+    record.ont_distance_m = distance
+    record.save(update_fields=["ont_distance_m"])
+    return JsonResponse({"ok": True, "signal_distance_text": _format_onu_distance_text(distance)})
+
+
+@login_required
 def configured_onu_mapping_verify(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
     locked_response = _deny_olt_access_if_locked(request, olt)
