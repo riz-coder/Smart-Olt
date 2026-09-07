@@ -4907,6 +4907,7 @@ def configured_onus(request):
     board_filter = (request.GET.get('board') or '').strip()
     port_filter = (request.GET.get('port') or '').strip()
     vlan_filter = (request.GET.get('vlan') or '').strip()
+    mapping_filter = (request.GET.get('mapping') or '').strip().lower()
     status_filter = (request.GET.get('status') or '').strip().lower()
     signal_filter = (request.GET.get('signal') or '').strip().lower()
     tv_filter = (request.GET.get('tv') or '').strip().lower()
@@ -4946,6 +4947,10 @@ def configured_onus(request):
         base_qs = base_qs.filter(signal_bucket=signal_filter)
     if vlan_filter:
         base_qs = base_qs.filter(attached_vlans_cache__regex=rf'(^|,\s*){re.escape(vlan_filter)}(\s*,|$)')
+    if mapping_filter == "vlan":
+        base_qs = base_qs.filter(mapping_mode_cache__iexact="vlan")
+    elif mapping_filter in {"priority", "pri"}:
+        base_qs = base_qs.filter(Q(mapping_mode_cache__iexact="priority") | Q(mapping_mode_cache=""))
     if tv_filter in {"enabled", "disabled", "unsupported", "catv"}:
         catv_supported_types = _get_catv_supported_onu_type_values()
         if tv_filter == "enabled":
@@ -5070,6 +5075,7 @@ def configured_onus(request):
             "board": board_filter,
             "port": port_filter,
             "vlan": vlan_filter,
+            "mapping": mapping_filter,
             "onu_type": onu_type_filter,
             "speed_profile": speed_profile_filter,
         }.items()
@@ -5200,6 +5206,7 @@ def configured_onus(request):
         "configured_onu_board_filter": board_filter,
         "configured_onu_port_filter": port_filter,
         "configured_onu_vlan_filter": vlan_filter,
+        "configured_onu_mapping_filter": mapping_filter,
         "configured_onu_onu_type_filter": onu_type_filter,
         "configured_onu_speed_profile_filter": speed_profile_filter,
         "configured_onu_sort_urls": sort_urls,

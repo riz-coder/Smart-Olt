@@ -557,6 +557,14 @@
                 <input type="text" name="vlan" value="{{ configured_onu_vlan_filter }}" class="search-select" placeholder="Any">
             </div>
             <div class="search-group">
+                <label>Mapping</label>
+                <select name="mapping" class="search-select">
+                    <option value="">Any</option>
+                    <option value="priority" {% if configured_onu_mapping_filter == "priority" or configured_onu_mapping_filter == "pri" %}selected{% endif %}>PRI Mapping</option>
+                    <option value="vlan" {% if configured_onu_mapping_filter == "vlan" %}selected{% endif %}>VLAN Mapping</option>
+                </select>
+            </div>
+            <div class="search-group">
                 <label>CATV</label>
                 <select name="tv" class="search-select">
                     <option value="">Any</option>
@@ -570,7 +578,7 @@
             <input type="hidden" name="signal" value="{{ configured_onu_signal_filter }}">
             <input type="hidden" name="sort" value="{{ configured_onu_sort_filter }}">
             <button type="submit" class="btn btn-primary btn-mini">Apply</button>
-            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_vlan_filter or configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
+            {% if configured_onu_search_query or configured_onu_olt_filter or configured_onu_board_filter or configured_onu_port_filter or configured_onu_vlan_filter or configured_onu_mapping_filter or configured_onu_status_filter or configured_onu_signal_filter or configured_onu_tv_filter %}
             <a href="{% url 'configured_onus' %}" class="btn btn-secondary btn-mini">Clear</a>
             {% endif %}
         </form>

@@ -58,6 +58,16 @@ RECONCILE_THROTTLE_SECONDS = 30
 _LAST_NEW_ONU_CHECK_AT = {}
 NEW_ONU_CHECK_SECONDS = 60
 AUTO_IMMEDIATE_INVENTORY_SYNC = True
+SNMP_MONITOR_HEAVY_FAILURE_BACKOFF_SECONDS = max(
+    60,
+    int(getattr(settings, "SNMP_MONITOR_HEAVY_FAILURE_BACKOFF_SECONDS", 180) or 180),
+)
+SNMP_MONITOR_ALERT_CHECK_SECONDS = max(
+    30,
+    int(getattr(settings, "SNMP_MONITOR_ALERT_CHECK_SECONDS", 60) or 60),
+)
+_SNMP_HEAVY_FAILURE_BACKOFF_UNTIL = {}
+_SNMP_LAST_ALERT_CHECK_AT = 0.0
 # Tracks OLT IDs for which an immediate inventory sync thread is already running
 # so we never stack concurrent Telnet syncs for the same OLT.
 _IMMEDIATE_SYNC_RUNNING = {}
@@ -386,6 +396,7 @@ def _onu_inventory_sync_loop():
 
 
 def _snmp_monitor_loop():
+    global _SNMP_LAST_ALERT_CHECK_AT
     from .models import OLT
     from .utils import (
         mark_olt_onus_offline_due_to_snmp,
@@ -393,6 +404,15 @@ def _snmp_monitor_loop():
         probe_snmp_reachability,
         reconcile_onu_status_via_snmp,
     )
+
+    def _heavy_allowed(key, now_ts):
+        return float(_SNMP_HEAVY_FAILURE_BACKOFF_UNTIL.get(key) or 0.0) <= float(now_ts or 0.0)
+
+    def _heavy_failed(key, now_ts):
+        _SNMP_HEAVY_FAILURE_BACKOFF_UNTIL[key] = float(now_ts or time.time()) + float(SNMP_MONITOR_HEAVY_FAILURE_BACKOFF_SECONDS)
+
+    def _heavy_ok(key):
+        _SNMP_HEAVY_FAILURE_BACKOFF_UNTIL.pop(key, None)
 
     def _save_snmp_probe_status(olt_id, status_text):
         status_text = str(status_text or "").strip()[:300]
@@ -487,10 +507,12 @@ def _snmp_monitor_loop():
                                 # OLT answers again. The helper exits before any
                                 # SNMP walk when no snmp_down rows exist.
                                 last_reconcile = _LAST_RECONCILE_AT.get(olt_id, 0.0)
-                                if (now_ts - last_reconcile) >= RECONCILE_THROTTLE_SECONDS:
+                                reconcile_key = ("reconcile", int(olt_id))
+                                if (now_ts - last_reconcile) >= RECONCILE_THROTTLE_SECONDS and _heavy_allowed(reconcile_key, now_ts):
                                     _LAST_RECONCILE_AT[olt_id] = now_ts
                                     try:
                                         outcome = reconcile_onu_status_via_snmp(olt, only_snmp_down=True)
+                                        _heavy_ok(reconcile_key)
                                         if int(outcome.get("updated") or 0):
                                             logger.info(
                                                 "OLT %s recovered stuck ONU status rows: %s",
@@ -498,6 +520,7 @@ def _snmp_monitor_loop():
                                                 outcome.get("status", ""),
                                             )
                                     except Exception:
+                                        _heavy_failed(reconcile_key, now_ts)
                                         logger.exception("OLT %s recovery ONU status reconcile failed.", olt.name)
                                         close_old_connections()
 
@@ -522,11 +545,17 @@ def _snmp_monitor_loop():
                                 # import. The worker verifies the detected keys after sync
                                 # and retries once if the OLT returned a partial dump.
                                 last_new_check = _LAST_NEW_ONU_CHECK_AT.get(olt_id, 0.0)
-                                if AUTO_IMMEDIATE_INVENTORY_SYNC and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS:
+                                new_onu_key = ("new_onu", int(olt_id))
+                                if (
+                                    AUTO_IMMEDIATE_INVENTORY_SYNC
+                                    and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS
+                                    and _heavy_allowed(new_onu_key, now_ts)
+                                ):
                                     _LAST_NEW_ONU_CHECK_AT[olt_id] = now_ts
                                     try:
                                         from .utils import detect_new_onus_from_snmp
                                         detection = detect_new_onus_from_snmp(olt)
+                                        _heavy_ok(new_onu_key)
                                         if detection.get("new_keys"):
                                             logger.info(
                                                 "OLT %s: %d new ONU(s) detected via SNMP â€” "
@@ -541,6 +570,7 @@ def _snmp_monitor_loop():
                                                     olt.name,
                                                 )
                                     except Exception:
+                                        _heavy_failed(new_onu_key, now_ts)
                                         close_old_connections()
                             continue
 
@@ -581,11 +611,17 @@ def _snmp_monitor_loop():
             # OLT reachability itself is still updated immediately by the 10-second
             # SNMP monitor and is rendered independently on the dashboard.
             # Alert engine: periodic temperature, fiber-cut and signal checks (in-app only).
-            try:
-                from .alerts import run_periodic_alert_checks
-                run_periodic_alert_checks()
-            except Exception:
-                close_old_connections()
+            if (now_ts - _SNMP_LAST_ALERT_CHECK_AT) >= SNMP_MONITOR_ALERT_CHECK_SECONDS:
+                _SNMP_LAST_ALERT_CHECK_AT = now_ts
+                alert_key = ("alerts", 0)
+                if _heavy_allowed(alert_key, now_ts):
+                    try:
+                        from .alerts import run_periodic_alert_checks
+                        run_periodic_alert_checks()
+                        _heavy_ok(alert_key)
+                    except Exception:
+                        _heavy_failed(alert_key, now_ts)
+                        close_old_connections()
         except Exception:
             pass
         finally:

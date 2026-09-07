@@ -186,7 +186,20 @@ def _run_asyncio_sync(awaitable):
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            return loop.run_until_complete(awaitable)
+            try:
+                return loop.run_until_complete(awaitable)
+            finally:
+                # pysnmp's asyncio transport can leave delayed callbacks/tasks
+                # behind. If the loop is closed immediately, the worker may spam
+                # "no running event loop / unregistered transport" and burn CPU.
+                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                if hasattr(loop, "shutdown_default_executor"):
+                    loop.run_until_complete(loop.shutdown_default_executor())
         finally:
             try:
                 loop.close()

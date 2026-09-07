@@ -1004,6 +1004,8 @@
         vertical-align: middle;
         text-transform: uppercase;
         letter-spacing: .02em;
+        position: relative;
+        overflow: hidden;
     }
     .mapping-badge-priority {
         border: 1px solid rgba(112, 255, 209, 0.6);
@@ -1018,6 +1020,22 @@
         color: #ead7ff;
         box-shadow: 0 0 16px rgba(187, 122, 255, 0.26), inset 0 0 10px rgba(187, 122, 255, 0.09);
         text-shadow: 0 0 9px rgba(187, 122, 255, 0.48);
+    }
+    .mapping-badge.is-verifying {
+        min-width: 78px;
+        justify-content: center;
+        color: rgba(220, 240, 255, 0.8);
+    }
+    .mapping-badge.is-verifying::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        transform: translateX(-110%);
+        background: linear-gradient(90deg, transparent, rgba(139, 224, 255, 0.55), transparent);
+        animation: mappingVerifySweep .95s ease-in-out infinite;
+    }
+    @keyframes mappingVerifySweep {
+        to { transform: translateX(110%); }
     }
     .mapping-badge-action {
         text-decoration: none;
@@ -3692,15 +3710,36 @@
     if (mappingVerifyUrl && panel.getAttribute('data-olt-unreachable') !== '1') {
         const mappingBadge = document.querySelector('[data-mapping-badge]');
         let mappingVerifyBusy = false;
+        let originalMappingLabel = mappingBadge ? mappingBadge.textContent : '';
+        const mappingVerifyKey = `optiverse-mapping-verified:${panel.dataset.oltId}:${panel.dataset.slot}:${panel.dataset.port}:${panel.dataset.ontId}`;
+        const getNavigationType = () => {
+            const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+            return nav ? nav.type : '';
+        };
+        const mappingAlreadyVerified = () => {
+            try { return sessionStorage.getItem(mappingVerifyKey) === '1'; } catch (e) { return false; }
+        };
+        const markMappingVerified = () => {
+            try { sessionStorage.setItem(mappingVerifyKey, '1'); } catch (e) {}
+        };
+        const clearMappingVerified = () => {
+            try { sessionStorage.removeItem(mappingVerifyKey); } catch (e) {}
+        };
         const applyMappingMode = (mode, label) => {
             if (!mappingBadge || !label) return;
             mappingBadge.textContent = label;
+            originalMappingLabel = label;
             mappingBadge.classList.toggle('mapping-badge-vlan', mode === 'vlan');
             mappingBadge.classList.toggle('mapping-badge-priority', mode !== 'vlan');
         };
         const verifyMappingMode = async () => {
-            if (mappingVerifyBusy) return;
+            if (mappingVerifyBusy || mappingAlreadyVerified()) return;
             mappingVerifyBusy = true;
+            if (mappingBadge) {
+                originalMappingLabel = mappingBadge.textContent || originalMappingLabel;
+                mappingBadge.classList.add('is-verifying');
+                mappingBadge.textContent = '---';
+            }
             try {
                 const response = await fetch(`${mappingVerifyUrl}?_=${Date.now()}`, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -3709,14 +3748,26 @@
                 const data = await response.json();
                 if (response.ok && data.ok) {
                     applyMappingMode(data.mapping_mode, data.mapping_label);
+                    markMappingVerified();
                 }
             } catch (error) {
                 // Mapping verification is a silent background correction.
             } finally {
                 mappingVerifyBusy = false;
+                if (mappingBadge) {
+                    mappingBadge.classList.remove('is-verifying');
+                    if (mappingBadge.textContent === '---') {
+                        mappingBadge.textContent = originalMappingLabel || 'PRI Mapping';
+                    }
+                }
             }
         };
-        window.setTimeout(verifyMappingMode, 1000);
+        window.addEventListener('pagehide', () => {
+            if (getNavigationType() !== 'reload') clearMappingVerified();
+        });
+        if (!mappingAlreadyVerified()) {
+            window.setTimeout(verifyMappingMode, 1000);
+        }
     }
 
     bindOnuAction(onuDisableButton, () => ((onuDisableButton?.textContent || '').trim() === 'Enable ONU' ? onuEnableUrl : onuDisableUrl));
