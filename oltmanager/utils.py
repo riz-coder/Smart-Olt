@@ -1184,7 +1184,7 @@ def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1, operation_timeout=
     return _run_asyncio_sync(_walk())
 
 
-def _snmp_get_value(olt, oid, *, mp_model=1):
+def _snmp_get_value(olt, oid, *, mp_model=1, deadline_ts=None):
     from pysnmp.hlapi.asyncio import (  # type: ignore
         CommunityData,
         ContextData,
@@ -1213,7 +1213,15 @@ def _snmp_get_value(olt, oid, *, mp_model=1):
         finally:
             engine.close_dispatcher()
 
-    return _run_asyncio_sync(_get())
+    async def _bounded_get():
+        if deadline_ts is None:
+            return await _get()
+        remaining = deadline_ts - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("SNMP request budget exhausted")
+        return await asyncio.wait_for(_get(), timeout=remaining)
+
+    return _run_asyncio_sync(_bounded_get())
 
 
 def _snmp_get_many_values(olt, oid_list, *, mp_model=1):
@@ -1370,7 +1378,7 @@ def _snmp_error_text(error_indication, error_status):
     return ""
 
 
-def _resolve_snmp_gpon_ifindex(olt, slot, port, *, frame=0, ifname_limit=4096):
+def _resolve_snmp_gpon_ifindex(olt, slot, port, *, frame=0, ifname_limit=4096, deadline_ts=None):
     cache_key = (int(olt.pk), int(frame), int(slot), int(port))
     target_fsp = (int(frame), int(slot), int(port))
     with _ONU_TRAFFIC_IFINDEX_CACHE_LOCK:
@@ -1380,7 +1388,10 @@ def _resolve_snmp_gpon_ifindex(olt, slot, port, *, frame=0, ifname_limit=4096):
     last_error = ""
     for mp_model in (1, 0):
         try:
-            walked = _snmp_walk_rows(olt, "1.3.6.1.2.1.31.1.1.1.1", limit=ifname_limit, mp_model=mp_model)
+            remaining = None if deadline_ts is None else deadline_ts - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return ""
+            walked = _snmp_walk_rows(olt, "1.3.6.1.2.1.31.1.1.1.1", limit=ifname_limit, mp_model=mp_model, operation_timeout=remaining)
             for oid_text, if_name in walked.items():
                 idx = oid_text.split(".")[-1]
                 if _parse_snmp_gpon_fsp_from_ifname(if_name) == target_fsp:
@@ -1591,22 +1602,53 @@ def _huawei_gpon_ifindex(frame, slot, port):
 
 
 def _snmp_get_oid_rows_chunked(olt, oid_list, *, mp_model=1, chunk_size=120, deadline_ts=None):
-    rows = {}
+    from pysnmp.hlapi.asyncio import (
+        CommunityData, ContextData, ObjectIdentity, ObjectType,
+        SnmpEngine, UdpTransportTarget, get_cmd,
+    )
+
     oid_list = [str(oid) for oid in (oid_list or []) if str(oid or "").strip()]
     chunk_size = max(10, int(chunk_size or 120))
-    for start in range(0, len(oid_list), chunk_size):
-        if deadline_ts is not None and time.monotonic() >= deadline_ts:
-            break
-        chunk = oid_list[start:start + chunk_size]
-        values = _snmp_get_many_values(olt, chunk, mp_model=mp_model)
-        if not values and len(chunk) > 30:
-            for small_start in range(0, len(chunk), 30):
-                if deadline_ts is not None and time.monotonic() >= deadline_ts:
-                    break
-                values.update(_snmp_get_many_values(olt, chunk[small_start:small_start + 30], mp_model=mp_model))
-        for oid, value in (values or {}).items():
-            rows[str(oid)] = str(value)
-    return rows
+    if not oid_list or (deadline_ts is not None and time.monotonic() >= deadline_ts):
+        return {}
+
+    async def _collect():
+        rows = {}
+        engine = SnmpEngine()
+        try:
+            target = await UdpTransportTarget.create((olt.ip_address, olt.snmp_port), timeout=1.2, retries=1)
+            auth = CommunityData(olt.snmp_community, mpModel=mp_model)
+            context = ContextData()
+
+            async def _read(chunk):
+                remaining = None if deadline_ts is None else deadline_ts - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise TimeoutError("SNMP batch budget exhausted")
+                response = await asyncio.wait_for(
+                    get_cmd(engine, auth, target, context,
+                            *[ObjectType(ObjectIdentity(oid)) for oid in chunk]),
+                    timeout=remaining,
+                )
+                indication, status, _, bindings = response
+                if indication or status:
+                    return {}
+                return {str(oid): str(value) for oid, value in (bindings or [])
+                        if _snmp_varbind_has_value(((oid, value),))}
+
+            for start in range(0, len(oid_list), chunk_size):
+                chunk = oid_list[start:start + chunk_size]
+                values = await _read(chunk)
+                rows.update(values)
+                if not values and len(chunk) > 30:
+                    for small_start in range(0, len(chunk), 30):
+                        rows.update(await _read(chunk[small_start:small_start + 30]))
+        except (asyncio.TimeoutError, TimeoutError):
+            pass  # Preserve batches received before the deadline.
+        finally:
+            engine.close_dispatcher()
+        return rows
+
+    return _run_asyncio_sync(_collect())
 
 
 def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None):
@@ -1666,8 +1708,9 @@ def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None):
     last_error = ""
     for mp_model in (1, 0):
         try:
-            run_rows = _snmp_get_oid_rows_chunked(olt, run_oids, mp_model=mp_model, deadline_ts=deadline_ts)
-            down_cause_rows = _snmp_get_oid_rows_chunked(olt, down_oids, mp_model=mp_model, deadline_ts=deadline_ts)
+            status_rows = _snmp_get_oid_rows_chunked(olt, run_oids + down_oids, mp_model=mp_model, deadline_ts=deadline_ts)
+            run_rows = {oid: value for oid, value in status_rows.items() if oid.startswith(base_run_oid + ".")}
+            down_cause_rows = {oid: value for oid, value in status_rows.items() if oid.startswith(base_down_cause_oid + ".")}
             items = _snmp_status_rows_to_key_map(
                 run_rows,
                 {},
@@ -1854,7 +1897,7 @@ def fetch_olt_snmp_onu_signal_map(olt, *, ifname_limit=4096, signal_limit=32768)
         return result
 
 
-def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
+def fetch_single_onu_snmp_signal(olt, slot, port, ont_id, *, deadline_ts=None):
     """Fetch optical signal for a single ONU via SNMP GET.
 
     Uses EPON OIDs first for EPON slots; otherwise GPON/XG OIDs first.
@@ -1863,7 +1906,7 @@ def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
           Index scheme: frame.slot.port.onu_id (primary) or ifIndex.onu_id (fallback)
     """
     result = {"status": "SNMP ONU signal unavailable", "onu_rx": "--", "olt_rx": "--", "tx_power": "--"}
-    if_index = _resolve_snmp_gpon_ifindex(olt, slot, port)
+    if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, deadline_ts=deadline_ts)
     if not if_index:
         result["status"] = "SNMP ONU signal ifIndex lookup failed"
         return result
@@ -1876,8 +1919,8 @@ def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
         oid_gpon_olt_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.51.1.6.{if_index}.{int(ont_id)}"
         for mp_model in (1, 0):
             try:
-                err_onu, stat_onu, _, vb_onu = _snmp_get_value(olt, oid_gpon_onu_rx, mp_model=mp_model)
-                err_olt, stat_olt, _, vb_olt = _snmp_get_value(olt, oid_gpon_olt_rx, mp_model=mp_model)
+                err_onu, stat_onu, _, vb_onu = _snmp_get_value(olt, oid_gpon_onu_rx, mp_model=mp_model, deadline_ts=deadline_ts)
+                err_olt, stat_olt, _, vb_olt = _snmp_get_value(olt, oid_gpon_olt_rx, mp_model=mp_model, deadline_ts=deadline_ts)
                 if err_onu or stat_onu or err_olt or stat_olt:
                     last_error = str(err_onu or stat_onu or err_olt or stat_olt)
                     continue
@@ -1901,9 +1944,9 @@ def fetch_single_onu_snmp_signal(olt, slot, port, ont_id):
         oid_epon_onu_rx = f"1.3.6.1.4.1.2011.6.128.1.1.2.104.1.5.{_idx}"
         for mp_model in (1, 0):
             try:
-                _, _, _, vb_olt_rx = _snmp_get_value(olt, oid_epon_olt_rx, mp_model=mp_model)
-                err_rx, stat_rx, _, vb_rx = _snmp_get_value(olt, oid_epon_onu_rx, mp_model=mp_model)
-                _, _, _, vb_tx = _snmp_get_value(olt, oid_epon_onu_tx, mp_model=mp_model)
+                _, _, _, vb_olt_rx = _snmp_get_value(olt, oid_epon_olt_rx, mp_model=mp_model, deadline_ts=deadline_ts)
+                err_rx, stat_rx, _, vb_rx = _snmp_get_value(olt, oid_epon_onu_rx, mp_model=mp_model, deadline_ts=deadline_ts)
+                _, _, _, vb_tx = _snmp_get_value(olt, oid_epon_onu_tx, mp_model=mp_model, deadline_ts=deadline_ts)
                 if err_rx or stat_rx:
                     last_error = str(err_rx or stat_rx)
                     continue
@@ -14244,9 +14287,14 @@ def sync_runtime_statuses_for_olt(
             )
         if write_samples and status_samples:
             ONUStatusSample.objects.bulk_create(status_samples, batch_size=200)
-        final_message = f"Completed: {checked} checked, {updated} updated."
-        if snmp_result.get("truncated"):
-            final_message += " SNMP walk reached its limit; unmatched ONUs were left unchanged."
+        verified = sum(
+            1 for record in records
+            if (int(record.slot), int(record.port), int(record.ont_id)) in snmp_status_map
+        )
+        pending = max(0, total_records - verified)
+        final_message = f"Completed: {verified} verified, {updated} updated."
+        if pending:
+            final_message = f"Partial: {verified} verified, {pending} pending, {updated} updated. Pending ONUs retain their previous status."
         if on_progress:
             on_progress({
                 "checked": checked,
@@ -14255,6 +14303,7 @@ def sync_runtime_statuses_for_olt(
                 "status_changed": status_changed,
                 "running": False,
                 "done": True,
+                "failed": bool(pending),
                 "message": final_message,
             })
         return {
@@ -14461,14 +14510,15 @@ def sync_onu_signals_from_snmp(olt, *, overwrite=False):
     single_retry_samples = 0
     single_retry_updates = 0
     single_retry_checked = 0
+    retry_deadline = time.monotonic() + max(0.0, float(getattr(settings, "OLT_ONU_SIGNAL_RETRY_BUDGET_SECONDS", 15)))
     cached_samples = 0
     for key, record in all_records.items():
         if key in items:
             continue
-        if single_retry_checked < single_retry_limit and str(getattr(record, "derived_status", "") or "").strip().lower() == "online":
+        if time.monotonic() < retry_deadline and single_retry_checked < single_retry_limit and str(getattr(record, "derived_status", "") or "").strip().lower() == "online":
             single_retry_checked += 1
             try:
-                signal = fetch_single_onu_snmp_signal(olt, record.slot, record.port, record.ont_id)
+                signal = fetch_single_onu_snmp_signal(olt, record.slot, record.port, record.ont_id, deadline_ts=retry_deadline)
             except Exception:
                 signal = {}
             if signal and any(str(signal.get(field) or "").strip() not in {"", "--"} for field in ("onu_rx", "olt_rx", "tx_power")):
