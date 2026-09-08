@@ -563,26 +563,10 @@ def probe_icmp_reachability(olt):
 
 
 def mark_olt_onus_offline_due_to_snmp(olt, *, status_text=""):
-    from .models import ConfiguredONU, ONUStatusSample
+    from .models import ConfiguredONU
 
     now = timezone.now()
-    rows = list(
-        ConfiguredONU.objects.filter(olt=olt)
-        .exclude(derived_status="offline", run_state="offline")
-        .only("id", "derived_status", "run_state", "status_source", "status_first_seen_at", "status_updated_at")
-    )
-    for row in rows:
-        row.run_state = "offline"
-        row.derived_status = "offline"
-        row.status_source = "snmp_down"
-        row.status_first_seen_at = now
-        row.status_updated_at = now
-    if rows:
-        ConfiguredONU.objects.bulk_update(
-            rows,
-            ["run_state", "derived_status", "status_source", "status_first_seen_at", "status_updated_at"],
-            batch_size=500,
-        )
+    affected_onus = ConfiguredONU.objects.filter(olt=olt).count()
 
     olt.snmp_last_status = (status_text or "OLT is down")[:300]
     olt.snmp_last_synced_at = now
@@ -595,13 +579,13 @@ def mark_olt_onus_offline_due_to_snmp(olt, *, status_text=""):
             key=f"olt_down:{olt.id}",
             severity="critical",
             title=f"OLT Down: {olt.name}",
-            message=f"{olt.name} ({olt.ip_address}) is {status_text or 'unreachable'}. Affected ONUs: {len(rows)}.",
+            message=f"{olt.name} ({olt.ip_address}) is {status_text or 'unreachable'}. Affected ONUs: {affected_onus}.",
             olt=olt,
-            details={"status": status_text, "affected_onus": len(rows)},
+            details={"status": status_text, "affected_onus": affected_onus},
         )
     except Exception:
         pass
-    return {"checked": len(rows), "updated": len(rows)}
+    return {"checked": affected_onus, "updated": 0}
 
 
 def reconcile_onu_status_via_snmp(olt, *, only_snmp_down=True, limit=None):

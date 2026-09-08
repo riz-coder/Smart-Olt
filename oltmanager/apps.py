@@ -1,6 +1,7 @@
 import logging
 import datetime
 import os
+import re
 import sys
 import threading
 import time
@@ -21,6 +22,9 @@ _SNMP_MONITOR_THREAD = None
 _SNMP_MONITOR_GUARD = threading.Lock()
 _ONU_STATUS_SYNC_THREAD = None
 _ONU_STATUS_SYNC_GUARD = threading.Lock()
+_ONU_STATUS_SYNC_WAKE_EVENT = threading.Event()
+_ONU_STATUS_PRIORITY_LOCK = threading.Lock()
+_ONU_STATUS_PRIORITY_IDS = []
 _ONU_SIGNAL_SAMPLE_THREAD = None
 _ONU_SIGNAL_SAMPLE_GUARD = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
@@ -76,6 +80,50 @@ IMMEDIATE_SYNC_STALE_SECONDS = 900
 IMMEDIATE_SYNC_RETRIES = 2
 _SAMPLE_RETENTION_CLEANUP_LAST_TS = 0.0
 _SAMPLE_RETENTION_CLEANUP_LOCK = threading.Lock()
+
+
+def _parse_dashboard_uptime_minutes(uptime_text):
+    text = str(uptime_text or "").strip()
+    if not text or text == "--":
+        return None
+    match = re.search(r"(\d+)\s*day\(s\),\s*(\d{1,2}):(\d{2})", text, flags=re.IGNORECASE)
+    if match:
+        return (int(match.group(1)) * 24 * 60) + (int(match.group(2)) * 60) + int(match.group(3))
+    alt = re.search(
+        r"(\d+)\s*day\(s\),\s*(\d+)\s*hour\(s\),\s*(\d+)\s*minute\(s\)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if alt:
+        return (int(alt.group(1)) * 24 * 60) + (int(alt.group(2)) * 60) + int(alt.group(3))
+    hm = re.search(r"\b(\d{1,2}):(\d{2})\b", text)
+    if hm:
+        return (int(hm.group(1)) * 60) + int(hm.group(2))
+    return None
+
+
+def _queue_onu_status_sync_priority(olt_id):
+    try:
+        olt_id = int(olt_id)
+    except (TypeError, ValueError):
+        return False
+    with _ONU_STATUS_PRIORITY_LOCK:
+        if olt_id not in _ONU_STATUS_PRIORITY_IDS:
+            _ONU_STATUS_PRIORITY_IDS.append(olt_id)
+    _ONU_STATUS_SYNC_WAKE_EVENT.set()
+    return True
+
+
+def _pop_onu_status_sync_priority(pending_ids):
+    pending = {int(value) for value in (pending_ids or [])}
+    if not pending:
+        return None
+    with _ONU_STATUS_PRIORITY_LOCK:
+        for index, olt_id in enumerate(list(_ONU_STATUS_PRIORITY_IDS)):
+            if int(olt_id) in pending:
+                return _ONU_STATUS_PRIORITY_IDS.pop(index)
+        _ONU_STATUS_PRIORITY_IDS[:] = [int(value) for value in _ONU_STATUS_PRIORITY_IDS if int(value) in pending]
+    return None
 
 
 def _configure_sqlite_connection(sender, connection, **kwargs):
@@ -399,9 +447,12 @@ def _snmp_monitor_loop():
     global _SNMP_LAST_ALERT_CHECK_AT
     from .models import OLT
     from .utils import (
+        _snmp_status_looks_down,
+        fetch_snmp_snapshot,
         mark_olt_onus_offline_due_to_snmp,
         probe_icmp_reachability,
         probe_snmp_reachability,
+        record_dashboard_status_samples,
         reconcile_onu_status_via_snmp,
     )
 
@@ -485,12 +536,18 @@ def _snmp_monitor_loop():
                                 "id",
                                 "name",
                                 "ip_address",
+                                "dashboard_uptime",
+                                "dashboard_snapshot_refreshed_at",
                                 "snmp_last_status",
                                 "snmp_last_synced_at",
                                 "pricing_locked",
                                 "pricing_expires_at",
                             ).first()
                             if olt:
+                                was_down = bool(
+                                    olt_id in _SNMP_OFFLINE_APPLIED
+                                    or _snmp_status_looks_down(getattr(olt, "snmp_last_status", ""))
+                                )
                                 # SNMP answered -> the OLT is reachable RIGHT NOW.
                                 # Always refresh the OLT status to reachable (both in
                                 # the DB and on this in-memory copy, so the reconcile
@@ -501,6 +558,58 @@ def _snmp_monitor_loop():
                                 _SNMP_OFFLINE_APPLIED.discard(olt_id)
                                 if getattr(olt, "pricing_access_locked", False):
                                     continue
+
+                                if was_down:
+                                    restart_threshold = max(
+                                        1,
+                                        int(getattr(settings, "OLT_RECOVERY_RESTART_UPTIME_MINUTES", 10) or 10),
+                                    )
+                                    previous_uptime = str(getattr(olt, "dashboard_uptime", "") or "").strip()
+                                    current_uptime = ""
+                                    try:
+                                        snapshot = fetch_snmp_snapshot(
+                                            olt,
+                                            include_entity_metrics=False,
+                                            operation_timeout=2.5,
+                                        )
+                                        current_uptime = str(snapshot.get("uptime") or "").strip()
+                                    except Exception:
+                                        current_uptime = ""
+                                        close_old_connections()
+                                    previous_minutes = _parse_dashboard_uptime_minutes(previous_uptime)
+                                    current_minutes = _parse_dashboard_uptime_minutes(current_uptime)
+                                    restart_suspected = (
+                                        current_minutes is None
+                                        or current_minutes <= restart_threshold
+                                        or (
+                                            previous_minutes is not None
+                                            and current_minutes < max(0, previous_minutes - 1)
+                                        )
+                                    )
+                                    if current_uptime and current_uptime != "--":
+                                        OLT.objects.filter(pk=olt_id).update(
+                                            dashboard_uptime=current_uptime[:120],
+                                            dashboard_snapshot_refreshed_at=timezone.now(),
+                                        )
+                                        olt.dashboard_uptime = current_uptime[:120]
+                                    if restart_suspected:
+                                        _queue_onu_status_sync_priority(olt_id)
+                                        logger.info(
+                                            "OLT %s recovered with fresh/unknown uptime (%s; previous %s). Queued priority ONU status sync.",
+                                            olt.name,
+                                            current_uptime or "--",
+                                            previous_uptime or "--",
+                                        )
+                                    else:
+                                        try:
+                                            record_dashboard_status_samples(force=True, bypass_force_throttle=True)
+                                        except Exception:
+                                            close_old_connections()
+                                        logger.info(
+                                            "OLT %s recovered without restart (%s). Preserved DB ONU counts are active.",
+                                            olt.name,
+                                            current_uptime or previous_uptime or "--",
+                                        )
 
                                 # If a previous SNMP-down probe bulk-marked ONUs
                                 # offline, immediately heal those rows once the
@@ -519,6 +628,10 @@ def _snmp_monitor_loop():
                                                 olt.name,
                                                 outcome.get("status", ""),
                                             )
+                                            try:
+                                                record_dashboard_status_samples(force=True, bypass_force_throttle=True)
+                                            except Exception:
+                                                close_old_connections()
                                     except Exception:
                                         _heavy_failed(reconcile_key, now_ts)
                                         logger.exception("OLT %s recovery ONU status reconcile failed.", olt.name)
@@ -703,7 +816,14 @@ def _onu_status_sync_loop():
             if olt_ids:
                 start_onu_status_sync_progress(olt_rows)
                 cycle_started = True
-                for olt_id in olt_ids:
+                pending_ids = list(olt_ids)
+                while pending_ids:
+                    priority_id = _pop_onu_status_sync_priority(pending_ids)
+                    if priority_id is not None:
+                        olt_id = priority_id
+                        pending_ids.remove(priority_id)
+                    else:
+                        olt_id = pending_ids.pop(0)
                     try:
                         result = _sync_single_olt_status(olt_id)
                         if result:
@@ -755,7 +875,8 @@ def _onu_status_sync_loop():
             schedule_onu_status_sync_progress(next_run_at)
         except Exception:
             pass
-        time.sleep(ONU_STATUS_SYNC_SECONDS)
+        _ONU_STATUS_SYNC_WAKE_EVENT.wait(ONU_STATUS_SYNC_SECONDS)
+        _ONU_STATUS_SYNC_WAKE_EVENT.clear()
 
 
 def _onu_signal_sample_loop():
