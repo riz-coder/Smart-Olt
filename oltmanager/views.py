@@ -982,6 +982,15 @@ def _build_configured_onu_search_q(search_query):
     return db_q
 
 
+def _looks_like_onu_serial_search(value):
+    text = _normalize_search_token(value)
+    if not text:
+        return False
+    if re.fullmatch(r"[0-9A-F]{16}", text):
+        return True
+    return bool(re.fullmatch(r"[A-Z0-9]{12}", text) and re.search(r"[A-Z]", text) and re.search(r"\d", text))
+
+
 def _store_vlan_form_state(request, olt_pk, form, non_field_errors=None, transcript=""):
     return _safe_session_set(
         request,
@@ -5188,6 +5197,7 @@ def configured_onus(request):
     if sync_display_at:
         sync_display_at = timezone.localtime(sync_display_at, ZoneInfo("Asia/Karachi"))
         latest_inventory_sync_display = sync_display_at.strftime("%Y-%m-%d %I:%M:%S %p")
+    search_can_open_per_onu_sync = _looks_like_onu_serial_search(search_query)
 
     context = {
         "configured_onu_rows": rows,
@@ -5202,6 +5212,7 @@ def configured_onus(request):
         "configured_onu_tv_filter": tv_filter,
         "configured_onu_sort_filter": sort_filter,
         "configured_onu_search_query": search_query,
+        "configured_onu_search_can_open_per_onu_sync": search_can_open_per_onu_sync,
         "configured_onu_olt_filter": olt_filter,
         "configured_onu_board_filter": board_filter,
         "configured_onu_port_filter": port_filter,

@@ -738,6 +738,7 @@
         <p class="subtle">No configured ONU records found from the current OLTs.</p>
         {% if configured_onu_search_query %}
         {% if user.is_staff or user.is_superuser %}
+        {% if configured_onu_search_can_open_per_onu_sync %}
         <div class="missing-onu-sync">
             <p class="subtle">ONU already added on the OLT but not imported yet? Select its OLT and use Per ONU Sync. You can also clear the search filters and try again.</p>
             <div class="search-bar">
@@ -753,6 +754,9 @@
                 <button type="button" class="btn btn-primary" data-open-per-onu-sync>Per ONU Sync</button>
             </div>
         </div>
+        {% else %}
+        <p class="subtle">Enter the complete ONU serial number in the search box to use Per ONU Sync.</p>
+        {% endif %}
         {% endif %}
         {% endif %}
         {% endif %}
