@@ -86,6 +86,11 @@ fi
 echo "Adding service user to docker group..."
 sudo usermod -aG docker "$SERVICE_USER" || true
 
+if [ -f "$APP_DIR/agent/Dockerfile" ]; then
+  echo "Building Phase-1 OptiVerse tenant agent image..."
+  sudo docker build -t optiverse-agent:latest "$APP_DIR/agent"
+fi
+
 echo "Updating OptiVerse .env provisioning values..."
 set_env_value "OPTIVERSE_TENANT_AUTO_PROVISION" "True"
 set_env_value "OPTIVERSE_TENANT_BASE_DIR" "$TENANT_BASE_DIR"
