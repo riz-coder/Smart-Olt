@@ -12,7 +12,7 @@ def expiring_olt_subscriptions(request):
         from .models import OLT
 
         now = timezone.now()
-        expires_before = now + timedelta(hours=48)
+        expires_before = now + timedelta(hours=12)
         expired = list(
             OLT.objects.filter(
                 pricing_expires_at__isnull=False,
