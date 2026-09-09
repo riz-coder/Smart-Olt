@@ -27,7 +27,8 @@ from django.contrib.auth.views import LoginView
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, close_old_connections
-from django.db.models import Case, Count, IntegerField, Max, Q, Value, When
+from django.db.models import Case, Count, FloatField, IntegerField, Max, Q, Value, When
+from django.db.models.functions import Cast
 from django.http import HttpResponse, JsonResponse
 from django.core.exceptions import PermissionDenied
 from django.template.loader import render_to_string
@@ -275,6 +276,8 @@ _CONFIGURED_ONU_FILTERS_CACHE_LOCK = threading.Lock()
 _CONFIGURED_ONU_FILTERS_CACHE = {"updated_at": None, "boards": None, "olts": None, "latest_sync": None}
 _DASHBOARD_ALERT_WIDGET_CACHE_LOCK = threading.Lock()
 _DASHBOARD_ALERT_WIDGET_CACHE = {}
+_DASHBOARD_SUMMARY_CACHE_LOCK = threading.Lock()
+_DASHBOARD_SUMMARY_CACHE = {}
 _ONU_DETAIL_CACHE_LOCK = threading.Lock()
 _ONU_DETAIL_CACHE = {}
 _ONU_SIGNAL_HISTORY_CACHE_LOCK = threading.Lock()
@@ -314,6 +317,7 @@ DEVICE_SNAPSHOT_SCAN_SECONDS = 300
 DASHBOARD_UPTIME_REFRESH_SECONDS = 120
 CONFIGURED_ONU_FILTERS_CACHE_SECONDS = 300
 DASHBOARD_ALERT_WIDGET_CACHE_SECONDS = 120
+DASHBOARD_SUMMARY_CACHE_SECONDS = 15
 ONU_DETAIL_CACHE_SECONDS = 30
 ONU_SIGNAL_HISTORY_CACHE_SECONDS = 60
 ONU_TRAFFIC_SAMPLE_SECONDS = 60
@@ -2992,7 +2996,19 @@ def _dashboard_summary_counts(onu_qs, olt_id=None):
     # Cards should reflect the current database state. The background worker is
     # responsible for updating ConfiguredONU every 10 minutes; graph history still
     # comes from DashboardStatusSample.
-    return _dashboard_status_counts_from_queryset(onu_qs)
+    cache_key = f"dashboard-summary:{olt_id or 'all'}"
+    now = timezone.now()
+    with _DASHBOARD_SUMMARY_CACHE_LOCK:
+        cached = _DASHBOARD_SUMMARY_CACHE.get(cache_key)
+        if cached:
+            cached_at = cached.get("cached_at")
+            if cached_at and (now - cached_at).total_seconds() <= DASHBOARD_SUMMARY_CACHE_SECONDS:
+                return dict(cached.get("data") or {})
+
+    data = _dashboard_status_counts_from_queryset(onu_qs)
+    with _DASHBOARD_SUMMARY_CACHE_LOCK:
+        _DASHBOARD_SUMMARY_CACHE[cache_key] = {"cached_at": now, "data": dict(data or {})}
+    return data
 
 
 def _apply_dashboard_down_olt_override(counts, down_olt_ids, selected_olt_id=None):
@@ -3013,16 +3029,12 @@ def _apply_dashboard_down_olt_override(counts, down_olt_ids, selected_olt_id=Non
         payload["signal_bad"] = 0
         return payload
 
-    subtract_online = 0
-    subtract_warn = 0
-    subtract_bad = 0
-    for olt_id in down_ids:
-        scoped = _dashboard_status_counts_from_queryset(
-            ConfiguredONU.objects.filter(olt_id=olt_id)
-        )
-        subtract_online += int(scoped.get("online_onus") or 0)
-        subtract_warn += int(scoped.get("signal_warn") or 0)
-        subtract_bad += int(scoped.get("signal_bad") or 0)
+    scoped = _dashboard_status_counts_from_queryset(
+        ConfiguredONU.objects.filter(olt_id__in=down_ids)
+    )
+    subtract_online = int(scoped.get("online_onus") or 0)
+    subtract_warn = int(scoped.get("signal_warn") or 0)
+    subtract_bad = int(scoped.get("signal_bad") or 0)
     payload["online_onus"] = max(0, int(payload.get("online_onus") or 0) - subtract_online)
     payload["signal_warn"] = max(0, int(payload.get("signal_warn") or 0) - subtract_warn)
     payload["signal_bad"] = max(0, int(payload.get("signal_bad") or 0) - subtract_bad)
@@ -8392,6 +8404,11 @@ def health_report(request):
     from .models import AlertEvent
 
     now = timezone.now()
+    cache_key = "health-report-context:v2"
+    cached_context = cache.get(cache_key)
+    if cached_context is not None:
+        return render(request, "oltmanager/health_report.html", cached_context)
+
     today = timezone.localdate()
     day_ago = now - timezone.timedelta(hours=24)
 
@@ -8442,16 +8459,24 @@ def health_report(request):
         bucket["offline"] = max(0, bucket["total"] - bucket["online"] - bucket["admin_disabled"])
         totals["offline"] += bucket["offline"]
 
-    # Worst-signal candidates: use lightweight values() rows instead of loading
-    # full ConfiguredONU model instances for every ONU in the report.
+    # Worst-signal candidates: keep this DB-side as much as possible. Scanning
+    # every online ONU and sorting in Python made /report/ slow on larger
+    # tenants, especially while the background worker is updating SQLite.
     worst_signals = []
-    for onu in (
+    worst_signal_candidates = (
         ConfiguredONU.objects
-        .filter(olt_id__in=olt_ids, derived_status__iexact="online")
+        .filter(
+            olt_id__in=olt_ids,
+            derived_status__iexact="online",
+            signal_bucket__in=["bad", "warn"],
+        )
         .exclude(onu_rx="")
         .exclude(onu_rx__in=["-", "--"])
+        .annotate(onu_rx_dbm=Cast("onu_rx", FloatField()))
+        .order_by("onu_rx_dbm")
         .values("olt_id", "slot", "port", "ont_id", "onu_rx", "description")
-    ):
+    )[:300]
+    for onu in worst_signal_candidates:
         dbm = _report_parse_dbm(onu.get("onu_rx"))
         if dbm is not None:
             worst_signals.append({
@@ -8517,6 +8542,7 @@ def health_report(request):
         "degrade_active": degrade_active,
         "overall_health_pct": int(round(totals["online"] * 100 / totals["total"])) if totals["total"] else 0,
     }
+    cache.set(cache_key, context, 30)
     return render(request, "oltmanager/health_report.html", context)
 
 
