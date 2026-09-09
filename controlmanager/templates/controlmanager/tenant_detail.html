@@ -30,7 +30,8 @@
             <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
             <tr><th>Client Subnet</th><td>{{ tenant.client_local_subnet|default:"-" }}</td><th>OLT Subnet</th><td>{{ tenant.olt_management_subnet|default:"-" }}</td></tr>
             <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>WG Address</th><td>{{ tenant.wg_client_address|default:"-" }}</td></tr>
-            <tr><th>Docker Image</th><td>{{ tenant.docker_image|default:"-" }}</td><th>Container</th><td>{{ tenant.container_name|default:"-" }}</td></tr>
+            <tr><th>Docker Image</th><td>{{ tenant.docker_image|default:"-" }}</td><th>Web Container</th><td>{{ tenant.container_name|default:"-" }}</td></tr>
+            <tr><th>Worker Container</th><td colspan="3">{{ tenant.worker_container_name|default:"-" }}</td></tr>
             <tr><th>WG Config Path</th><td colspan="3">{{ tenant.wg_config_path|default:"-" }}</td></tr>
             <tr><th>Provisioned At</th><td colspan="3">{% if tenant.provisioned_at %}{{ tenant.provisioned_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td></tr>
         </tbody>

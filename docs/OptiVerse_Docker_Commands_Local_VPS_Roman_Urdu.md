@@ -27,26 +27,51 @@ docker build -t optiverse-tenant-app:latest -f docker/tenant-app.Dockerfile .
 docker images | grep optiverse
 ```
 
-## 3. VPS par CC_ISP tenant container start/restart
+## 3. VPS par CC_ISP tenant web + worker containers start/restart
 
-Pehle old container stop/remove:
+Production structure mein web aur background sync alag containers mein chalenge:
+
+- `optiverse-tenant-cc-isp-web` = sirf panel/pages
+- `optiverse-tenant-cc-isp-worker` = SNMP/ONU background sync
+
+Pehle old/same containers stop/remove:
 
 ```bash
 docker stop optiverse-tenant-cc-isp || true
 docker rm optiverse-tenant-cc-isp || true
+docker stop optiverse-tenant-cc-isp-web || true
+docker rm optiverse-tenant-cc-isp-web || true
+docker stop optiverse-tenant-cc-isp-worker || true
+docker rm optiverse-tenant-cc-isp-worker || true
 ```
 
-Phir container start:
+Phir web container start:
 
 ```bash
 docker run -d \
-  --name optiverse-tenant-cc-isp \
+  --name optiverse-tenant-cc-isp-web \
   --restart unless-stopped \
   --network host \
   --env-file /opt/optiverse/Smart-Olt/.env \
+  -e OLT_DISABLE_EMBEDDED_SYNC=1 \
+  -e OLT_ENABLE_EMBEDDED_SYNC=false \
   -v /opt/optiverse/Smart-Olt:/opt/optiverse/Smart-Olt \
   optiverse-tenant-app:latest \
   python -m daphne -b 0.0.0.0 -p 8000 oltportal.asgi:application
+```
+
+Phir worker container start:
+
+```bash
+docker run -d \
+  --name optiverse-tenant-cc-isp-worker \
+  --restart unless-stopped \
+  --network host \
+  --env-file /opt/optiverse/Smart-Olt/.env \
+  -e OLT_ENABLE_EMBEDDED_SYNC=true \
+  -v /opt/optiverse/Smart-Olt:/opt/optiverse/Smart-Olt \
+  optiverse-tenant-app:latest \
+  python manage.py run_background_sync
 ```
 
 Verify:
@@ -54,7 +79,8 @@ Verify:
 ```bash
 docker ps
 curl -I http://127.0.0.1:8000/login/
-docker logs --tail 80 optiverse-tenant-cc-isp
+docker logs --tail 80 optiverse-tenant-cc-isp-web
+docker logs --tail 80 optiverse-tenant-cc-isp-worker
 ```
 
 ## 4. VPS par control panel service
@@ -72,31 +98,33 @@ curl -I http://127.0.0.1:9000/
 Logs dekhna:
 
 ```bash
-docker logs -f optiverse-tenant-cc-isp
+docker logs -f optiverse-tenant-cc-isp-web
+docker logs -f optiverse-tenant-cc-isp-worker
 ```
 
 Container restart:
 
 ```bash
-docker restart optiverse-tenant-cc-isp
+docker restart optiverse-tenant-cc-isp-web
+docker restart optiverse-tenant-cc-isp-worker
 ```
 
 Container shell:
 
 ```bash
-docker exec -it optiverse-tenant-cc-isp bash
+docker exec -it optiverse-tenant-cc-isp-web bash
 ```
 
 Django migrations:
 
 ```bash
-docker exec optiverse-tenant-cc-isp python manage.py migrate --noinput
+docker exec optiverse-tenant-cc-isp-web python manage.py migrate --noinput
 ```
 
 Panel user password reset:
 
 ```bash
-docker exec -it optiverse-tenant-cc-isp python manage.py changepassword rizwan
+docker exec -it optiverse-tenant-cc-isp-web python manage.py changepassword rizwan
 ```
 
 Running ports:
@@ -108,7 +136,7 @@ ss -lntp | grep -E ':8000|:9000|:51820'
 Resource usage:
 
 ```bash
-docker stats optiverse-tenant-cc-isp
+docker stats optiverse-tenant-cc-isp-web optiverse-tenant-cc-isp-worker
 ```
 
 ## 6. VPS par new code deploy flow
@@ -117,14 +145,15 @@ docker stats optiverse-tenant-cc-isp
 cd /opt/optiverse/Smart-Olt
 git pull
 docker build -t optiverse-tenant-app:latest -f docker/tenant-app.Dockerfile .
-docker restart optiverse-tenant-cc-isp
+docker restart optiverse-tenant-cc-isp-web
+docker restart optiverse-tenant-cc-isp-worker
 sudo systemctl restart optiverse-control
 ```
 
 Agar migrations pending hon:
 
 ```bash
-docker exec optiverse-tenant-cc-isp python manage.py migrate --noinput
+docker exec optiverse-tenant-cc-isp-web python manage.py migrate --noinput
 python3 manage_control.py migrate --noinput
 ```
 
@@ -145,13 +174,30 @@ Local container start:
 docker stop optiverse-local 2>$null
 docker rm optiverse-local 2>$null
 docker run -d `
-  --name optiverse-local `
+  --name optiverse-local-web `
   --restart unless-stopped `
   -p 8000:8000 `
   --env-file .env `
+  -e OLT_DISABLE_EMBEDDED_SYNC=1 `
+  -e OLT_ENABLE_EMBEDDED_SYNC=false `
   -v D:\RIZWAN\CRM\oltportal:/opt/optiverse/Smart-Olt `
   optiverse-tenant-app:local `
   python -m daphne -b 0.0.0.0 -p 8000 oltportal.asgi:application
+```
+
+Local worker:
+
+```powershell
+docker stop optiverse-local-worker 2>$null
+docker rm optiverse-local-worker 2>$null
+docker run -d `
+  --name optiverse-local-worker `
+  --restart unless-stopped `
+  --env-file .env `
+  -e OLT_ENABLE_EMBEDDED_SYNC=true `
+  -v D:\RIZWAN\CRM\oltportal:/opt/optiverse/Smart-Olt `
+  optiverse-tenant-app:local `
+  python manage.py run_background_sync
 ```
 
 Verify:
@@ -159,18 +205,21 @@ Verify:
 ```powershell
 docker ps
 curl.exe -I http://127.0.0.1:8000/login/
-docker logs --tail 80 optiverse-local
+docker logs --tail 80 optiverse-local-web
+docker logs --tail 80 optiverse-local-worker
 ```
 
 ## 8. Local container commands
 
 ```powershell
-docker restart optiverse-local
-docker logs -f optiverse-local
-docker exec -it optiverse-local bash
-docker exec optiverse-local python manage.py migrate --noinput
-docker exec -it optiverse-local python manage.py changepassword rizwan
-docker stats optiverse-local
+docker restart optiverse-local-web
+docker restart optiverse-local-worker
+docker logs -f optiverse-local-web
+docker logs -f optiverse-local-worker
+docker exec -it optiverse-local-web bash
+docker exec optiverse-local-web python manage.py migrate --noinput
+docker exec -it optiverse-local-web python manage.py changepassword rizwan
+docker stats optiverse-local-web optiverse-local-worker
 ```
 
 ## 9. Tenant create flow from control panel
@@ -201,7 +250,7 @@ sudo wg show
 Sab se pehle user active hai ya nahi check karo:
 
 ```bash
-docker exec -it optiverse-tenant-cc-isp python manage.py shell
+docker exec -it optiverse-tenant-cc-isp-web python manage.py shell
 ```
 
 Shell ke andar:
@@ -215,7 +264,7 @@ list(U.objects.values_list("username", "is_active", "is_staff", "is_superuser"))
 Password reset:
 
 ```bash
-docker exec -it optiverse-tenant-cc-isp python manage.py changepassword rizwan
+docker exec -it optiverse-tenant-cc-isp-web python manage.py changepassword rizwan
 ```
 
 Browser mein purani session cookie issue kare to logout/cookies clear karke dobara login karo.

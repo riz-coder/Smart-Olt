@@ -76,6 +76,7 @@ class Tenant(models.Model):
     agent_token = models.CharField(max_length=128, blank=True, default="")
     docker_image = models.CharField(max_length=160, default="optiverse-agent:latest")
     container_name = models.CharField(max_length=120, blank=True, default="")
+    worker_container_name = models.CharField(max_length=120, blank=True, default="")
     wg_config_path = models.CharField(max_length=255, blank=True, default="")
     provisioning_log = models.TextField(blank=True, default="")
     provisioning_error = models.TextField(blank=True, default="")

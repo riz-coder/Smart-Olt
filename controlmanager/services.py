@@ -91,7 +91,15 @@ def _safe_slug(tenant):
 
 
 def _tenant_container_name(tenant):
+    return f"optiverse-tenant-{_safe_slug(tenant)}-web"
+
+
+def _tenant_legacy_container_name(tenant):
     return f"optiverse-tenant-{_safe_slug(tenant)}"
+
+
+def _tenant_worker_container_name(tenant):
+    return f"optiverse-tenant-{_safe_slug(tenant)}-worker"
 
 
 def _agent_container_name(tenant):
@@ -311,11 +319,23 @@ def _write_docker_tenant_runtime(tenant):
     _write_vpn_config_if_requested(tenant, log_lines)
     image = tenant.docker_image or "optiverse-tenant-app:latest"
     container_name = tenant.container_name or _tenant_container_name(tenant)
+    worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
     codebase = Path(tenant.codebase_path)
+
+    legacy_container_name = _tenant_legacy_container_name(tenant)
+    if legacy_container_name not in {container_name, worker_container_name}:
+        ok, _ = _run_command(["docker", "container", "inspect", legacy_container_name], timeout=20)
+        if ok:
+            _run_command(["docker", "stop", legacy_container_name], timeout=90)
+            ok, output = _run_command(["docker", "rm", legacy_container_name], timeout=90)
+            log_lines.append(f"Legacy Docker tenant container remove ({legacy_container_name}): {'OK' if ok else 'FAILED'}")
+            if output:
+                log_lines.append(output)
+
     ok, _ = _run_command(["docker", "container", "inspect", container_name], timeout=20)
     if ok:
         ok, output = _run_command(["docker", "restart", container_name], timeout=90)
-        log_lines.append(f"Docker tenant container restart: {'OK' if ok else 'FAILED'}")
+        log_lines.append(f"Docker tenant web container restart: {'OK' if ok else 'FAILED'}")
     else:
         ok, output = _run_command([
             "docker", "run", "-d",
@@ -323,22 +343,49 @@ def _write_docker_tenant_runtime(tenant):
             "--restart", "unless-stopped",
             "--network", "host",
             "--env-file", str(tenant.env_path),
+            "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
+            "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
             "-v", f"{tenant_dir}:{tenant_dir}",
             "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
             image,
             "python", "-m", "daphne", "-b", _tenant_bind_host(), "-p", str(tenant.panel_port), "oltportal.asgi:application",
         ], timeout=120)
-        log_lines.append(f"Docker tenant container create/start: {'OK' if ok else 'FAILED'}")
+        log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
     if output:
         log_lines.append(output)
     if not ok:
-        raise TenantProvisionError(output or "Docker tenant container failed.")
+        raise TenantProvisionError(output or "Docker tenant web container failed.")
+
+    ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
+    if ok:
+        ok, output = _run_command(["docker", "restart", worker_container_name], timeout=90)
+        log_lines.append(f"Docker tenant worker container restart: {'OK' if ok else 'FAILED'}")
+    else:
+        ok, output = _run_command([
+            "docker", "run", "-d",
+            "--name", worker_container_name,
+            "--restart", "unless-stopped",
+            "--network", "host",
+            "--env-file", str(tenant.env_path),
+            "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
+            "-v", f"{tenant_dir}:{tenant_dir}",
+            "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
+            image,
+            "python", "manage.py", "run_background_sync",
+        ], timeout=120)
+        log_lines.append(f"Docker tenant worker container create/start: {'OK' if ok else 'FAILED'}")
+    if output:
+        log_lines.append(output)
+    if not ok:
+        raise TenantProvisionError(output or "Docker tenant worker container failed.")
+
     tenant.container_name = container_name
+    tenant.worker_container_name = worker_container_name
     tenant.provisioning_log = "\n".join(log_lines).strip()
     tenant.provisioning_error = ""
     tenant.provisioned_at = timezone.now()
-    tenant.save(update_fields=["container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
-    return f"{container_name} running"
+    tenant.save(update_fields=["container_name", "worker_container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
+    return f"{container_name} + {worker_container_name} running"
 
 
 def prepare_tenant_defaults(tenant):
@@ -361,12 +408,14 @@ def prepare_tenant_defaults(tenant):
         tenant.wg_client_private_key, tenant.wg_client_public_key = _wireguard_keypair()
     tenant.wg_client_address = tenant.wg_client_address or _tenant_default_wg_address(tenant)
     tenant.docker_image = tenant.docker_image or "optiverse-tenant-app:latest"
-    tenant.container_name = tenant.container_name or _tenant_container_name(tenant)
+    if not tenant.container_name or tenant.container_name == _tenant_legacy_container_name(tenant):
+        tenant.container_name = _tenant_container_name(tenant)
+    tenant.worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",
         "wg_client_private_key", "wg_client_public_key", "wg_client_address",
-        "docker_image", "container_name", "updated_at",
+        "docker_image", "container_name", "worker_container_name", "updated_at",
     ])
     return tenant
 
