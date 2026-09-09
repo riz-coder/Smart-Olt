@@ -346,7 +346,7 @@ def prepare_tenant_defaults(tenant):
     slug = tenant.slug
     base = _tenant_base_dir() / slug
     highest_port = tenant.__class__.objects.exclude(pk=tenant.pk).order_by("-panel_port").values_list("panel_port", flat=True).first()
-    if not tenant.panel_port or int(tenant.panel_port) < _tenant_start_port():
+    if not tenant.panel_port:
         tenant.panel_port = max(_tenant_start_port(), int(highest_port or (_tenant_start_port() - 1)) + 1)
     tenant.panel_scheme = tenant.panel_scheme or "http"
     tenant.panel_host = tenant.panel_host or _tenant_panel_host()
