@@ -1,6 +1,8 @@
 ﻿Django==5.2.11
 channels==4.3.2
 daphne==4.2.2
+gunicorn==23.0.0
+uvicorn==0.35.0
 pysnmp==7.1.22
 paramiko==4.0.0
 ncclient==0.7.0

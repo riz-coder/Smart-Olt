@@ -57,7 +57,14 @@ docker run -d \
   -e OLT_ENABLE_EMBEDDED_SYNC=false \
   -v /opt/optiverse/Smart-Olt:/opt/optiverse/Smart-Olt \
   optiverse-tenant-app:latest \
-  python -m daphne -b 0.0.0.0 -p 8000 oltportal.asgi:application
+  gunicorn oltportal.asgi:application \
+    -k uvicorn.workers.UvicornWorker \
+    -w 3 \
+    -b 0.0.0.0:8000 \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --access-logfile - \
+    --error-logfile -
 ```
 
 Phir worker container start:
@@ -182,7 +189,14 @@ docker run -d `
   -e OLT_ENABLE_EMBEDDED_SYNC=false `
   -v D:\RIZWAN\CRM\oltportal:/opt/optiverse/Smart-Olt `
   optiverse-tenant-app:local `
-  python -m daphne -b 0.0.0.0 -p 8000 oltportal.asgi:application
+  gunicorn oltportal.asgi:application `
+    -k uvicorn.workers.UvicornWorker `
+    -w 3 `
+    -b 0.0.0.0:8000 `
+    --timeout 120 `
+    --graceful-timeout 30 `
+    --access-logfile - `
+    --error-logfile -
 ```
 
 Local worker:

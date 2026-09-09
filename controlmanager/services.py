@@ -44,6 +44,13 @@ def _tenant_bind_host():
     return os.environ.get("CONTROL_TENANT_BIND_HOST", "0.0.0.0")
 
 
+def _tenant_web_workers():
+    try:
+        return max(1, int(os.environ.get("CONTROL_TENANT_WEB_WORKERS", "3")))
+    except (TypeError, ValueError):
+        return 3
+
+
 def _tenant_start_port():
     return int(os.environ.get("CONTROL_TENANT_START_PORT", "8001"))
 
@@ -348,7 +355,15 @@ def _write_docker_tenant_runtime(tenant):
             "-v", f"{tenant_dir}:{tenant_dir}",
             "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
             image,
-            "python", "-m", "daphne", "-b", _tenant_bind_host(), "-p", str(tenant.panel_port), "oltportal.asgi:application",
+            "gunicorn",
+            "oltportal.asgi:application",
+            "-k", "uvicorn.workers.UvicornWorker",
+            "-w", str(_tenant_web_workers()),
+            "-b", f"{_tenant_bind_host()}:{tenant.panel_port}",
+            "--timeout", os.environ.get("CONTROL_TENANT_WEB_TIMEOUT", "120"),
+            "--graceful-timeout", os.environ.get("CONTROL_TENANT_WEB_GRACEFUL_TIMEOUT", "30"),
+            "--access-logfile", "-",
+            "--error-logfile", "-",
         ], timeout=120)
         log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
     if output:
