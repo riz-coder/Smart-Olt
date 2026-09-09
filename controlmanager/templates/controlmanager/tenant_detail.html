@@ -13,7 +13,7 @@
 <section class="panel">
     <h2>Tenant Access</h2>
     <div class="table-wrap"><table>
-        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>Service</th></tr></thead>
+        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>Service/Container</th></tr></thead>
         <tbody><tr>
             <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
             <td>{{ tenant.panel_admin_username|default:"-" }}</td>
@@ -24,9 +24,25 @@
     </table></div>
 </section>
 <section class="panel">
+    <h2>Tenant Docker / VPN</h2>
+    <div class="table-wrap"><table>
+        <tbody>
+            <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
+            <tr><th>Client Subnet</th><td>{{ tenant.client_local_subnet|default:"-" }}</td><th>OLT Subnet</th><td>{{ tenant.olt_management_subnet|default:"-" }}</td></tr>
+            <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>WG Address</th><td>{{ tenant.wg_client_address|default:"-" }}</td></tr>
+            <tr><th>Docker Image</th><td>{{ tenant.docker_image|default:"-" }}</td><th>Container</th><td>{{ tenant.container_name|default:"-" }}</td></tr>
+            <tr><th>WG Config Path</th><td colspan="3">{{ tenant.wg_config_path|default:"-" }}</td></tr>
+            <tr><th>Provisioned At</th><td colspan="3">{% if tenant.provisioned_at %}{{ tenant.provisioned_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td></tr>
+        </tbody>
+    </table></div>
+    {% if tenant.provisioning_error %}<p style="color:var(--red);font-weight:900;white-space:pre-wrap;">{{ tenant.provisioning_error }}</p>{% endif %}
+    {% if tenant.provisioning_log %}<pre style="white-space:pre-wrap;background:#07111f;border:1px solid #223b63;border-radius:12px;padding:12px;color:#bfe0ff;">{{ tenant.provisioning_log }}</pre>{% endif %}
+</section>
+<section class="panel">
     <h2>Controls</h2>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="refresh_db"><button class="btn btn-blue" type="submit">Refresh DB Snapshot</button></form>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="provision"><button class="btn btn-blue" type="submit">Provision / Restart Docker</button></form>
         <form method="post" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             {% csrf_token %}<input type="hidden" name="action" value="status">
             <select name="status" class="cp-input" style="width:180px;">{% for value,label in status_choices %}<option value="{{ value }}" {% if tenant.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>

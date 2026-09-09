@@ -1,7 +1,10 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from pathlib import Path
+import base64
 import os
+import re
+import secrets
 import sqlite3
 import subprocess
 
@@ -9,7 +12,7 @@ from django.conf import settings
 from django.core.management.utils import get_random_secret_key
 from django.utils import timezone
 
-from .models import TenantOLTSnapshot, TenantSnapshot
+from .models import Tenant, TenantOLTSnapshot, TenantSnapshot
 
 
 class TenantSnapshotError(Exception):
@@ -45,6 +48,56 @@ def _tenant_start_port():
     return int(os.environ.get("CONTROL_TENANT_START_PORT", "8001"))
 
 
+def _control_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tenant_auto_provision_enabled():
+    return _control_bool("CONTROL_TENANT_AUTO_PROVISION", _control_bool("OPTIVERSE_TENANT_AUTO_PROVISION", False))
+
+
+def _tenant_runtime():
+    return os.environ.get("CONTROL_TENANT_RUNTIME", "docker").strip().lower()
+
+
+def _wireguard_keypair():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import x25519
+
+    private_key = x25519.X25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    private_raw = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return base64.b64encode(private_raw).decode("ascii"), base64.b64encode(public_raw).decode("ascii")
+
+
+def _tenant_default_wg_address(tenant):
+    pk = int(getattr(tenant, "pk", 1) or 1)
+    return f"10.200.{10 + ((pk - 1) % 240)}.{2 + ((pk - 1) // 240)}/32"
+
+
+def _safe_slug(tenant):
+    return re.sub(r"[^a-z0-9-]+", "-", str(tenant.slug or tenant.name or "").lower()).strip("-") or f"tenant-{tenant.pk}"
+
+
+def _tenant_container_name(tenant):
+    return f"optiverse-tenant-{_safe_slug(tenant)}"
+
+
+def _agent_container_name(tenant):
+    return f"optiverse-agent-{_safe_slug(tenant)}"
+
+
 def _tenant_env(tenant, *, disable_embedded_sync=False):
     env = os.environ.copy()
     env.update({
@@ -59,6 +112,10 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         "DJANGO_LANGUAGE_CODE": "en-us",
         "OLT_ENABLE_EMBEDDED_SYNC": "true",
     })
+    if tenant.olt_management_subnet:
+        env["OPTIVERSE_OLT_MANAGEMENT_SUBNET"] = tenant.olt_management_subnet
+    if tenant.agent_token:
+        env["OPTIVERSE_AGENT_TOKEN"] = tenant.agent_token
     if disable_embedded_sync:
         env["OLT_DISABLE_EMBEDDED_SYNC"] = "1"
         env.pop("OLT_ENABLE_EMBEDDED_SYNC", None)
@@ -88,6 +145,8 @@ OLT_PON_PORT_TRAFFIC_RETENTION_DAYS=30
 OLT_UPLINK_PORT_TRAFFIC_RETENTION_DAYS=30
 OLT_DASHBOARD_STATUS_RETENTION_DAYS=180
 OLT_SAMPLE_RETENTION_CLEANUP_SECONDS=3600
+OPTIVERSE_OLT_MANAGEMENT_SUBNET={tenant.olt_management_subnet or tenant.client_local_subnet}
+OPTIVERSE_AGENT_TOKEN={tenant.agent_token}
 """
     env_path = Path(tenant.env_path)
     env_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +218,129 @@ WantedBy=multi-user.target
     return f"{service_name}.service started"
 
 
+def _run_command(args, *, timeout=120, cwd=None):
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+    output = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part and part.strip())
+    return result.returncode == 0, output
+
+
+def _tenant_client_config(tenant):
+    if not (tenant.wg_server_endpoint and tenant.wg_client_private_key):
+        return ""
+    server_key = tenant.wg_server_public_key or "<VPS_WIREGUARD_PUBLIC_KEY>"
+    allowed = ["10.200.0.0/16"]
+    if tenant.olt_management_subnet:
+        allowed.append(tenant.olt_management_subnet)
+    if tenant.client_local_subnet and tenant.client_local_subnet not in allowed:
+        allowed.append(tenant.client_local_subnet)
+    return "\n".join([
+        "[Interface]",
+        f"PrivateKey = {tenant.wg_client_private_key}",
+        f"Address = {tenant.wg_client_address}",
+        "",
+        "[Peer]",
+        f"PublicKey = {server_key}",
+        f"Endpoint = {tenant.wg_server_endpoint}",
+        f"AllowedIPs = {', '.join(allowed)}",
+        "PersistentKeepalive = 25",
+        "",
+    ])
+
+
+def _tenant_server_peer_config(tenant):
+    if not (tenant.client_public_ip and tenant.wg_client_public_key):
+        return ""
+    allowed = [tenant.wg_client_address]
+    if tenant.client_local_subnet:
+        allowed.append(tenant.client_local_subnet)
+    if tenant.olt_management_subnet and tenant.olt_management_subnet not in allowed:
+        allowed.append(tenant.olt_management_subnet)
+    return "\n".join([
+        f"# OptiVerse tenant {tenant.pk}: {tenant.slug}",
+        f"# Tenant: {tenant.name}",
+        "[Peer]",
+        f"PublicKey = {tenant.wg_client_public_key}",
+        f"AllowedIPs = {', '.join(allowed)}",
+        f"Endpoint = {tenant.client_public_ip}:{tenant.client_vpn_port or 51820}",
+        "PersistentKeepalive = 25",
+        "",
+    ])
+
+
+def _write_vpn_config_if_requested(tenant, log_lines):
+    tenant_dir = Path(tenant.env_path).parent
+    client_config = _tenant_client_config(tenant)
+    if client_config:
+        wg_path = tenant_dir / "wg0.conf"
+        wg_path.write_text(client_config, encoding="utf-8")
+        try:
+            os.chmod(wg_path, 0o600)
+        except OSError:
+            pass
+        tenant.wg_config_path = str(wg_path)
+        log_lines.append(f"Client WireGuard config written: {wg_path}")
+    else:
+        log_lines.append("VPN skipped: local/no-VPN tenant fields are blank.")
+
+    peer_config = _tenant_server_peer_config(tenant)
+    server_config = os.environ.get("CONTROL_WG_SERVER_CONFIG") or os.environ.get("OPTIVERSE_WG_SERVER_CONFIG", "")
+    if peer_config and server_config:
+        server_path = Path(server_config)
+        current = server_path.read_text(encoding="utf-8") if server_path.exists() else ""
+        marker = f"# OptiVerse tenant {tenant.pk}: {tenant.slug}"
+        if marker not in current:
+            with server_path.open("a", encoding="utf-8") as handle:
+                if current and not current.endswith("\n"):
+                    handle.write("\n")
+                handle.write("\n")
+                handle.write(peer_config)
+            log_lines.append(f"Server WireGuard peer appended: {server_path}")
+            if _control_bool("CONTROL_WG_RESTART_AFTER_PROVISION", _control_bool("OPTIVERSE_WG_RESTART_AFTER_PROVISION", False)):
+                ok, output = _run_command(["systemctl", "restart", "wg-quick@wg0"], timeout=60)
+                log_lines.append(f"WireGuard restart: {'OK' if ok else 'FAILED'}")
+                if output:
+                    log_lines.append(output)
+        else:
+            log_lines.append("Server WireGuard peer already exists.")
+
+
+def _write_docker_tenant_runtime(tenant):
+    log_lines = []
+    tenant_dir = Path(tenant.env_path).parent
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+    _write_vpn_config_if_requested(tenant, log_lines)
+    image = tenant.docker_image or "optiverse-tenant-app:latest"
+    container_name = tenant.container_name or _tenant_container_name(tenant)
+    codebase = Path(tenant.codebase_path)
+    ok, _ = _run_command(["docker", "container", "inspect", container_name], timeout=20)
+    if ok:
+        ok, output = _run_command(["docker", "restart", container_name], timeout=90)
+        log_lines.append(f"Docker tenant container restart: {'OK' if ok else 'FAILED'}")
+    else:
+        ok, output = _run_command([
+            "docker", "run", "-d",
+            "--name", container_name,
+            "--restart", "unless-stopped",
+            "--network", "host",
+            "--env-file", str(tenant.env_path),
+            "-v", f"{tenant_dir}:{tenant_dir}",
+            "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
+            image,
+            "python", "-m", "daphne", "-b", _tenant_bind_host(), "-p", str(tenant.panel_port), "oltportal.asgi:application",
+        ], timeout=120)
+        log_lines.append(f"Docker tenant container create/start: {'OK' if ok else 'FAILED'}")
+    if output:
+        log_lines.append(output)
+    if not ok:
+        raise TenantProvisionError(output or "Docker tenant container failed.")
+    tenant.container_name = container_name
+    tenant.provisioning_log = "\n".join(log_lines).strip()
+    tenant.provisioning_error = ""
+    tenant.provisioned_at = timezone.now()
+    tenant.save(update_fields=["container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
+    return f"{container_name} running"
+
+
 def prepare_tenant_defaults(tenant):
     tenant.save()
     slug = tenant.slug
@@ -174,9 +356,17 @@ def prepare_tenant_defaults(tenant):
     tenant.service_name = tenant.service_name or f"optiverse-{slug}"
     tenant.isp_name = tenant.isp_name or tenant.name
     tenant.owner_name = tenant.owner_name or tenant.name
+    tenant.agent_token = tenant.agent_token or secrets.token_urlsafe(36)
+    if not tenant.wg_client_private_key or not tenant.wg_client_public_key:
+        tenant.wg_client_private_key, tenant.wg_client_public_key = _wireguard_keypair()
+    tenant.wg_client_address = tenant.wg_client_address or _tenant_default_wg_address(tenant)
+    tenant.docker_image = tenant.docker_image or "optiverse-tenant-app:latest"
+    tenant.container_name = tenant.container_name or _tenant_container_name(tenant)
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
-        "env_path", "service_name", "isp_name", "owner_name", "updated_at",
+        "env_path", "service_name", "isp_name", "owner_name", "agent_token",
+        "wg_client_private_key", "wg_client_public_key", "wg_client_address",
+        "docker_image", "container_name", "updated_at",
     ])
     return tenant
 
@@ -197,9 +387,13 @@ def provision_tenant_instance(tenant):
         f"u.email={email!r}; u.set_password({password!r}); u.save(); print('tenant superuser ready')"
     )
     _run_tenant_manage(tenant, ["shell", "-c", code], timeout=180)
-    service_status = _write_systemd_service(tenant)
+    if _tenant_runtime() == "docker":
+        service_status = _write_docker_tenant_runtime(tenant)
+        tenant.service_name = tenant.container_name
+    else:
+        service_status = _write_systemd_service(tenant)
     tenant.status = tenant.STATUS_ACTIVE
-    tenant.save(update_fields=["status", "updated_at"])
+    tenant.save(update_fields=["status", "service_name", "updated_at"])
     try:
         refresh_tenant_database_snapshot(tenant)
     except TenantSnapshotError:

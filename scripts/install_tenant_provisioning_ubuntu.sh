@@ -91,11 +91,21 @@ if [ -f "$APP_DIR/agent/Dockerfile" ]; then
   sudo docker build -t optiverse-agent:latest "$APP_DIR/agent"
 fi
 
+if [ -f "$APP_DIR/docker/tenant-app.Dockerfile" ]; then
+  echo "Building OptiVerse tenant app image..."
+  sudo docker build -t optiverse-tenant-app:latest -f "$APP_DIR/docker/tenant-app.Dockerfile" "$APP_DIR"
+fi
+
 echo "Updating OptiVerse .env provisioning values..."
 set_env_value "OPTIVERSE_TENANT_AUTO_PROVISION" "True"
+set_env_value "CONTROL_TENANT_AUTO_PROVISION" "True"
+set_env_value "CONTROL_TENANT_RUNTIME" "docker"
 set_env_value "OPTIVERSE_TENANT_BASE_DIR" "$TENANT_BASE_DIR"
+set_env_value "CONTROL_TENANT_BASE_DIR" "$TENANT_BASE_DIR"
 set_env_value "OPTIVERSE_WG_SERVER_CONFIG" "$WG_CONFIG"
+set_env_value "CONTROL_WG_SERVER_CONFIG" "$WG_CONFIG"
 set_env_value "OPTIVERSE_WG_RESTART_AFTER_PROVISION" "True"
+set_env_value "CONTROL_WG_RESTART_AFTER_PROVISION" "True"
 if [ -n "$PUBLIC_API_URL" ]; then
   set_env_value "OPTIVERSE_PUBLIC_API_URL" "$PUBLIC_API_URL"
 fi

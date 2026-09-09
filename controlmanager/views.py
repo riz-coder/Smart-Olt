@@ -205,6 +205,18 @@ def tenant_detail(request, pk):
                 audit(request, "tenant_db_refresh_failed", tenant, str(exc))
                 messages.error(request, str(exc))
             return redirect("control_tenant_detail", pk=tenant.pk)
+        if action == "provision":
+            try:
+                result = provision_tenant_instance(tenant)
+                audit(request, "tenant_reprovision", tenant, f"Tenant provisioned: {result.get('panel_url')}")
+                messages.success(request, f"Tenant provision/restart completed: {result.get('service_status')}")
+            except TenantProvisionError as exc:
+                tenant.status = Tenant.STATUS_PROVISIONING
+                tenant.provisioning_error = str(exc)
+                tenant.save(update_fields=["status", "provisioning_error", "updated_at"])
+                audit(request, "tenant_reprovision_failed", tenant, str(exc))
+                messages.error(request, f"Tenant provisioning failed: {exc}")
+            return redirect("control_tenant_detail", pk=tenant.pk)
     tenant_olts = []
     tenant_olts_error = ""
     if tenant.database_path:
