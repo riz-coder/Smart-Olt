@@ -2770,7 +2770,7 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
 
     def _alert_olt_id_from_key(alert):
         key = str(getattr(alert, "dedup_key", "") or "")
-        match = re.match(r"^(?:pon_outage|signal_degrade):(\d+):", key)
+        match = re.match(r"^(?:pon_outage|fiber_cut|signal_degrade):(\d+):", key)
         if match:
             try:
                 return int(match.group(1))
@@ -2778,12 +2778,31 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
                 return None
         return None
 
+    def _alert_olt_name_from_text(alert):
+        details = getattr(alert, "details", None) or {}
+        detail_name = str(details.get("olt_name") or details.get("olt") or "").strip()
+        if detail_name and detail_name not in {"-", "—"}:
+            return detail_name
+        title = str(getattr(alert, "title", "") or "").strip()
+        match = re.search(r"(?i)fiber\s+cut\s+\W+\s*(.+?)\s+PON\s+0/", title)
+        if match:
+            return match.group(1).strip()
+        message = str(getattr(alert, "message", "") or "").strip()
+        match = re.search(r"(?i)^(.+?)\s+\(\S+\)\s+is\s+", message)
+        if match:
+            return match.group(1).strip()
+        return ""
+
     def _alert_olt_name(alert=None, fallback_olt_id=None):
         if alert is not None and getattr(alert, "olt_id", None):
             name = str(getattr(getattr(alert, "olt", None), "name", "") or "").strip()
             if name and name not in {"-", "—"}:
                 return name
             fallback_olt_id = getattr(alert, "olt_id", None)
+        if alert is not None:
+            text_name = _alert_olt_name_from_text(alert)
+            if text_name:
+                return text_name
         if alert is not None and not fallback_olt_id:
             fallback_olt_id = _alert_olt_id_from_key(alert)
         if selected_olt is not None:
@@ -2796,9 +2815,27 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
                 return str(name)
             return f"OLT #{fallback_olt_id}"
         return "Unknown OLT"
+
+    def _alert_olt_id(alert=None, olt_name=""):
+        if alert is not None and getattr(alert, "olt_id", None):
+            return getattr(alert, "olt_id", None)
+        key_olt_id = _alert_olt_id_from_key(alert) if alert is not None else None
+        if key_olt_id and OLT.objects.filter(pk=key_olt_id).exists():
+            return key_olt_id
+        if selected_olt is not None and getattr(selected_olt, "pk", None):
+            return selected_olt.pk
+        olt_name = str(olt_name or "").strip()
+        if olt_name and not re.match(r"(?i)^unknown\s+olt$|^olt\s+#\d+$", olt_name):
+            by_name = OLT.objects.filter(name__iexact=olt_name).values_list("pk", flat=True).first()
+            if by_name:
+                return by_name
+        return key_olt_id
+
+    seen_fiber = set()
     for a in qs.order_by("-created_at")[: max(1, int(limit or 60)) * 2]:
         d = a.details or {}
         olt_name = _alert_olt_name(a)
+        alert_olt_id = _alert_olt_id(a, olt_name)
         slot = d.get("slot")
         port = d.get("port")
         if a.alert_type == "signal_degrade":
@@ -2806,8 +2843,8 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             recent = d.get("recent_dbm")
             drop = d.get("drop_db")
             url = ""
-            if a.olt_id and slot is not None and port is not None and ont is not None:
-                url = reverse("configured_onu_detail", args=[a.olt_id, slot, port, ont])
+            if alert_olt_id and slot is not None and port is not None and ont is not None:
+                url = reverse("configured_onu_detail", args=[alert_olt_id, slot, port, ont])
             degrade.append({
                 "olt_name": olt_name,
                 "loc": f"0/{slot}/{port}:{ont}",
@@ -2822,8 +2859,12 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             total = d.get("total")
             pct = d.get("pct")
             url = ""
-            if a.olt_id and slot is not None and port is not None:
-                url = f"{reverse('configured_onus')}?olt={a.olt_id}&board={slot}&port={port}"
+            if alert_olt_id and slot is not None and port is not None:
+                url = f"{reverse('configured_onus')}?olt={alert_olt_id}&board={slot}&port={port}"
+            fiber_key = (alert_olt_id or olt_name, str(slot), str(port))
+            if fiber_key in seen_fiber:
+                continue
+            seen_fiber.add(fiber_key)
             fiber.append({
                 "olt_name": olt_name,
                 "loc": f"0/{slot}/{port}",
