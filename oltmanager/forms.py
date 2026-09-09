@@ -2,7 +2,7 @@
 
 from django import forms
 
-from .models import OLT
+from .models import OLT, TenantProvisioning
 from .utils import generate_snmp_community
 
 HUAWEI_HARDWARE_CHOICES = [
@@ -126,6 +126,83 @@ class OLTForm(forms.ModelForm):
         }
 
 
+class TenantProvisioningForm(forms.ModelForm):
+    class Meta:
+        model = TenantProvisioning
+        fields = [
+            "name",
+            "slug",
+            "client_public_ip",
+            "client_vpn_port",
+            "client_local_subnet",
+            "olt_management_subnet",
+            "wg_server_endpoint",
+            "wg_server_public_key",
+            "docker_image",
+            "notes",
+        ]
+        labels = {
+            "client_public_ip": "Client public IP",
+            "client_vpn_port": "Client VPN port",
+            "client_local_subnet": "Client local subnet",
+            "olt_management_subnet": "OLT management subnet",
+            "wg_server_endpoint": "VPS WireGuard endpoint",
+            "wg_server_public_key": "VPS WireGuard public key",
+            "docker_image": "Tenant agent Docker image",
+        }
+        help_texts = {
+            "slug": "Used for the container name and config path. Example: malir-cantt.",
+            "client_public_ip": "Static/public IP of the customer site.",
+            "client_vpn_port": "Usually 51820 unless the site uses a custom WireGuard port.",
+            "client_local_subnet": "Customer LAN subnet behind the VPN peer. Example: 192.168.10.0/24.",
+            "olt_management_subnet": "Subnet where OLTs are reachable. Example: 10.101.11.0/24.",
+            "wg_server_endpoint": "Public VPS endpoint that the tenant peer connects to. Example: vps.example.com:51820.",
+            "wg_server_public_key": "Optional in local testing; fill this for copy-ready client config.",
+        }
+        widgets = {
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            css_class = field.widget.attrs.get("class", "")
+            field.widget.attrs["class"] = f"{css_class} form-control".strip()
+        if not self.is_bound:
+            self.fields["client_vpn_port"].initial = 51820
+            self.fields["docker_image"].initial = "optiverse-agent:latest"
+
+    def clean_slug(self):
+        value = str(self.cleaned_data.get("slug") or "").strip().lower()
+        value = re.sub(r"[^a-z0-9-]+", "-", value).strip("-")
+        if not value:
+            raise forms.ValidationError("Slug is required.")
+        return value
+
+    def _clean_subnet(self, field_name):
+        value = str(self.cleaned_data.get(field_name) or "").strip()
+        if not value:
+            return value
+        try:
+            import ipaddress
+            ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            raise forms.ValidationError("Enter a valid subnet, e.g. 10.101.11.0/24.")
+        return value
+
+    def clean_client_local_subnet(self):
+        return self._clean_subnet("client_local_subnet")
+
+    def clean_olt_management_subnet(self):
+        return self._clean_subnet("olt_management_subnet")
+
+    def clean_wg_server_endpoint(self):
+        value = str(self.cleaned_data.get("wg_server_endpoint") or "").strip()
+        if ":" not in value:
+            raise forms.ValidationError("Endpoint must include port, e.g. vpn.example.com:51820.")
+        return value
+
+
 class VLANAddForm(forms.Form):
     vlan_id = forms.IntegerField(
         min_value=1,
@@ -207,5 +284,4 @@ class VLANBulkAddForm(forms.Form):
         if existing:
             raise forms.ValidationError(f"These VLANs already exist on the OLT: {', '.join(existing[:6])}")
         return {"raw": f"{start}-{end}", "start": start, "end": end, "count": count}
-
 

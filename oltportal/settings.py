@@ -246,3 +246,11 @@ EMAIL_TIMEOUT = int(os.environ.get('OLT_EMAIL_TIMEOUT', '20'))
 DEFAULT_FROM_EMAIL = os.environ.get(
     'OLT_EMAIL_FROM', EMAIL_HOST_USER or 'OptiVerse Alerts <alerts@optiverse.local>'
 )
+
+# Tenant Docker/VPN provisioning. Keep disabled until the Linux machine has been
+# prepared with Docker, WireGuard and correct service-user permissions.
+OPTIVERSE_PUBLIC_API_URL = os.environ.get("OPTIVERSE_PUBLIC_API_URL", "")
+OPTIVERSE_TENANT_AUTO_PROVISION = _env_bool("OPTIVERSE_TENANT_AUTO_PROVISION", False)
+OPTIVERSE_TENANT_BASE_DIR = os.environ.get("OPTIVERSE_TENANT_BASE_DIR", "/opt/optiverse/tenants")
+OPTIVERSE_WG_SERVER_CONFIG = os.environ.get("OPTIVERSE_WG_SERVER_CONFIG", "")
+OPTIVERSE_WG_RESTART_AFTER_PROVISION = _env_bool("OPTIVERSE_WG_RESTART_AFTER_PROVISION", False)

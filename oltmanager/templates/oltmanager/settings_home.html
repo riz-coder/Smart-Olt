@@ -75,6 +75,13 @@
             </div>
             {% if user.is_staff or user.is_superuser %}
             <div class="settings-card">
+                <h2 class="settings-title">Tenants</h2>
+                <p class="settings-copy">Create tenant VPN and Docker agent provisioning configs for remote OLT access.</p>
+                <a href="{% url 'settings_tenants' %}" class="btn btn-primary">Open Tenants</a>
+            </div>
+            {% endif %}
+            {% if user.is_staff or user.is_superuser %}
+            <div class="settings-card">
                 <h2 class="settings-title">Users</h2>
                 <p class="settings-copy">Create Admin and Standard users. Standard users have read-only access.</p>
                 <a href="{% url 'settings_users' %}" class="btn btn-primary">Open Users</a>

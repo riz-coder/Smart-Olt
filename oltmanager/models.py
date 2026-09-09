@@ -96,6 +96,49 @@ class OLT(models.Model):
         return ""
 
 
+class TenantProvisioning(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_CONFIG_READY = "config_ready"
+    STATUS_AGENT_ONLINE = "agent_online"
+    STATUS_VPN_ONLINE = "vpn_online"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_CONFIG_READY, "Config ready"),
+        (STATUS_AGENT_ONLINE, "Agent online"),
+        (STATUS_VPN_ONLINE, "VPN online"),
+    ]
+
+    name = models.CharField(max_length=120, unique=True)
+    slug = models.SlugField(max_length=80, unique=True)
+    client_public_ip = models.GenericIPAddressField(help_text="Client-side public/static IP for the VPN peer.")
+    client_vpn_port = models.PositiveIntegerField(default=51820)
+    client_local_subnet = models.CharField(max_length=64, help_text="Client LAN subnet, e.g. 192.168.10.0/24.")
+    olt_management_subnet = models.CharField(max_length=64, blank=True, default="", help_text="OLT reachable subnet, e.g. 10.101.11.0/24.")
+    wg_server_endpoint = models.CharField(max_length=160, help_text="VPS WireGuard endpoint, e.g. vpn.example.com:51820.")
+    wg_server_public_key = models.CharField(max_length=120, blank=True, default="")
+    wg_client_address = models.CharField(max_length=64, blank=True, default="")
+    wg_client_private_key = models.CharField(max_length=120, blank=True, default="")
+    wg_client_public_key = models.CharField(max_length=120, blank=True, default="")
+    agent_token = models.CharField(max_length=128, unique=True)
+    docker_image = models.CharField(max_length=160, default="optiverse-agent:latest")
+    container_name = models.CharField(max_length=120, blank=True, default="")
+    wg_config_path = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_CONFIG_READY, db_index=True)
+    notes = models.TextField(blank=True, default="")
+    provisioning_log = models.TextField(blank=True, default="")
+    provisioning_error = models.TextField(blank=True, default="")
+    provisioned_at = models.DateTimeField(blank=True, null=True)
+    last_heartbeat_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class SpeedProfile(models.Model):
     index_number = models.PositiveIntegerField(default=0, db_index=True)
     key = models.CharField(max_length=120, unique=True)

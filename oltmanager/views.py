@@ -1,8 +1,12 @@
 import csv
 import datetime
 import calendar
+import base64
 import ipaddress
 import json
+import os
+import secrets
+import subprocess
 from functools import lru_cache, wraps
 from pathlib import Path
 import re
@@ -14,6 +18,7 @@ import uuid
 from urllib.parse import quote_plus, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.sessions.exceptions import SessionInterrupted
 from django.contrib.auth import get_user_model
@@ -34,8 +39,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
-from .forms import OLTForm, VLANAddForm, VLANBulkAddForm
-from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, UplinkPortTrafficSample
+from .forms import OLTForm, TenantProvisioningForm, VLANAddForm, VLANBulkAddForm
+from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, TenantProvisioning, UplinkPortTrafficSample
 from .services import get_olt_adapter
 from .utils import (
     _dashboard_status_counts_from_queryset,
@@ -8030,6 +8035,287 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
 @login_required
 def settings_home(request):
     return render(request, "oltmanager/settings_home.html")
+
+
+def _wireguard_keypair():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import x25519
+
+    private_key = x25519.X25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    private_raw = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return (
+        base64.b64encode(private_raw).decode("ascii"),
+        base64.b64encode(public_raw).decode("ascii"),
+    )
+
+
+def _tenant_default_wg_address(pk):
+    # Phase-1 deterministic pool: enough for local testing and early production
+    # trials; can later be replaced with a proper IPAM allocator.
+    pk = int(pk or 1)
+    third_octet = 10 + ((pk - 1) % 240)
+    host_octet = 2 + ((pk - 1) // 240)
+    return f"10.200.{third_octet}.{host_octet}/32"
+
+
+def _tenant_client_allowed_ips(tenant):
+    values = ["10.200.0.0/16"]
+    olt_subnet = str(getattr(tenant, "olt_management_subnet", "") or "").strip()
+    if olt_subnet:
+        values.append(olt_subnet)
+    local_subnet = str(getattr(tenant, "client_local_subnet", "") or "").strip()
+    if local_subnet and local_subnet not in values:
+        values.append(local_subnet)
+    return ", ".join(values)
+
+
+def _tenant_wireguard_client_config(tenant):
+    server_key = str(getattr(tenant, "wg_server_public_key", "") or "").strip()
+    if not server_key:
+        server_key = "<VPS_WIREGUARD_PUBLIC_KEY>"
+    return "\n".join([
+        "[Interface]",
+        f"PrivateKey = {tenant.wg_client_private_key}",
+        f"Address = {tenant.wg_client_address}",
+        "DNS = 1.1.1.1",
+        "",
+        "[Peer]",
+        f"PublicKey = {server_key}",
+        f"Endpoint = {tenant.wg_server_endpoint}",
+        f"AllowedIPs = {_tenant_client_allowed_ips(tenant)}",
+        "PersistentKeepalive = 25",
+    ])
+
+
+def _tenant_server_peer_config(tenant):
+    endpoint = f"{tenant.client_public_ip}:{tenant.client_vpn_port}"
+    allowed_ips = [tenant.wg_client_address]
+    local_subnet = str(getattr(tenant, "client_local_subnet", "") or "").strip()
+    if local_subnet:
+        allowed_ips.append(local_subnet)
+    olt_subnet = str(getattr(tenant, "olt_management_subnet", "") or "").strip()
+    if olt_subnet and olt_subnet not in allowed_ips:
+        allowed_ips.append(olt_subnet)
+    return "\n".join([
+        f"# Tenant: {tenant.name}",
+        "[Peer]",
+        f"PublicKey = {tenant.wg_client_public_key}",
+        f"AllowedIPs = {', '.join(allowed_ips)}",
+        f"Endpoint = {endpoint}",
+        "PersistentKeepalive = 25",
+    ])
+
+
+def _tenant_docker_command(tenant):
+    api_url = getattr(settings, "OPTIVERSE_PUBLIC_API_URL", "") or "https://your-optiverse-control.example.com"
+    safe_slug = re.sub(r"[^a-z0-9-]+", "-", str(tenant.slug or "").lower()).strip("-") or f"tenant-{tenant.pk}"
+    base_dir = getattr(settings, "OPTIVERSE_TENANT_BASE_DIR", "/opt/optiverse/tenants")
+    return " \\\n+  ".join([
+        f"docker run -d --name optiverse-agent-{safe_slug}",
+        "--restart unless-stopped",
+        "--network host",
+        f"-e OPTIVERSE_TENANT_ID={tenant.pk}",
+        f"-e OPTIVERSE_AGENT_TOKEN={tenant.agent_token}",
+        f"-e OPTIVERSE_API_URL={api_url}",
+        f"-e OPTIVERSE_OLT_MANAGEMENT_SUBNET={tenant.olt_management_subnet or tenant.client_local_subnet}",
+        f"-e OPTIVERSE_TENANT_CONFIG_DIR={base_dir}/{safe_slug}",
+        str(tenant.docker_image or "optiverse-agent:latest"),
+    ])
+
+
+def _tenant_auto_provision_enabled():
+    return bool(getattr(settings, "OPTIVERSE_TENANT_AUTO_PROVISION", False))
+
+
+def _run_provision_command(args, timeout=30):
+    completed = subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    output = "\n".join(part.strip() for part in [completed.stdout, completed.stderr] if part and part.strip())
+    return completed.returncode == 0, output
+
+
+def _tenant_safe_slug(tenant):
+    return re.sub(r"[^a-z0-9-]+", "-", str(tenant.slug or "").lower()).strip("-") or f"tenant-{tenant.pk}"
+
+
+def _tenant_container_name(tenant):
+    return f"optiverse-agent-{_tenant_safe_slug(tenant)}"
+
+
+def _tenant_paths(tenant):
+    base_dir = Path(getattr(settings, "OPTIVERSE_TENANT_BASE_DIR", "/opt/optiverse/tenants")).resolve()
+    tenant_dir = (base_dir / _tenant_safe_slug(tenant)).resolve()
+    if base_dir not in tenant_dir.parents and tenant_dir != base_dir:
+        raise ValueError("Unsafe tenant path resolved outside tenant base directory.")
+    return base_dir, tenant_dir, tenant_dir / "wg0.conf"
+
+
+def _append_server_peer_if_enabled(tenant, log_lines):
+    server_config = str(getattr(settings, "OPTIVERSE_WG_SERVER_CONFIG", "") or "").strip()
+    if not server_config:
+        log_lines.append("Skipped server peer append: OPTIVERSE_WG_SERVER_CONFIG not set.")
+        return
+    path = Path(server_config).resolve()
+    marker = f"# OptiVerse tenant {tenant.pk}: {tenant.slug}"
+    peer_block = "\n".join([marker, _tenant_server_peer_config(tenant), ""])
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    if marker in current:
+        log_lines.append(f"Server peer already exists in {path}.")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        if current and not current.endswith("\n"):
+            handle.write("\n")
+        handle.write("\n")
+        handle.write(peer_block)
+    log_lines.append(f"Server peer appended to {path}.")
+    if bool(getattr(settings, "OPTIVERSE_WG_RESTART_AFTER_PROVISION", False)):
+        ok, output = _run_provision_command(["systemctl", "restart", "wg-quick@wg0"], timeout=40)
+        log_lines.append("WireGuard restart: OK" if ok else "WireGuard restart: FAILED")
+        if output:
+            log_lines.append(output)
+
+
+def _provision_tenant_backend(tenant):
+    log_lines = []
+    error_lines = []
+    if os.name == "nt":
+        return False, "Auto provisioning is for Linux servers only. Current machine is Windows."
+    if not _tenant_auto_provision_enabled():
+        return False, "Auto provisioning disabled. Set OPTIVERSE_TENANT_AUTO_PROVISION=True in .env."
+
+    try:
+        _, tenant_dir, wg_config_path = _tenant_paths(tenant)
+        tenant_dir.mkdir(parents=True, exist_ok=True)
+        wg_config_path.write_text(_tenant_wireguard_client_config(tenant) + "\n", encoding="utf-8")
+        try:
+            os.chmod(wg_config_path, 0o600)
+        except OSError:
+            pass
+        log_lines.append(f"Client WireGuard config written: {wg_config_path}")
+        _append_server_peer_if_enabled(tenant, log_lines)
+
+        container_name = _tenant_container_name(tenant)
+        api_url = getattr(settings, "OPTIVERSE_PUBLIC_API_URL", "") or "https://your-optiverse-control.example.com"
+        exists, _ = _run_provision_command(["docker", "container", "inspect", container_name], timeout=15)
+        if exists:
+            ok, output = _run_provision_command(["docker", "restart", container_name], timeout=60)
+            log_lines.append(f"Docker container {container_name} restart: {'OK' if ok else 'FAILED'}")
+        else:
+            ok, output = _run_provision_command([
+                "docker", "run", "-d",
+                "--name", container_name,
+                "--restart", "unless-stopped",
+                "--network", "host",
+                "-e", f"OPTIVERSE_TENANT_ID={tenant.pk}",
+                "-e", f"OPTIVERSE_AGENT_TOKEN={tenant.agent_token}",
+                "-e", f"OPTIVERSE_API_URL={api_url}",
+                "-e", f"OPTIVERSE_OLT_MANAGEMENT_SUBNET={tenant.olt_management_subnet or tenant.client_local_subnet}",
+                "-e", f"OPTIVERSE_TENANT_CONFIG_DIR={tenant_dir}",
+                str(tenant.docker_image or "optiverse-agent:latest"),
+            ], timeout=90)
+            log_lines.append(f"Docker container {container_name} create/start: {'OK' if ok else 'FAILED'}")
+        if output:
+            log_lines.append(output)
+        if not ok:
+            error_lines.append(output or "Docker command failed.")
+
+        tenant.container_name = container_name
+        tenant.wg_config_path = str(wg_config_path)
+        tenant.provisioning_log = "\n".join(log_lines).strip()
+        tenant.provisioning_error = "\n".join(error_lines).strip()
+        tenant.provisioned_at = timezone.now() if ok else tenant.provisioned_at
+        tenant.status = TenantProvisioning.STATUS_CONFIG_READY
+        tenant.save(update_fields=[
+            "container_name",
+            "wg_config_path",
+            "provisioning_log",
+            "provisioning_error",
+            "provisioned_at",
+            "status",
+            "updated_at",
+        ])
+        return ok, tenant.provisioning_error or "Tenant backend provisioned."
+    except Exception as exc:
+        tenant.provisioning_error = str(exc)
+        tenant.provisioning_log = "\n".join(log_lines).strip()
+        tenant.save(update_fields=["provisioning_error", "provisioning_log", "updated_at"])
+        return False, str(exc)
+
+
+@login_required
+@admin_required
+def settings_tenants(request):
+    if request.method == "POST":
+        form = TenantProvisioningForm(request.POST)
+        if form.is_valid():
+            tenant = form.save(commit=False)
+            tenant.agent_token = secrets.token_urlsafe(36)
+            private_key, public_key = _wireguard_keypair()
+            tenant.wg_client_private_key = private_key
+            tenant.wg_client_public_key = public_key
+            tenant.status = TenantProvisioning.STATUS_CONFIG_READY
+            tenant.save()
+            if not tenant.wg_client_address:
+                tenant.wg_client_address = _tenant_default_wg_address(tenant.pk)
+                tenant.save(update_fields=["wg_client_address", "updated_at"])
+            ok, provision_message = _provision_tenant_backend(tenant)
+            if ok:
+                messages.success(request, f"Tenant {tenant.name} created and backend provisioning completed.")
+            elif _tenant_auto_provision_enabled():
+                messages.error(request, f"Tenant {tenant.name} created, but backend provisioning failed: {provision_message}")
+            else:
+                messages.success(request, f"Tenant {tenant.name} created. VPN and agent config is ready.")
+            return redirect("settings_tenant_detail", pk=tenant.pk)
+    else:
+        form = TenantProvisioningForm()
+
+    tenants = TenantProvisioning.objects.order_by("name")
+    return render(
+        request,
+        "oltmanager/settings_tenants.html",
+        {
+            "form": form,
+            "tenants": tenants,
+        },
+    )
+
+
+@login_required
+@admin_required
+def settings_tenant_detail(request, pk):
+    tenant = get_object_or_404(TenantProvisioning, pk=pk)
+    if request.method == "POST" and request.POST.get("action") == "provision":
+        ok, provision_message = _provision_tenant_backend(tenant)
+        if ok:
+            messages.success(request, "Tenant backend provisioning completed.")
+        else:
+            messages.error(request, f"Tenant backend provisioning failed: {provision_message}")
+        return redirect("settings_tenant_detail", pk=tenant.pk)
+    return render(
+        request,
+        "oltmanager/settings_tenant_detail.html",
+        {
+            "tenant": tenant,
+            "client_config": _tenant_wireguard_client_config(tenant),
+            "server_peer_config": _tenant_server_peer_config(tenant),
+            "docker_command": _tenant_docker_command(tenant),
+        },
+    )
 
 
 @login_required
