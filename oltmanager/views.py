@@ -4744,6 +4744,31 @@ def olt_list(request):
     # Online OLT = reachable (green/orange health); offline = SNMP-down (red).
     _online_olts = int(_olt_counts.get("green", 0)) + int(_olt_counts.get("orange", 0))
     _total_olts = _online_olts + int(_olt_counts.get("red", 0))
+    billing_qs = OLT.objects.only("id", "pricing_expires_at", "pricing_locked", "pricing_locked_reason")
+    if selected_olt:
+        billing_qs = billing_qs.filter(pk=selected_olt.pk)
+    now = timezone.now()
+    warning_until = now + timezone.timedelta(hours=48)
+    expired_count = 0
+    expiring_count = 0
+    for billing_olt in billing_qs:
+        expires_at = getattr(billing_olt, "pricing_expires_at", None)
+        if getattr(billing_olt, "pricing_access_locked", False):
+            expired_count += 1
+        elif expires_at and now < expires_at <= warning_until:
+            expiring_count += 1
+    billing_alert_text = ""
+    if expired_count and expiring_count:
+        billing_alert_text = f"{expired_count} OLT subscription expired, {expiring_count} expiring soon"
+    elif expired_count:
+        billing_alert_text = f"{expired_count} OLT subscription expired"
+    elif expiring_count:
+        billing_alert_text = f"{expiring_count} OLT subscription expiring soon"
+    dashboard_billing_alert = {
+        "active": bool(billing_alert_text),
+        "text": billing_alert_text,
+        "url": reverse("settings_billing"),
+    }
 
     context = {
         'dashboard_total_onus': total_all,
@@ -4767,8 +4792,9 @@ def olt_list(request):
         'dashboard_offline_olts': _total_olts - _online_olts,
         'dashboard_signal_degrade_alerts': _dashboard_alert_widgets["degrade"],
         'dashboard_fiber_cut_alerts': _dashboard_alert_widgets["fiber"],
+        'dashboard_billing_alert': dashboard_billing_alert,
         'dashboard_selected_olt': selected_olt,
-        'dashboard_scope_title': f"{selected_olt.name} snapshot" if selected_olt else "Live subscriber snapshot",
+        'dashboard_scope_title': f"{selected_olt.name} snapshot" if selected_olt else "",
         'dashboard_scope_kicker': selected_olt.name if selected_olt else "ONU Overview",
         'dashboard_warning_url': f"{configured_signal_base}?{urlencode(warning_params)}",
         'dashboard_critical_url': f"{configured_signal_base}?{urlencode(critical_params)}",
@@ -6229,7 +6255,14 @@ def _apply_onu_type_ethernet_layout(olt, record, eth_count):
         if mode not in {"access", "transparent", "lan", "trunk"}:
             mode = "lan"
         snapshot = {"ok": False, "message": "Unsupported mode."}
-        if mode == "access":
+        if status in {"shutdown", "disabled"}:
+            admin_result = execute_onu_eth_port_cli_admin_state(olt, slot_i, port_i, ont_i, eth_port, "shutdown")
+            if admin_result.get("ok"):
+                snapshot = {"ok": True, "message": admin_result.get("message") or ""}
+                cfg["status"] = "shutdown"
+            else:
+                snapshot = {"ok": False, "message": admin_result.get("message") or "admin state failed"}
+        elif mode == "access":
             vlan_id = str(cfg.get("vlan") or primary_vlan).strip()
             if vlan_id and vlan_id.isdigit():
                 snapshot = execute_onu_ethernet_port_access_config(olt, slot_i, port_i, ont_i, eth_port, vlan_id)
@@ -6260,12 +6293,7 @@ def _apply_onu_type_ethernet_layout(olt, record, eth_count):
 
         if snapshot.get("ok"):
             successes += 1
-            if status in {"shutdown", "disabled"}:
-                admin_result = execute_onu_eth_port_cli_admin_state(olt, slot_i, port_i, ont_i, eth_port, "shutdown")
-                if not admin_result.get("ok"):
-                    failures.append(f"ETH {eth_port}: {_ui_telnet_error_message(admin_result.get('message')) or 'admin state failed'}")
-                cfg["status"] = "shutdown"
-            else:
+            if status not in {"shutdown", "disabled"}:
                 cfg["status"] = "enabled"
         else:
             failures.append(f"ETH {eth_port}: {_ui_telnet_error_message(snapshot.get('message')) or 'port config failed'}")
@@ -7600,7 +7628,18 @@ def configured_onu_ethernet_port_config(request, olt_pk, slot, port, ont_id, eth
         prev_status = str(port_config.get("status") or "enabled").strip().lower()
         status_changed = selected_status != prev_status
 
-        if selected_mode == "access":
+        if selected_status in ("shutdown", "disabled"):
+            cli_result = execute_onu_eth_port_cli_admin_state(
+                olt, slot, port, ont_id, eth_port, "shutdown"
+            )
+            response_message = _ui_telnet_error_message(cli_result.get("message"))
+            if cli_result.get("ok"):
+                action_ok = True
+                existing = port_config_map.get(str(eth_port)) or {}
+                existing["status"] = "shutdown"
+                port_config_map[str(eth_port)] = existing
+                _save_ethernet_port_config_cache(record, port_config_map)
+        elif selected_mode == "access":
             if not current_vlan:
                 response_message = "Select VLAN-ID"
             else:
@@ -7658,9 +7697,9 @@ def configured_onu_ethernet_port_config(request, olt_pk, slot, port, ont_id, eth
                     }
                     _save_ethernet_port_config_cache(record, port_config_map)
 
-        # Apply ethernet port admin state via CLI whenever status changed OR when
-        # explicitly setting shutdown, regardless of whether mode config succeeded.
-        if status_changed or selected_status == "shutdown":
+        # Enabling/disabling ethernet port admin state is always CLI-only. Shutdown
+        # returns above without touching VLAN/mode config.
+        if selected_status not in ("shutdown", "disabled") and status_changed:
             cli_state = "shutdown" if selected_status in ("shutdown", "disabled") else "enabled"
             cli_result = execute_onu_eth_port_cli_admin_state(
                 olt, slot, port, ont_id, eth_port, cli_state

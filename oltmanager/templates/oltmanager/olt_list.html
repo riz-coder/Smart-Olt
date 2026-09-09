@@ -81,6 +81,26 @@
         letter-spacing: -0.04em;
         color: #f4f8ff;
     }
+    .summary-billing-alert {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        max-width: min(620px, 100%);
+        margin-top: 2px;
+        color: #ff4d67;
+        font-size: 18px;
+        font-weight: 950;
+        line-height: 1.18;
+        text-decoration: none;
+        text-shadow:
+            0 0 8px rgba(255, 77, 103, 0.78),
+            0 0 18px rgba(255, 35, 72, 0.46);
+        filter: drop-shadow(0 0 12px rgba(255, 35, 72, 0.28));
+    }
+    .summary-billing-alert:hover {
+        color: #ff8ea0;
+        text-decoration: underline;
+    }
     .summary-sub {
         margin: 10px 0 0;
         font-size: 14px;
@@ -1394,6 +1414,16 @@
         font-weight: 950;
         text-shadow: 0 1px 0 rgba(255,255,255,0.8);
     }
+    html[data-theme="light"] .summary-billing-alert {
+        color: #d91f3d;
+        text-shadow:
+            0 0 7px rgba(217, 31, 61, 0.34),
+            0 0 16px rgba(217, 31, 61, 0.20);
+        filter: drop-shadow(0 0 10px rgba(217, 31, 61, 0.15));
+    }
+    html[data-theme="light"] .summary-billing-alert:hover {
+        color: #a80f28;
+    }
     html[data-theme="light"] .summary-stamp {
         background: #eef5ff;
         border-color: #b8cceb;
@@ -1610,7 +1640,9 @@
                     </div>
                     {% else %}
                     <p class="summary-kicker">{{ dashboard_scope_kicker }}</p>
-                    <h2 class="summary-title">{{ dashboard_scope_title }}</h2>
+                    {% if dashboard_billing_alert.active %}
+                    <a href="{{ dashboard_billing_alert.url }}" class="summary-billing-alert">{{ dashboard_billing_alert.text }} - check billing</a>
+                    {% endif %}
                     {% endif %}
                 </div>
                 <div class="summary-stamp-row">
