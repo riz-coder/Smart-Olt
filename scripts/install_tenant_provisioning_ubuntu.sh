@@ -35,7 +35,8 @@ require_root_or_sudo
 
 echo "Installing Docker, WireGuard and verification tools..."
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin wireguard wireguard-tools iproute2 iptables curl netcat-openbsd snmp
+sudo apt-get install -y docker.io wireguard wireguard-tools iproute2 iptables curl netcat-openbsd snmp
+sudo apt-get install -y docker-compose-plugin || sudo apt-get install -y docker-compose || true
 
 echo "Enabling Docker..."
 sudo systemctl enable docker
