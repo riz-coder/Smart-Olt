@@ -159,6 +159,7 @@ def _tenant_secret_key(tenant):
 
 
 def _tenant_env(tenant, *, disable_embedded_sync=False):
+    tenant_dir = Path(tenant.env_path).parent
     env = os.environ.copy()
     env.update({
         "DJANGO_SETTINGS_MODULE": "oltportal.settings",
@@ -170,6 +171,7 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         "DJANGO_CSRF_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken",
         "SQLITE_DB_PATH": tenant.database_path,
         "SQLITE_TIMEOUT_SECONDS": "60",
+        "ONU_STATUS_SYNC_PROGRESS_FILE": str(tenant_dir / "onu_status_sync_progress.json"),
         "DJANGO_TIME_ZONE": os.environ.get("CONTROL_DJANGO_TIME_ZONE", "Asia/Karachi"),
         "DJANGO_LANGUAGE_CODE": "en-us",
         "OLT_ENABLE_EMBEDDED_SYNC": "true",
@@ -186,6 +188,7 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
 
 def _write_tenant_env_file(tenant):
     secret = _tenant_secret_key(tenant)
+    tenant_dir = Path(tenant.env_path).parent
     text = f"""DJANGO_SECRET_KEY={secret}
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS={tenant.panel_host},127.0.0.1,localhost
@@ -199,6 +202,7 @@ DJANGO_TIME_ZONE=Asia/Karachi
 DJANGO_LANGUAGE_CODE=en-us
 SQLITE_DB_PATH={tenant.database_path}
 SQLITE_TIMEOUT_SECONDS=60
+ONU_STATUS_SYNC_PROGRESS_FILE={tenant_dir / "onu_status_sync_progress.json"}
 OLT_ENABLE_EMBEDDED_SYNC=true
 OLT_ONU_OPTICAL_SAMPLE_INTERVAL_SECONDS=3600
 OLT_ONU_OPTICAL_RETENTION_DAYS=15

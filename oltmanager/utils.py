@@ -13952,6 +13952,23 @@ def _read_onu_status_progress_file():
         return None
 
 
+def _normalize_onu_status_progress_snapshot(payload):
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    olts = normalized.get("olts")
+    if isinstance(olts, dict):
+        olts = list(olts.values())
+    if isinstance(olts, list):
+        cleaned = [dict(item) for item in olts if isinstance(item, dict)]
+        cleaned.sort(key=lambda item: (
+            0 if item.get("running") else 1 if not item.get("done") else 2,
+            str(item.get("olt") or "").lower(),
+        ))
+        normalized["olts"] = cleaned
+    return normalized
+
+
 def start_onu_status_sync_progress(olt_rows):
     now = timezone.now()
     olts = {}
@@ -14039,7 +14056,7 @@ def schedule_onu_status_sync_progress(next_run_at=None):
 def get_onu_status_sync_progress():
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
         snapshot = _onu_status_progress_snapshot_unlocked()
-    file_snapshot = _read_onu_status_progress_file()
+    file_snapshot = _normalize_onu_status_progress_snapshot(_read_onu_status_progress_file())
     if file_snapshot:
         snapshot_completed = str(snapshot.get("cycle_completed_at") or "")
         file_completed = str(file_snapshot.get("cycle_completed_at") or "")
