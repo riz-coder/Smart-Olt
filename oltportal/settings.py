@@ -20,7 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 def _load_local_env(path):
     if not path.exists():
         return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        env_text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw_line in env_text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
