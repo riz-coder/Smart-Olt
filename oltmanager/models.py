@@ -234,6 +234,11 @@ class ConfiguredONU(models.Model):
 
     class Meta:
         ordering = ['olt_id', 'slot', 'port', 'ont_id']
+        indexes = [
+            models.Index(fields=['olt', 'derived_status'], name='conf_onu_olt_status_idx'),
+            models.Index(fields=['derived_status', 'signal_bucket', 'olt'], name='conf_onu_status_signal_idx'),
+            models.Index(fields=['olt', 'signal_bucket'], name='conf_onu_olt_signal_idx'),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=['olt', 'frame', 'slot', 'port', 'ont_id'],
