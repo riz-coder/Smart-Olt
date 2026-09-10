@@ -5,6 +5,7 @@ import base64
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 
@@ -277,6 +278,74 @@ def _run_command(args, *, timeout=120, cwd=None):
     result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
     output = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part and part.strip())
     return result.returncode == 0, output
+
+
+def _remove_file_with_sqlite_sidecars(path, log_lines):
+    target = Path(str(path or "")).expanduser()
+    if not str(target):
+        return
+    for candidate in [target, Path(f"{target}-wal"), Path(f"{target}-shm"), Path(f"{target}-journal")]:
+        try:
+            if candidate.is_file():
+                candidate.unlink()
+                log_lines.append(f"Removed file: {candidate}")
+        except OSError as exc:
+            log_lines.append(f"Could not remove file {candidate}: {exc}")
+
+
+def _remove_tenant_directory_if_safe(tenant, log_lines):
+    base_dir = _tenant_base_dir().resolve()
+    slug_dir = (base_dir / _safe_slug(tenant)).resolve()
+    candidate_dirs = []
+    for raw_path in (tenant.env_path, tenant.database_path, tenant.wg_config_path):
+        if raw_path:
+            try:
+                candidate_dirs.append(Path(raw_path).expanduser().resolve().parent)
+            except OSError:
+                pass
+    if slug_dir in candidate_dirs and slug_dir != base_dir and base_dir in slug_dir.parents and slug_dir.exists():
+        try:
+            shutil.rmtree(slug_dir)
+            log_lines.append(f"Removed tenant directory: {slug_dir}")
+        except OSError as exc:
+            log_lines.append(f"Could not remove tenant directory {slug_dir}: {exc}")
+
+
+def delete_tenant_instance(tenant):
+    """Delete tenant runtime, local files and registry record.
+
+    For safety, only the tenant-owned directory under CONTROL_TENANT_BASE_DIR is
+    removed recursively. Shared codebase folders are never recursively removed.
+    """
+    log_lines = []
+    container_names = [
+        tenant.container_name,
+        tenant.worker_container_name,
+        _tenant_legacy_container_name(tenant),
+    ]
+    seen = set()
+    for name in container_names:
+        name = str(name or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        ok, _ = _run_command(["docker", "container", "inspect", name], timeout=20)
+        if ok:
+            _run_command(["docker", "stop", name], timeout=90)
+            rm_ok, output = _run_command(["docker", "rm", name], timeout=90)
+            log_lines.append(f"Docker container remove ({name}): {'OK' if rm_ok else 'FAILED'}")
+            if output:
+                log_lines.append(output)
+
+    _remove_file_with_sqlite_sidecars(tenant.database_path, log_lines)
+    _remove_file_with_sqlite_sidecars(tenant.env_path, log_lines)
+    _remove_file_with_sqlite_sidecars(tenant.wg_config_path, log_lines)
+    _remove_tenant_directory_if_safe(tenant, log_lines)
+
+    name = tenant.name
+    slug = tenant.slug
+    tenant.delete()
+    return {"name": name, "slug": slug, "log": "\n".join(log_lines).strip()}
 
 
 def _tenant_client_config(tenant):

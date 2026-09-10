@@ -94,6 +94,6 @@
 <section class="panel">
     <h2>Delete Tenant Registry</h2>
     <p class="subtle">This removes only the control-plane tenant row. Tenant DB/service files are not deleted.</p>
-    <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} from control DB only?');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant Registry</button></form>
+    <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove Docker containers and delete tenant database/files.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant</button></form>
 </section>
 {% endblock %}

@@ -14,6 +14,7 @@ from .models import ControlAuditLog, Tenant
 from .services import (
     TenantProvisionError,
     TenantSnapshotError,
+    delete_tenant_instance,
     delete_tenant_olt,
     delete_tenant_onu,
     get_tenant_olt_onus,
@@ -357,8 +358,13 @@ def tenant_delete(request, pk):
     tenant = get_object_or_404(Tenant, pk=pk)
     if request.method != "POST":
         return redirect("control_tenant_detail", pk=tenant.pk)
-    name = tenant.name
-    tenant.delete()
-    audit(request, "tenant_delete", details=f"Tenant deleted from control DB only: {name}")
-    messages.success(request, f"Tenant `{name}` deleted from control DB. Tenant app/database was not touched.")
+    tenant_name = tenant.name
+    try:
+        result = delete_tenant_instance(tenant)
+        audit(request, "tenant_delete", details=f"Tenant fully deleted: {result.get('name')} ({result.get('slug')})\n{result.get('log')}")
+        messages.success(request, f"Tenant `{tenant_name}` deleted with its containers and local tenant files.")
+    except Exception as exc:
+        audit(request, "tenant_delete_failed", tenant, str(exc))
+        messages.error(request, f"Tenant delete failed: {exc}")
+        return redirect("control_tenant_detail", pk=tenant.pk)
     return redirect("control_tenants")
