@@ -125,6 +125,10 @@ def _agent_container_name(tenant):
     return f"optiverse-agent-{_safe_slug(tenant)}"
 
 
+def _tenant_cookie_prefix(tenant):
+    return re.sub(r"[^a-z0-9_]+", "_", _safe_slug(tenant).replace("-", "_")).strip("_") or f"tenant_{tenant.pk}"
+
+
 def _read_env_file_value(path, key):
     try:
         text = Path(path).read_text(encoding="utf-8")
@@ -153,6 +157,8 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         "DJANGO_DEBUG": "False",
         "DJANGO_ALLOWED_HOSTS": f"{tenant.panel_host},127.0.0.1,localhost",
         "DJANGO_CSRF_TRUSTED_ORIGINS": f"http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}",
+        "DJANGO_SESSION_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_sessionid",
+        "DJANGO_CSRF_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken",
         "SQLITE_DB_PATH": tenant.database_path,
         "SQLITE_TIMEOUT_SECONDS": "60",
         "DJANGO_TIME_ZONE": os.environ.get("CONTROL_DJANGO_TIME_ZONE", "Asia/Karachi"),
@@ -178,6 +184,8 @@ DJANGO_CSRF_TRUSTED_ORIGINS=http://{tenant.panel_host},http://{tenant.panel_host
 DJANGO_SECURE_SSL_REDIRECT=False
 DJANGO_SESSION_COOKIE_SECURE=False
 DJANGO_CSRF_COOKIE_SECURE=False
+DJANGO_SESSION_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_sessionid
+DJANGO_CSRF_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken
 DJANGO_TIME_ZONE=Asia/Karachi
 DJANGO_LANGUAGE_CODE=en-us
 SQLITE_DB_PATH={tenant.database_path}
