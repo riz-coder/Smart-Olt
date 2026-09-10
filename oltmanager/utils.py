@@ -1635,7 +1635,7 @@ def _snmp_get_oid_rows_chunked(olt, oid_list, *, mp_model=1, chunk_size=120, dea
     return _run_asyncio_sync(_collect())
 
 
-def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None):
+def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None, chunk_size=30):
     """Fetch ONU runtime/down-cause statuses by direct indexed GETs.
 
     Full walks over Huawei ONU status tables are slow on large OLTs and can
@@ -1692,7 +1692,13 @@ def fetch_olt_snmp_status_map_for_records(olt, records, *, max_seconds=None):
     last_error = ""
     for mp_model in (1, 0):
         try:
-            status_rows = _snmp_get_oid_rows_chunked(olt, run_oids + down_oids, mp_model=mp_model, deadline_ts=deadline_ts)
+            status_rows = _snmp_get_oid_rows_chunked(
+                olt,
+                run_oids + down_oids,
+                mp_model=mp_model,
+                chunk_size=chunk_size,
+                deadline_ts=deadline_ts,
+            )
             run_rows = {oid: value for oid, value in status_rows.items() if oid.startswith(base_run_oid + ".")}
             down_cause_rows = {oid: value for oid, value in status_rows.items() if oid.startswith(base_down_cause_oid + ".")}
             items = _snmp_status_rows_to_key_map(
@@ -13877,7 +13883,10 @@ def _onu_status_progress_snapshot_unlocked():
     olts = []
     for item in (_ONU_STATUS_SYNC_PROGRESS.get("olts") or {}).values():
         olts.append(dict(item))
-    olts.sort(key=lambda item: str(item.get("olt") or "").lower())
+    olts.sort(key=lambda item: (
+        0 if item.get("running") else 1 if not item.get("done") else 2,
+        str(item.get("olt") or "").lower(),
+    ))
     checked = sum(int(item.get("checked") or 0) for item in olts)
     total = sum(int(item.get("total") or 0) for item in olts)
     done_olts = sum(1 for item in olts if item.get("done"))

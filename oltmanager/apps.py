@@ -788,6 +788,47 @@ def _onu_status_sync_loop():
         finally:
             close_old_connections()
 
+    def _sync_single_olt_status_with_hard_timeout(olt_id):
+        result_box = {}
+        error_box = {}
+
+        def _target():
+            try:
+                result_box["value"] = _sync_single_olt_status(olt_id)
+            except Exception as exc:
+                error_box["error"] = exc
+
+        thread = threading.Thread(
+            target=_target,
+            name=f"onu-status-sync-olt-{olt_id}",
+            daemon=True,
+        )
+        thread.start()
+        thread.join(ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS + 10)
+        if thread.is_alive():
+            message = f"ONU status sync timed out after {ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS} seconds. Skipping this OLT."
+            try:
+                update_onu_status_sync_progress(
+                    olt_id,
+                    running=False,
+                    done=True,
+                    failed=True,
+                    message=message,
+                )
+            except Exception:
+                pass
+            logger.warning("OLT %s %s", olt_id, message)
+            return {
+                "olt": olt_id,
+                "checked": 0,
+                "updated": 0,
+                "status": message,
+                "timed_out": True,
+            }
+        if "error" in error_box:
+            raise error_box["error"]
+        return result_box.get("value")
+
     # Keep initial page loads responsive after service restart.
     schedule_onu_status_sync_progress(_next_interval_boundary_datetime(ONU_STATUS_SYNC_SECONDS))
     _sleep_until_interval_boundary(ONU_STATUS_SYNC_SECONDS)
@@ -825,7 +866,7 @@ def _onu_status_sync_loop():
                     else:
                         olt_id = pending_ids.pop(0)
                     try:
-                        result = _sync_single_olt_status(olt_id)
+                        result = _sync_single_olt_status_with_hard_timeout(olt_id)
                         if result:
                             logger.info(
                                 "OLT %s ONU status sync: checked=%s updated=%s status=%s",
