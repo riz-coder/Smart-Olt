@@ -789,6 +789,53 @@ def _onu_status_sync_loop():
             close_old_connections()
 
     def _sync_single_olt_status_with_hard_timeout(olt_id):
+        if os.name != "nt":
+            import multiprocessing
+
+            ctx = multiprocessing.get_context("fork")
+            result_queue = ctx.Queue(maxsize=1)
+
+            def _process_target(queue):
+                try:
+                    queue.put(("ok", _sync_single_olt_status(olt_id)))
+                except Exception as exc:
+                    queue.put(("error", repr(exc)))
+
+            process = ctx.Process(target=_process_target, args=(result_queue,), daemon=True)
+            process.start()
+            process.join(ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS + 10)
+            if process.is_alive():
+                process.terminate()
+                process.join(5)
+                if process.is_alive():
+                    process.kill()
+                    process.join(5)
+                message = f"ONU status sync timed out after {ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS} seconds. Skipping this OLT."
+                try:
+                    update_onu_status_sync_progress(
+                        olt_id,
+                        running=False,
+                        done=True,
+                        failed=True,
+                        message=message,
+                    )
+                except Exception:
+                    pass
+                logger.warning("OLT %s %s", olt_id, message)
+                return {
+                    "olt": olt_id,
+                    "checked": 0,
+                    "updated": 0,
+                    "status": message,
+                    "timed_out": True,
+                }
+            if not result_queue.empty():
+                state, payload = result_queue.get()
+                if state == "error":
+                    raise RuntimeError(payload)
+                return payload
+            return None
+
         result_box = {}
         error_box = {}
 
