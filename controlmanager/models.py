@@ -74,7 +74,7 @@ class Tenant(models.Model):
     wg_client_private_key = models.CharField(max_length=120, blank=True, default="")
     wg_client_public_key = models.CharField(max_length=120, blank=True, default="")
     agent_token = models.CharField(max_length=128, blank=True, default="")
-    docker_image = models.CharField(max_length=160, default="optiverse-agent:latest")
+    docker_image = models.CharField(max_length=160, default="optiverse-tenant-app:latest")
     container_name = models.CharField(max_length=120, blank=True, default="")
     worker_container_name = models.CharField(max_length=120, blank=True, default="")
     wg_config_path = models.CharField(max_length=255, blank=True, default="")

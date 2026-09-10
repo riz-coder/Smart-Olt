@@ -220,6 +220,21 @@ OPTIVERSE_AGENT_TOKEN={tenant.agent_token}
     env_path = Path(tenant.env_path)
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.write_text(text, encoding="utf-8")
+    try:
+        os.chmod(env_path, 0o640)
+    except OSError:
+        pass
+    required = {
+        "DJANGO_SECRET_KEY",
+        "DJANGO_SESSION_COOKIE_NAME",
+        "DJANGO_CSRF_COOKIE_NAME",
+        "SQLITE_DB_PATH",
+        "ONU_STATUS_SYNC_PROGRESS_FILE",
+        "OLT_BACKGROUND_SYNC_THREADS",
+    }
+    missing = [key for key in sorted(required) if not _read_env_file_value(env_path, key)]
+    if missing:
+        raise TenantProvisionError(f"Tenant env file is incomplete. Missing: {', '.join(missing)}")
 
 
 def _run_tenant_manage(tenant, args, *, input_text=None, timeout=300):
@@ -291,6 +306,14 @@ def _run_command(args, *, timeout=120, cwd=None):
     result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
     output = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part and part.strip())
     return result.returncode == 0, output
+
+
+def _docker_user_args():
+    if os.name == "nt" or not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+        return []
+    configured = os.environ.get("CONTROL_TENANT_DOCKER_USER", "").strip()
+    user_value = configured or f"{os.getuid()}:{os.getgid()}"
+    return ["--user", user_value] if user_value else []
 
 
 def _remove_file_with_sqlite_sidecars(path, log_lines):
@@ -447,6 +470,8 @@ def _write_docker_tenant_runtime(tenant):
     tenant_dir.mkdir(parents=True, exist_ok=True)
     _write_vpn_config_if_requested(tenant, log_lines)
     image = tenant.docker_image or "optiverse-tenant-app:latest"
+    if image == "optiverse-agent:latest":
+        image = "optiverse-tenant-app:latest"
     container_name = tenant.container_name or _tenant_container_name(tenant)
     worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
     codebase = Path(tenant.codebase_path)
@@ -476,6 +501,7 @@ def _write_docker_tenant_runtime(tenant):
         "--restart", "unless-stopped",
         "--network", "host",
         "--cpus", _tenant_web_cpus(),
+        *_docker_user_args(),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
@@ -513,6 +539,7 @@ def _write_docker_tenant_runtime(tenant):
         "--restart", "unless-stopped",
         "--network", "host",
         "--cpus", _tenant_worker_cpus(),
+        *_docker_user_args(),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
         "-v", f"{tenant_dir}:{tenant_dir}",
@@ -554,7 +581,8 @@ def prepare_tenant_defaults(tenant):
     if not tenant.wg_client_private_key or not tenant.wg_client_public_key:
         tenant.wg_client_private_key, tenant.wg_client_public_key = _wireguard_keypair()
     tenant.wg_client_address = tenant.wg_client_address or _tenant_default_wg_address(tenant)
-    tenant.docker_image = tenant.docker_image or "optiverse-tenant-app:latest"
+    if not tenant.docker_image or tenant.docker_image == "optiverse-agent:latest":
+        tenant.docker_image = "optiverse-tenant-app:latest"
     if not tenant.container_name or tenant.container_name == _tenant_legacy_container_name(tenant):
         tenant.container_name = _tenant_container_name(tenant)
     tenant.worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
