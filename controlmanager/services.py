@@ -55,6 +55,18 @@ def _tenant_start_port():
     return int(os.environ.get("CONTROL_TENANT_START_PORT", "8001"))
 
 
+def _tenant_next_available_port(tenant):
+    used_ports = set(
+        int(port)
+        for port in tenant.__class__.objects.exclude(pk=tenant.pk).values_list("panel_port", flat=True)
+        if port
+    )
+    port = max(_tenant_start_port(), int(tenant.panel_port or 0) or _tenant_start_port())
+    while port in used_ports:
+        port += 1
+    return port
+
+
 def _control_bool(name, default=False):
     value = os.environ.get(name)
     if value is None:
@@ -341,31 +353,35 @@ def _write_docker_tenant_runtime(tenant):
 
     ok, _ = _run_command(["docker", "container", "inspect", container_name], timeout=20)
     if ok:
-        ok, output = _run_command(["docker", "restart", container_name], timeout=90)
-        log_lines.append(f"Docker tenant web container restart: {'OK' if ok else 'FAILED'}")
-    else:
-        ok, output = _run_command([
-            "docker", "run", "-d",
-            "--name", container_name,
-            "--restart", "unless-stopped",
-            "--network", "host",
-            "--env-file", str(tenant.env_path),
-            "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
-            "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
-            "-v", f"{tenant_dir}:{tenant_dir}",
-            "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
-            image,
-            "gunicorn",
-            "oltportal.asgi:application",
-            "-k", "uvicorn.workers.UvicornWorker",
-            "-w", str(_tenant_web_workers()),
-            "-b", f"{_tenant_bind_host()}:{tenant.panel_port}",
-            "--timeout", os.environ.get("CONTROL_TENANT_WEB_TIMEOUT", "120"),
-            "--graceful-timeout", os.environ.get("CONTROL_TENANT_WEB_GRACEFUL_TIMEOUT", "30"),
-            "--access-logfile", "-",
-            "--error-logfile", "-",
-        ], timeout=120)
-        log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
+        _run_command(["docker", "stop", container_name], timeout=90)
+        ok, output = _run_command(["docker", "rm", container_name], timeout=90)
+        log_lines.append(f"Docker tenant web container recreate/remove: {'OK' if ok else 'FAILED'}")
+        if output:
+            log_lines.append(output)
+        if not ok:
+            raise TenantProvisionError(output or "Docker tenant web container remove failed.")
+    ok, output = _run_command([
+        "docker", "run", "-d",
+        "--name", container_name,
+        "--restart", "unless-stopped",
+        "--network", "host",
+        "--env-file", str(tenant.env_path),
+        "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
+        "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
+        "-v", f"{tenant_dir}:{tenant_dir}",
+        "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
+        image,
+        "gunicorn",
+        "oltportal.asgi:application",
+        "-k", "uvicorn.workers.UvicornWorker",
+        "-w", str(_tenant_web_workers()),
+        "-b", f"{_tenant_bind_host()}:{tenant.panel_port}",
+        "--timeout", os.environ.get("CONTROL_TENANT_WEB_TIMEOUT", "120"),
+        "--graceful-timeout", os.environ.get("CONTROL_TENANT_WEB_GRACEFUL_TIMEOUT", "30"),
+        "--access-logfile", "-",
+        "--error-logfile", "-",
+    ], timeout=120)
+    log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
     if output:
         log_lines.append(output)
     if not ok:
@@ -373,22 +389,26 @@ def _write_docker_tenant_runtime(tenant):
 
     ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
     if ok:
-        ok, output = _run_command(["docker", "restart", worker_container_name], timeout=90)
-        log_lines.append(f"Docker tenant worker container restart: {'OK' if ok else 'FAILED'}")
-    else:
-        ok, output = _run_command([
-            "docker", "run", "-d",
-            "--name", worker_container_name,
-            "--restart", "unless-stopped",
-            "--network", "host",
-            "--env-file", str(tenant.env_path),
-            "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
-            "-v", f"{tenant_dir}:{tenant_dir}",
-            "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
-            image,
-            "python", "manage.py", "run_background_sync",
-        ], timeout=120)
-        log_lines.append(f"Docker tenant worker container create/start: {'OK' if ok else 'FAILED'}")
+        _run_command(["docker", "stop", worker_container_name], timeout=90)
+        ok, output = _run_command(["docker", "rm", worker_container_name], timeout=90)
+        log_lines.append(f"Docker tenant worker container recreate/remove: {'OK' if ok else 'FAILED'}")
+        if output:
+            log_lines.append(output)
+        if not ok:
+            raise TenantProvisionError(output or "Docker tenant worker container remove failed.")
+    ok, output = _run_command([
+        "docker", "run", "-d",
+        "--name", worker_container_name,
+        "--restart", "unless-stopped",
+        "--network", "host",
+        "--env-file", str(tenant.env_path),
+        "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
+        "-v", f"{tenant_dir}:{tenant_dir}",
+        "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
+        image,
+        "python", "manage.py", "run_background_sync",
+    ], timeout=120)
+    log_lines.append(f"Docker tenant worker container create/start: {'OK' if ok else 'FAILED'}")
     if output:
         log_lines.append(output)
     if not ok:
@@ -407,9 +427,9 @@ def prepare_tenant_defaults(tenant):
     tenant.save()
     slug = tenant.slug
     base = _tenant_base_dir() / slug
-    highest_port = tenant.__class__.objects.exclude(pk=tenant.pk).order_by("-panel_port").values_list("panel_port", flat=True).first()
-    if not tenant.panel_port:
-        tenant.panel_port = max(_tenant_start_port(), int(highest_port or (_tenant_start_port() - 1)) + 1)
+    port_conflicts = tenant.__class__.objects.exclude(pk=tenant.pk).filter(panel_port=tenant.panel_port).exists() if tenant.panel_port else False
+    if not tenant.panel_port or port_conflicts:
+        tenant.panel_port = _tenant_next_available_port(tenant)
     tenant.panel_scheme = tenant.panel_scheme or "http"
     tenant.panel_host = tenant.panel_host or _tenant_panel_host()
     tenant.codebase_path = tenant.codebase_path or str(_tenant_codebase_path())
