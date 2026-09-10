@@ -2630,6 +2630,10 @@
     };
 
     const getCookie = (name) => {
+        if (name === 'csrftoken') {
+            const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+            if (csrfInput && csrfInput.value) return csrfInput.value;
+        }
         const cookieValue = document.cookie
             .split('; ')
             .find(row => row.startsWith(name + '='));
@@ -3881,6 +3885,10 @@
     if (!overlay || !forms.length) return;
 
     const getCookie = (name) => {
+        if (name === 'csrftoken') {
+            const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+            if (csrfInput && csrfInput.value) return csrfInput.value;
+        }
         const row = document.cookie.split('; ').find((r) => r.startsWith(name + '='));
         return row ? decodeURIComponent(row.split('=')[1]) : '';
     };
