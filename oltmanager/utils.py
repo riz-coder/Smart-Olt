@@ -61,6 +61,7 @@ PROMPT_LINE_PATTERN = re.compile(r"^[^\r\n]*[>#\]]\s*$")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _TELNET_SESSION_LOCK = threading.Lock()
 _TELNET_SESSIONS = {}
+_TELNET_FILE_LOCKS = {}
 _OLT_WRITE_OPERATION_LOCK = threading.Lock()
 _OLT_WRITE_OPERATION_ACTIVE = {}
 _OLT_WRITE_OPERATION_STALE_SECONDS = 45 * 60
@@ -4976,6 +4977,71 @@ def _telnet_host_key(olt=None, host="", port=None):
     return f"{host}:{port or 23}"
 
 
+def _telnet_lock_dir():
+    db_path = str(os.environ.get("SQLITE_DB_PATH") or "").strip()
+    if db_path:
+        base = os.path.dirname(db_path)
+    else:
+        base = str(getattr(settings, "BASE_DIR", "") or ".")
+    path = os.path.join(base, "locks")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _telnet_lock_path(olt):
+    key = _telnet_host_key(olt=olt)
+    safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", key).strip("_") or "unknown"
+    return os.path.join(_telnet_lock_dir(), f"olt-telnet-{safe_key}.lock")
+
+
+def _acquire_telnet_host_file_lock(olt, timeout=45):
+    if os.name == "nt":
+        return None, ""
+    try:
+        import fcntl
+    except Exception:
+        return None, ""
+    lock_path = _telnet_lock_path(olt)
+    deadline = time.monotonic() + max(0.5, float(timeout or 45))
+    handle = open(lock_path, "a+", encoding="utf-8")
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.seek(0)
+            handle.truncate()
+            handle.write(f"pid={os.getpid()} time={timezone.now().isoformat()} host={_telnet_host_key(olt=olt)}\n")
+            handle.flush()
+            return handle, ""
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
+                return None, "Another device command is still running for this OLT. Please retry in a few seconds."
+            time.sleep(0.25)
+        except OSError as exc:
+            try:
+                handle.close()
+            except OSError:
+                pass
+            return None, f"Could not acquire device command lock: {exc}"
+
+
+def _release_telnet_host_file_lock(handle):
+    if handle is None or os.name == "nt":
+        return
+    try:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
 def _register_telnet_session(olt, tn):
     if tn is None:
         return
@@ -4987,6 +5053,7 @@ def _register_telnet_session(olt, tn):
             "tn": tn,
             "host_key": host_key,
             "updated_at": now,
+            "file_lock": _TELNET_FILE_LOCKS.pop(session_id, None),
         }
 
 
@@ -5049,6 +5116,12 @@ def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
 def _close_telnet_session(tn):
     if tn is None:
         return
+    file_lock = None
+    session_id = id(tn)
+    with _TELNET_SESSION_LOCK:
+        session = _TELNET_SESSIONS.get(session_id)
+        if session is not None:
+            file_lock = session.get("file_lock")
     _unregister_telnet_session(tn)
     try:
         tn.write(b"\r\n")
@@ -5062,6 +5135,7 @@ def _close_telnet_session(tn):
             tn.close()
         except OSError:
             pass
+        _release_telnet_host_file_lock(file_lock)
 
 
 def _snmp_status_looks_down(status_text):
@@ -5139,6 +5213,9 @@ def open_telnet_authenticated_session(olt):
     telnet_port = int(getattr(olt, "tcp_port", 23) or 23)
     last_status = "Telnet timeout while opening session."
     recovered_sessions = False
+    file_lock, lock_status = _acquire_telnet_host_file_lock(olt)
+    if lock_status:
+        return None, lock_status
     _close_competing_telnet_sessions(olt)
     for attempt in range(1, TELNET_OPEN_ATTEMPTS + 1):
         tn = None
@@ -5156,7 +5233,11 @@ def open_telnet_authenticated_session(olt):
                         recovered_sessions = True
                     time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                     continue
+                _release_telnet_host_file_lock(file_lock)
                 return None, _diagnose_telnet_open_failure(olt, status)
+            with _TELNET_SESSION_LOCK:
+                _TELNET_FILE_LOCKS[id(tn)] = file_lock
+            file_lock = None
             _register_telnet_session(olt, tn)
             return tn, status
         except (socket.timeout, TimeoutError):
@@ -5168,6 +5249,7 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
+            _release_telnet_host_file_lock(file_lock)
             return None, _diagnose_telnet_open_failure(olt, last_status)
         except OSError as exc:
             last_status = f"Telnet connection error: {exc}"
@@ -5178,8 +5260,10 @@ def open_telnet_authenticated_session(olt):
                     recovered_sessions = True
                 time.sleep(TELNET_OPEN_RETRY_DELAYS[min(attempt - 1, len(TELNET_OPEN_RETRY_DELAYS) - 1)])
                 continue
+            _release_telnet_host_file_lock(file_lock)
             return None, _diagnose_telnet_open_failure(olt, last_status)
 
+    _release_telnet_host_file_lock(file_lock)
     return None, _diagnose_telnet_open_failure(olt, last_status)
 
 
