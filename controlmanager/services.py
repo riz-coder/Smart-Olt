@@ -125,11 +125,31 @@ def _agent_container_name(tenant):
     return f"optiverse-agent-{_safe_slug(tenant)}"
 
 
+def _read_env_file_value(path, key):
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        return ""
+    prefix = f"{key}="
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
+    return ""
+
+
+def _tenant_secret_key(tenant):
+    return (
+        _read_env_file_value(tenant.env_path, "DJANGO_SECRET_KEY")
+        or os.environ.get("CONTROL_TENANT_DJANGO_SECRET_KEY", "").strip()
+        or get_random_secret_key()
+    )
+
+
 def _tenant_env(tenant, *, disable_embedded_sync=False):
     env = os.environ.copy()
     env.update({
         "DJANGO_SETTINGS_MODULE": "oltportal.settings",
-        "DJANGO_SECRET_KEY": get_random_secret_key(),
+        "DJANGO_SECRET_KEY": _tenant_secret_key(tenant),
         "DJANGO_DEBUG": "False",
         "DJANGO_ALLOWED_HOSTS": f"{tenant.panel_host},127.0.0.1,localhost",
         "DJANGO_CSRF_TRUSTED_ORIGINS": f"http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}",
@@ -150,7 +170,7 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
 
 
 def _write_tenant_env_file(tenant):
-    secret = get_random_secret_key()
+    secret = _tenant_secret_key(tenant)
     text = f"""DJANGO_SECRET_KEY={secret}
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS={tenant.panel_host},127.0.0.1,localhost
