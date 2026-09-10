@@ -193,6 +193,32 @@
         letter-spacing: .10em;
         text-transform: uppercase;
     }
+    .onu-led-item.lan {
+        min-width: 38px;
+    }
+    .onu-led-label {
+        line-height: 1;
+    }
+    .onu-led-meta {
+        display: grid;
+        gap: 1px;
+        min-height: 18px;
+        color: rgba(218, 230, 242, 0.48);
+        font-size: 6.5px;
+        letter-spacing: .04em;
+        line-height: 1.05;
+        text-transform: none;
+        opacity: 0;
+        transform: translateY(-1px);
+        transition: opacity 0.2s ease, color 0.2s ease;
+    }
+    .onu-led-item.lan.is-checked .onu-led-meta {
+        opacity: 1;
+        color: rgba(210, 235, 255, 0.74);
+    }
+    .onu-led-item.lan.is-up .onu-led-meta {
+        color: rgba(176, 255, 205, 0.86);
+    }
     .onu-led-item .led {
         width: 12px;
         height: 5px;
@@ -2066,7 +2092,14 @@
                     <span class="onu-led-item pon"><span class="led led-pon"></span><span>PON</span></span>
                     <span class="onu-led-item los"><span class="led led-los"></span><span>LOS</span></span>
                     {% for lan_label in onu_lan_led_labels %}
-                    <span class="onu-led-item lan" data-lan-led-index="{{ forloop.counter }}"><span class="led led-lan"></span><span>{{ lan_label }}</span></span>
+                    <span class="onu-led-item lan" data-lan-led-index="{{ forloop.counter }}">
+                        <span class="led led-lan"></span>
+                        <span class="onu-led-label">{{ lan_label }}</span>
+                        <span class="onu-led-meta" data-lan-led-meta>
+                            <span data-lan-led-type>Type: --</span>
+                            <span data-lan-led-speed>Speed: --</span>
+                        </span>
+                    </span>
                     {% endfor %}
                     <span class="onu-led-item wifi"><span class="led led-wifi"></span><span>WIFI</span></span>
                     <span class="onu-led-item catv"><span class="led led-catv"></span><span>CATV</span></span>
@@ -2645,23 +2678,75 @@
         String(output || '').split(/\r?\n/).forEach((rawLine) => {
             const line = rawLine.trim().replace(/\s+/g, ' ');
             if (!line || /^-+$/.test(line) || /^(ONT-ID|port-ID|Ethernet Ports)$/i.test(line)) return;
-            const match = line.match(/^\d+\s+(\d+)\s+\S+\s+\S+\s+\S+\s+(\S+)/i);
+            const match = line.match(/^\d+\s+(\d+)\s+(\S+)\s+(\S+)\s+\S+\s+(\S+)/i);
             if (!match) return;
             const portNumber = String(parseInt(match[1], 10));
-            const linkState = String(match[2] || '').trim().toLowerCase();
+            const type = String(match[2] || '').trim().toUpperCase();
+            const speed = String(match[3] || '').trim();
+            const linkState = String(match[4] || '').trim().toLowerCase();
             if (!portNumber || portNumber === 'NaN') return;
-            states.set(portNumber, linkState === 'up');
+            states.set(portNumber, {
+                isUp: linkState === 'up',
+                type: type && type !== '-' ? type : '--',
+                speed: speed && speed !== '-' ? speed : '--',
+            });
         });
         return states;
+    };
+
+    const lanLedStorageKey = panel
+        ? `optiverse:onu-lan-leds:${window.location.pathname}:${panel.getAttribute('data-onu-id') || ''}`
+        : '';
+
+    const serializeLanLedStates = (states) => {
+        if (!(states instanceof Map) || !states.size) return null;
+        return Array.from(states.entries()).map(([port, state]) => ([
+            String(port),
+            {
+                isUp: state && state.isUp === true,
+                type: state && state.type ? String(state.type) : '--',
+                speed: state && state.speed ? String(state.speed) : '--',
+            },
+        ]));
+    };
+
+    const restoreLanLedStates = () => {
+        if (!lanLedStorageKey) return false;
+        try {
+            const raw = sessionStorage.getItem(lanLedStorageKey);
+            if (!raw) return false;
+            const rows = JSON.parse(raw);
+            if (!Array.isArray(rows) || !rows.length) return false;
+            const states = new Map(rows);
+            return applyLanLedStates(states);
+        } catch (error) {
+            return false;
+        }
+    };
+
+    const storeLanLedStates = (states) => {
+        if (!lanLedStorageKey) return;
+        const rows = serializeLanLedStates(states);
+        if (!rows) return;
+        try {
+            sessionStorage.setItem(lanLedStorageKey, JSON.stringify(rows));
+        } catch (error) {
+            // Ignore storage failures; LAN details will simply refresh again.
+        }
     };
 
     const applyLanLedStates = (states) => {
         if (!lanLedItems.length || !(states instanceof Map) || !states.size) return false;
         lanLedItems.forEach((item) => {
             const index = String(parseInt(item.getAttribute('data-lan-led-index') || '0', 10));
-            const isUp = states.get(index) === true;
+            const state = states.get(index) || {};
+            const isUp = state.isUp === true;
+            const typeNode = item.querySelector('[data-lan-led-type]');
+            const speedNode = item.querySelector('[data-lan-led-speed]');
             item.classList.add('is-checked');
             item.classList.toggle('is-up', isUp);
+            if (typeNode) typeNode.textContent = `Type: ${state.type || '--'}`;
+            if (speedNode) speedNode.textContent = `Speed: ${state.speed || '--'}`;
         });
         return true;
     };
@@ -3567,45 +3652,64 @@
         });
     }
 
-    if (lanLedRefreshButton && macAddressUrl) {
-        lanLedRefreshButton.addEventListener('click', async () => {
-            lanLedRefreshButton.disabled = true;
-            lanLedRefreshButton.classList.add('is-loading');
-            const originalTitle = lanLedRefreshButton.getAttribute('title') || 'Refresh LAN port LEDs';
-            lanLedRefreshButton.setAttribute('title', 'Checking LAN ports...');
-            try {
-                const response = await fetch(macAddressUrl, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
-                    },
-                });
-                const data = await response.json();
-                if (!response.ok || !data.ok) {
-                    lanLedRefreshButton.setAttribute('title', data.message || 'LAN port refresh failed.');
-                    return;
-                }
-                const states = parseLanPortStates(data.output || '');
-                if (!states.size) {
-                    lanLedItems.forEach((item) => {
-                        const index = String(parseInt(item.getAttribute('data-lan-led-index') || '0', 10));
-                        if (index && index !== 'NaN') states.set(index, false);
-                    });
-                }
-                applyLanLedStates(states);
-                lanLedRefreshButton.setAttribute('title', 'LAN port LEDs refreshed.');
-            } catch (error) {
-                lanLedRefreshButton.setAttribute('title', 'OLT is busy. Please try again.');
-            } finally {
-                lanLedRefreshButton.disabled = false;
-                lanLedRefreshButton.classList.remove('is-loading');
-                window.setTimeout(() => {
-                    if (lanLedRefreshButton && !lanLedRefreshButton.disabled) {
-                        lanLedRefreshButton.setAttribute('title', originalTitle);
-                    }
-                }, 2500);
+    const refreshLanPortDetails = async ({ manual = false } = {}) => {
+        if (!lanLedRefreshButton || !macAddressUrl || lanLedRefreshButton.disabled) return;
+        if (!manual && restoreLanLedStates()) {
+            lanLedRefreshButton.setAttribute('title', 'LAN port details already refreshed.');
+            return;
+        }
+        lanLedRefreshButton.disabled = true;
+        lanLedRefreshButton.classList.add('is-loading');
+        const originalTitle = lanLedRefreshButton.getAttribute('title') || 'Refresh LAN port LEDs';
+        lanLedRefreshButton.setAttribute('title', manual ? 'Checking LAN ports...' : 'Updating LAN port details...');
+        try {
+            const response = await fetch(macAddressUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+                lanLedRefreshButton.setAttribute('title', data.message || 'LAN port refresh failed.');
+                return;
             }
-        });
+            const states = parseLanPortStates(data.output || '');
+            if (!states.size) {
+                lanLedItems.forEach((item) => {
+                    const index = String(parseInt(item.getAttribute('data-lan-led-index') || '0', 10));
+                    if (index && index !== 'NaN') {
+                        states.set(index, { isUp: false, type: '--', speed: '--' });
+                    }
+                });
+            }
+            if (applyLanLedStates(states)) {
+                storeLanLedStates(states);
+                lanLedRefreshButton.setAttribute('title', 'LAN port details refreshed.');
+            } else {
+                lanLedRefreshButton.setAttribute('title', 'LAN port details could not be parsed.');
+            }
+        } catch (error) {
+            lanLedRefreshButton.setAttribute('title', 'LAN port details could not be refreshed.');
+        } finally {
+            lanLedRefreshButton.disabled = false;
+            lanLedRefreshButton.classList.remove('is-loading');
+            window.setTimeout(() => {
+                if (lanLedRefreshButton && !lanLedRefreshButton.disabled) {
+                    lanLedRefreshButton.setAttribute('title', originalTitle);
+                }
+            }, 2500);
+        }
+    };
+
+    if (lanLedRefreshButton && macAddressUrl) {
+        const lanDetailsRestored = restoreLanLedStates();
+        if (!lanDetailsRestored) {
+            window.setTimeout(() => refreshLanPortDetails({ manual: false }), 1000);
+        } else {
+            lanLedRefreshButton.setAttribute('title', 'LAN port details already refreshed.');
+        }
+        lanLedRefreshButton.addEventListener('click', () => refreshLanPortDetails({ manual: true }));
     }
 
     if (runningConfigButton && runningConfigUrl) {
