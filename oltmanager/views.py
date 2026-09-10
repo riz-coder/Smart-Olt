@@ -1487,6 +1487,16 @@ def _public_onboarding_message(message):
     if not text:
         return text
     lowered = text.lower()
+    text = text.replace("Fetching SNMP details", "Checking device details")
+    text = text.replace("Generating and pushing SNMP configuration", "Preparing device monitoring")
+    text = text.replace("Fetching OLT cards", "Checking device boards")
+    text = text.replace("Fetching PON ports", "Checking subscriber ports")
+    text = text.replace("Fetching PON SFP Tx power", "Checking port optical levels")
+    text = text.replace("Fetching uplink VLANs", "Checking uplink services")
+    text = text.replace("Fetching VLANs", "Checking services")
+    text = text.replace("Reading configured ONUs", "Reading subscribers")
+    text = text.replace("Fetching ONU VLAN and speed profile details", "Checking subscriber service profiles")
+    text = text.replace("Fetching ONU types", "Checking subscriber device types")
     if "login failed" in lowered or "username/password" in lowered or ("password" in lowered and "invalid" in lowered):
         return "Device login failed. Please check the saved credentials and retry."
     if "sendall" in lowered or ("nonetype" in lowered and "attribute" in lowered):
@@ -1497,6 +1507,11 @@ def _public_onboarding_message(message):
         return "Device response timed out. Please retry after a few moments."
     if "no response" in lowered or "unreachable" in lowered:
         return "Device did not respond. Please check reachability and retry."
+    if "returned no data" in lowered or "no board cards found" in lowered:
+        retry_match = re.search(r"retry\s+(\d+\s*/\s*\d+)", text, flags=re.IGNORECASE)
+        if retry_match:
+            return f"Checking device boards retry {retry_match.group(1).replace(' ', '')} (Device board data is not available yet)..."
+        return "Device board data is not available yet. Please verify device access and retry."
     if "connection closed" in lowered or "connection reset" in lowered or "broken pipe" in lowered or "eoferror" in lowered:
         return "Device connection dropped during data collection. Please retry."
     text = text.replace("OK: Model/software from CLI:", "OK: Device model/software detected:")
