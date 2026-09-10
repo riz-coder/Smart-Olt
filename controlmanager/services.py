@@ -52,6 +52,14 @@ def _tenant_web_workers():
         return 3
 
 
+def _tenant_web_cpus():
+    return str(os.environ.get("CONTROL_TENANT_WEB_CPUS", "1.25") or "1.25").strip()
+
+
+def _tenant_worker_cpus():
+    return str(os.environ.get("CONTROL_TENANT_WORKER_CPUS", "0.75") or "0.75").strip()
+
+
 def _tenant_start_port():
     return int(os.environ.get("CONTROL_TENANT_START_PORT", "8001"))
 
@@ -462,6 +470,7 @@ def _write_docker_tenant_runtime(tenant):
         "--name", container_name,
         "--restart", "unless-stopped",
         "--network", "host",
+        "--cpus", _tenant_web_cpus(),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
@@ -498,6 +507,7 @@ def _write_docker_tenant_runtime(tenant):
         "--name", worker_container_name,
         "--restart", "unless-stopped",
         "--network", "host",
+        "--cpus", _tenant_worker_cpus(),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
         "-v", f"{tenant_dir}:{tenant_dir}",
