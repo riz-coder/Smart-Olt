@@ -207,6 +207,8 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+ONU_STATUS_SYNC_PROGRESS_FILE = os.environ.get('ONU_STATUS_SYNC_PROGRESS_FILE', '').strip()
+
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'olt_list'
 LOGOUT_REDIRECT_URL = 'login'
