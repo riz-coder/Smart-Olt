@@ -342,7 +342,7 @@
 
     <div class="progress-warning">
         <span>Expected processing time is usually 15 to 30 minutes, depending on how many ONUs, cards, PON ports, and uplinks are present on this OLT.</span>
-        <span>Please do not access this OLT through Telnet while fetching is in progress. Opening another Telnet session may interrupt the data collection.</span>
+        <span>Please do not access this device from another session while data collection is in progress. Another active session may interrupt the process.</span>
         <span class="progress-estimate" data-estimate-time>Processing Time: 0s</span>
     </div>
 
@@ -351,14 +351,12 @@
             <div class="progress-fill" data-progress-fill style="width: {{ olt.onboarding_progress|default:0 }}%;"></div>
         </div>
         <div class="progress-meta">
-            <span class="progress-state" data-progress-message>{{ olt.onboarding_message|default:"Waiting..." }}</span>
+            <span class="progress-state" data-progress-message>{{ onboarding_message|default:"Waiting..." }}</span>
             <span data-progress-percent>{{ olt.onboarding_progress|default:0 }}%</span>
         </div>
         <div class="progress-log" data-progress-log>
-            {% for line in olt.onboarding_log.splitlines %}
-            {% if line.strip %}
+            {% for line in onboarding_log_lines %}
             <p class="progress-log-line{% if line|slice:':3' == 'OK:' %} ok{% elif line|slice:':7' == 'FAILED:' %} bad{% endif %}">{{ line }}</p>
-            {% endif %}
             {% empty %}
             <p class="progress-log-line">Waiting...</p>
             {% endfor %}

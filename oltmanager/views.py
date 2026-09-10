@@ -1231,6 +1231,9 @@ def _update_olt_onboarding(olt_id, *, status=None, progress=None, message=None, 
         olt.onboarding_progress = max(0, min(100, int(progress)))
         update_fields.append("onboarding_progress")
     if message is not None:
+        sanitizer = globals().get("_public_onboarding_message")
+        if callable(sanitizer):
+            message = sanitizer(message)
         message = str(message or "").strip()[:255]
         if message != olt.onboarding_message:
             olt.onboarding_message = message
@@ -1459,6 +1462,67 @@ def _humanize_onboarding_error(text):
     if "connection closed" in low or "connection reset" in low or "broken pipe" in low or low.endswith("eof") or "eoferror" in low:
         return "OLT dropped the connection mid-fetch"
     return t
+
+
+def _public_onboarding_step_label(label):
+    text = str(label or "").strip()
+    replacements = {
+        "Fetching SNMP details": "Checking device details",
+        "Generating and pushing SNMP configuration": "Preparing device monitoring",
+        "Fetching OLT cards": "Checking device boards",
+        "Fetching PON ports": "Checking subscriber ports",
+        "Fetching PON SFP Tx power": "Checking port optical levels",
+        "Fetching uplink ports": "Checking uplink ports",
+        "Fetching uplink VLANs": "Checking uplink services",
+        "Fetching VLANs": "Checking services",
+        "Reading configured ONUs": "Reading subscribers",
+        "Fetching ONU VLAN and speed profile details": "Checking subscriber service profiles",
+        "Fetching ONU types": "Checking subscriber device types",
+    }
+    return replacements.get(text, text)
+
+
+def _public_onboarding_message(message):
+    text = " ".join(str(message or "").split())
+    if not text:
+        return text
+    lowered = text.lower()
+    if "login failed" in lowered or "username/password" in lowered or ("password" in lowered and "invalid" in lowered):
+        return "Device login failed. Please check the saved credentials and retry."
+    if "sendall" in lowered or ("nonetype" in lowered and "attribute" in lowered):
+        return "Device connection was interrupted. Please make sure the device is not busy and retry."
+    if "could not be opened" in lowered or "could not open" in lowered or "session not open" in lowered:
+        return "Could not open a device connection. The device may be busy or refusing new sessions."
+    if "timed out" in lowered or "timeout" in lowered:
+        return "Device response timed out. Please retry after a few moments."
+    if "no response" in lowered or "unreachable" in lowered:
+        return "Device did not respond. Please check reachability and retry."
+    if "connection closed" in lowered or "connection reset" in lowered or "broken pipe" in lowered or "eoferror" in lowered:
+        return "Device connection dropped during data collection. Please retry."
+    text = text.replace("OK: Model/software from CLI:", "OK: Device model/software detected:")
+    text = text.replace(
+        "OK: ONU import skipped at user's request. OLT details, cards, PON ports, uplink and VLANs fetched.",
+        "OK: Subscriber import skipped. Device inventory and services checked.",
+    )
+    text = text.replace("Fetching ONU VLAN/profile details:", "Checking subscriber service profiles:")
+    text = text.replace("Fetching ONU types:", "Checking subscriber device types:")
+    text = re.sub(r"\bOLT cards\b", "device boards", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bPON ports\b", "subscriber ports", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bPON port\b", "subscriber port", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bSFP Tx\b", "port optical", text, flags=re.IGNORECASE)
+    text = re.sub(r"\buplink VLANs\b", "uplink services", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bVLANs\b", "services", text)
+    text = re.sub(r"\bVLAN\b", "service", text)
+    text = re.sub(r"\bONUs\b", "subscribers", text)
+    text = re.sub(r"\bONU\b", "subscriber", text)
+    text = re.sub(r"\bOLT\b", "device", text)
+    text = re.sub(r"\bSNMP\b", "monitoring", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bTelnet\b", "device login", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bCLI\b", "device access", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdisplay\s+[a-z0-9_./ -]+", "device command", text, flags=re.IGNORECASE)
+    if any(secret in text.lower() for secret in ("device command", "monitoring", "device login", "protocol")):
+        text = text.replace("device command", "device data")
+    return text
 def _run_olt_onboarding_worker(olt_id, snmp_mode):
     try:
         _clear_olt_onboarding_abort(olt_id)
@@ -1468,15 +1532,16 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
 
         def _run_step(step_label, progress_before, progress_after, fn, attempts=3, delay=1.2, validate=None, success_message=None, allow_failure=False, fallback=None):
             last_exc = None
+            public_step_label = _public_onboarding_step_label(step_label)
             for attempt in range(1, attempts + 1):
                 _raise_if_olt_onboarding_aborted(olt_id)
                 try:
                     if attempt == 1:
-                        _update_olt_onboarding(olt_id, progress=progress_before, message=f"{step_label}...")
+                        _update_olt_onboarding(olt_id, progress=progress_before, message=f"{public_step_label}...")
                     else:
                         reason = _humanize_onboarding_error(last_exc)[:180]
                         reason_text = f" ({reason})" if reason else ""
-                        _update_olt_onboarding(olt_id, progress=progress_before, message=f"{step_label} retry {attempt}/{attempts}{reason_text}...")
+                        _update_olt_onboarding(olt_id, progress=progress_before, message=f"{public_step_label} retry {attempt}/{attempts}{reason_text}...")
                     value = fn()
                     _raise_if_olt_onboarding_aborted(olt_id)
                     if validate:
@@ -1491,7 +1556,7 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
                             if status_detail and status_detail.lower() not in str(ve).lower():
                                 raise ValueError(f"{ve} — {status_detail}") from ve
                             raise
-                    ok_message = success_message(value) if success_message else f"{step_label} done."
+                    ok_message = success_message(value) if success_message else f"{public_step_label} done."
                     _update_olt_onboarding(olt_id, progress=progress_after, message=f"OK: {ok_message}")
                     return value
                 except OnboardingAborted:
@@ -1499,7 +1564,7 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
                 except Exception as exc:
                     last_exc = exc
                     if attempt >= attempts:
-                        fail_message = f"FAILED: {step_label} not fetched after {attempts} tries. Refresh after OLT add. {_humanize_onboarding_error(exc)}"
+                        fail_message = f"FAILED: {public_step_label} not completed after {attempts} tries. Please check device access and retry. {_humanize_onboarding_error(exc)}"
                         _update_olt_onboarding(olt_id, progress=progress_after, message=fail_message)
                         if allow_failure:
                             return fallback
@@ -1521,14 +1586,14 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
             _update_olt_onboarding(
                 olt_id,
                 progress=12,
-                message="Generating and pushing SNMP configuration...",
+                message="Preparing device monitoring...",
             )
             snmp_ok, snmp_status = _sync_snmp_after_save(olt)
         else:
             _update_olt_onboarding(
                 olt_id,
                 progress=12,
-                message="Fetching SNMP details...",
+                message="Checking device details...",
             )
             snmp_ok, snmp_status = _fetch_snmp_only_after_save(olt)
         _raise_if_olt_onboarding_aborted(olt_id)
@@ -1537,7 +1602,7 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
                 olt_id,
                 status="failed",
                 progress=100,
-                message=snmp_status or "SNMP step failed.",
+                message=snmp_status or "Device details check failed.",
                 ready=False,
                 finished=True,
             )
@@ -1570,7 +1635,7 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
                     _update_olt_onboarding(
                         olt_id,
                         progress=24,
-                        message=f"OK: Model/software from CLI: {olt.hardware_version or '-'} / {olt.sw_version or '-'}.",
+                        message=f"OK: Device model/software detected: {olt.hardware_version or '-'} / {olt.sw_version or '-'}.",
                     )
             except Exception:
                 pass
@@ -9563,6 +9628,8 @@ def olt_add_progress(request, pk):
         'oltmanager/olt_add_progress.html',
         {
             'olt': olt,
+            'onboarding_message': _public_onboarding_message(olt.onboarding_message or "Waiting..."),
+            'onboarding_log_lines': [_public_onboarding_message(line) for line in str(olt.onboarding_log or "").splitlines() if line.strip()],
             'poll_url': reverse('olt_add_progress_status', kwargs={'pk': pk}),
             'action_url': reverse('olt_add_progress_action', kwargs={'pk': pk}),
             'review_data_url': reverse('olt_add_review_data', kwargs={'pk': pk}),
@@ -9577,13 +9644,13 @@ def olt_add_progress(request, pk):
 def olt_add_progress_status(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
     olt = _fail_stale_olt_onboarding_if_needed(olt)
-    log_lines = [line for line in str(olt.onboarding_log or "").splitlines() if line.strip()]
+    log_lines = [_public_onboarding_message(line) for line in str(olt.onboarding_log or "").splitlines() if line.strip()]
     return JsonResponse(
         {
             "ok": True,
             "status": str(olt.onboarding_status or ""),
             "progress": int(olt.onboarding_progress or 0),
-            "message": str(olt.onboarding_message or ""),
+            "message": _public_onboarding_message(olt.onboarding_message),
             "is_ready": bool(olt.is_ready),
             "redirect_url": reverse('olt_view', kwargs={'pk': pk}) if olt.is_ready else "",
             "log_lines": log_lines,
