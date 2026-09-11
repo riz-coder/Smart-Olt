@@ -289,6 +289,8 @@ _ONU_TRAFFIC_REFRESH_LOCK = threading.Lock()
 _ONU_TRAFFIC_REFRESHING = set()
 _CONFIGURED_ONU_FILTERS_CACHE_LOCK = threading.Lock()
 _CONFIGURED_ONU_FILTERS_CACHE = {"updated_at": None, "boards": None, "olts": None, "latest_sync": None}
+_AUTOFIND_EXISTING_SERIAL_CACHE_LOCK = threading.Lock()
+_AUTOFIND_EXISTING_SERIAL_CACHE = {"updated_at": None, "items": None}
 _DASHBOARD_ALERT_WIDGET_CACHE_LOCK = threading.Lock()
 _DASHBOARD_ALERT_WIDGET_CACHE = {}
 _DASHBOARD_SUMMARY_CACHE_LOCK = threading.Lock()
@@ -973,6 +975,38 @@ def _normalize_onu_serial_token(value):
         except UnicodeEncodeError:
             pass
     return {token for token in tokens if token}
+
+
+def _get_cached_autofind_existing_serial_map():
+    now = timezone.now()
+    with _AUTOFIND_EXISTING_SERIAL_CACHE_LOCK:
+        updated_at = _AUTOFIND_EXISTING_SERIAL_CACHE.get("updated_at")
+        cached = _AUTOFIND_EXISTING_SERIAL_CACHE.get("items")
+        if updated_at and cached is not None and (now - updated_at).total_seconds() <= 30:
+            return dict(cached)
+
+    existing_by_serial = {}
+    rows = (
+        ConfiguredONU.objects
+        .select_related("olt")
+        .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
+        .exclude(sn="")
+    )
+    for record in rows:
+        payload = {
+            "olt_id": int(record.olt_id or 0),
+            "olt_name": str(getattr(record.olt, "name", "") or ""),
+            "slot": int(record.slot or 0),
+            "port": int(record.port or 0),
+            "ont_id": int(record.ont_id or 0),
+        }
+        for token in _normalize_onu_serial_token(record.sn):
+            if token and token not in existing_by_serial:
+                existing_by_serial[token] = payload
+
+    with _AUTOFIND_EXISTING_SERIAL_CACHE_LOCK:
+        _AUTOFIND_EXISTING_SERIAL_CACHE.update({"updated_at": now, "items": existing_by_serial})
+    return dict(existing_by_serial)
 
 
 def _build_configured_onu_search_q(search_query):
@@ -2283,17 +2317,17 @@ def _build_unconfigured_group(
             reverse(
                 "configured_onu_detail",
                 kwargs={
-                    "olt_pk": existing_record.olt_id,
-                    "slot": int(existing_record.slot or 0),
-                    "port": int(existing_record.port or 0),
-                    "ont_id": int(existing_record.ont_id or 0),
+                    "olt_pk": int(existing_record.get("olt_id") or 0),
+                    "slot": int(existing_record.get("slot") or 0),
+                    "port": int(existing_record.get("port") or 0),
+                    "ont_id": int(existing_record.get("ont_id") or 0),
                 },
             )
             if existing_record
             else ""
         )
         item["previous_running"] = (
-            f"{existing_record.olt.name} | 0/{int(existing_record.slot or 0)}/{int(existing_record.port or 0)} | ONT {int(existing_record.ont_id or 0)}"
+            f"{existing_record.get('olt_name') or 'OLT'} | 0/{int(existing_record.get('slot') or 0)}/{int(existing_record.get('port') or 0)} | ONT {int(existing_record.get('ont_id') or 0)}"
             if existing_record
             else "-"
         )
@@ -5546,72 +5580,66 @@ def unconfigured_onus(request):
 @login_required
 def unconfigured_onus_group_data(request, olt_id):
     try:
-        olt_id = int(olt_id)
-    except (TypeError, ValueError):
-        return JsonResponse({"ok": False, "error": "Invalid OLT id."}, status=400)
-    search_query = (request.GET.get("q") or "").strip().lower()
-    category_filter = str(request.GET.get("category") or "").strip().lower()
-    if category_filter not in {"new", "resync"}:
-        category_filter = ""
-    index = int(request.GET.get("index") or 1)
+        try:
+            olt_id = int(olt_id)
+        except (TypeError, ValueError):
+            return JsonResponse({"ok": False, "error": "Invalid OLT id."}, status=400)
+        search_query = (request.GET.get("q") or "").strip().lower()
+        category_filter = str(request.GET.get("category") or "").strip().lower()
+        if category_filter not in {"new", "resync"}:
+            category_filter = ""
+        index = int(request.GET.get("index") or 1)
 
-    olt = OLT.objects.only(
-        "id", "name", "ip_address", "vlan_cache",
-        "snmp_last_status", "snmp_last_synced_at", "snmp_down_since",
-    ).filter(pk=olt_id).first()
-    if not olt:
-        return JsonResponse({"ok": False, "error": "OLT not found."}, status=404)
+        olt = OLT.objects.only(
+            "id", "name", "ip_address", "vlan_cache",
+            "snmp_last_status", "snmp_last_synced_at", "snmp_down_since",
+        ).filter(pk=olt_id).first()
+        if not olt:
+            return JsonResponse({"ok": False, "error": "OLT not found."}, status=404)
 
-    existing_by_serial = {}
-    existing_onus = list(
-        ConfiguredONU.objects.select_related("olt")
-        .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
-        .exclude(sn="")
-    )
-    for record in existing_onus:
-        for token in _normalize_onu_serial_token(record.sn):
-            if token and token not in existing_by_serial:
-                existing_by_serial[token] = record
+        existing_by_serial = _get_cached_autofind_existing_serial_map()
+        onu_type_options = _load_onu_type_option_rows()
+        speed_profile_templates = list(SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name"))
+        download_speed_options = []
+        upload_speed_options = []
+        for profile in speed_profile_templates:
+            base_name = (profile.name or "").strip()
+            base_name = re.sub(r"(?i)(?:-|_)?(up|down)$", "", base_name).strip(" -_") or (profile.name or "")
+            speed_display = (profile.speed_display or "").strip() or (
+                f"{profile.speed_mbps_value} Mbps" if profile.speed_mbps_value else "-"
+            )
+            download_speed_options.append(
+                {
+                    "value": str(int(profile.index_number or 0)),
+                    "label": (profile.download_name or f"{base_name}-DOWN").strip(),
+                    "speed": speed_display,
+                }
+            )
+            upload_speed_options.append(
+                {
+                    "value": str(int((profile.index_number or 0) + 1)),
+                    "label": (profile.upload_name or f"{base_name}-UP").strip(),
+                    "speed": speed_display,
+                }
+            )
 
-    onu_type_options = _load_onu_type_option_rows()
-    speed_profile_templates = list(SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name"))
-    download_speed_options = []
-    upload_speed_options = []
-    for profile in speed_profile_templates:
-        base_name = (profile.name or "").strip()
-        base_name = re.sub(r"(?i)(?:-|_)?(up|down)$", "", base_name).strip(" -_") or (profile.name or "")
-        speed_display = (profile.speed_display or "").strip() or (
-            f"{profile.speed_mbps_value} Mbps" if profile.speed_mbps_value else "-"
+        snapshot = _get_live_autofind_snapshot_for_ajax(olt)
+        payload = _build_unconfigured_group(
+            request=request,
+            olt=olt,
+            index=index,
+            existing_by_serial=existing_by_serial,
+            search_query=search_query,
+            category_filter=category_filter,
+            onu_type_options=onu_type_options,
+            download_speed_options=download_speed_options,
+            upload_speed_options=upload_speed_options,
+            snapshot_override=snapshot,
         )
-        download_speed_options.append(
-            {
-                "value": str(int(profile.index_number or 0)),
-                "label": (profile.download_name or f"{base_name}-DOWN").strip(),
-                "speed": speed_display,
-            }
-        )
-        upload_speed_options.append(
-            {
-                "value": str(int((profile.index_number or 0) + 1)),
-                "label": (profile.upload_name or f"{base_name}-UP").strip(),
-                "speed": speed_display,
-            }
-        )
-
-    snapshot = _get_live_autofind_snapshot_for_ajax(olt)
-    payload = _build_unconfigured_group(
-        request=request,
-        olt=olt,
-        index=index,
-        existing_by_serial=existing_by_serial,
-        search_query=search_query,
-        category_filter=category_filter,
-        onu_type_options=onu_type_options,
-        download_speed_options=download_speed_options,
-        upload_speed_options=upload_speed_options,
-        snapshot_override=snapshot,
-    )
-    return JsonResponse({"ok": True, "pending": bool(payload.get("group", {}).get("is_pending")), **payload})
+        return JsonResponse({"ok": True, "pending": bool(payload.get("group", {}).get("is_pending")), **payload})
+    except Exception:
+        logger.exception("Autofind group data failed for OLT %s.", olt_id)
+        return JsonResponse({"ok": False, "error": "Unable to load this OLT right now. Please refresh and try again."}, status=500)
 
 
 def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, frame, ont_id_hint):

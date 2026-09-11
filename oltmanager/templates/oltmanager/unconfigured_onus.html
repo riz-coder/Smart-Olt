@@ -1658,6 +1658,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!url) return;
         try {
             const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error(response.status === 403 || response.status === 302
+                    ? 'Session expired. Please refresh and login again.'
+                    : 'Unable to load this OLT right now. Please refresh and try again.');
+            }
             const data = await response.json();
             if (!response.ok || !data.ok) {
                 throw new Error(data.error || 'Failed to load this OLT.');
