@@ -238,6 +238,7 @@ class ConfiguredONU(models.Model):
             models.Index(fields=['olt', 'derived_status'], name='conf_onu_olt_status_idx'),
             models.Index(fields=['derived_status', 'signal_bucket', 'olt'], name='conf_onu_status_signal_idx'),
             models.Index(fields=['olt', 'signal_bucket'], name='conf_onu_olt_signal_idx'),
+            models.Index(fields=['olt', 'status_updated_at', 'id'], name='conf_onu_olt_status_time_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
