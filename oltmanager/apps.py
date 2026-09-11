@@ -35,6 +35,7 @@ SNMP_MONITOR_MAX_WORKERS = max(1, int(os.environ.get("SNMP_MONITOR_MAX_WORKERS",
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
 ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(os.environ.get("ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 180)) or 180))
+ONU_STATUS_SYNC_OLT_BATCH_SIZE = max(100, int(os.environ.get("ONU_STATUS_SYNC_OLT_BATCH_SIZE", getattr(settings, "ONU_STATUS_SYNC_OLT_BATCH_SIZE", 2500)) or 2500))
 ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(os.environ.get("ONU_SIGNAL_SAMPLE_SECONDS", getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600)) or 3600))
 ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(os.environ.get("ONU_STATUS_SYNC_MAX_WORKERS", getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1)) or 1))
 ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(os.environ.get("ONU_SIGNAL_SAMPLE_MAX_WORKERS", getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1)) or 1))
@@ -799,9 +800,9 @@ def _onu_status_sync_loop():
             return sync_runtime_statuses_for_olt(
                 olt,
                 only_non_online=False,
-                limit=None,
+                limit=ONU_STATUS_SYNC_OLT_BATCH_SIZE,
                 write_samples=False,
-                max_seconds=ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS,
+                max_seconds=max(30, ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS - 20),
                 on_progress=_progress,
             )
         finally:
@@ -829,13 +830,42 @@ def _onu_status_sync_loop():
                 if process.is_alive():
                     process.kill()
                     process.join(5)
-                message = f"ONU status sync timed out after {ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS} seconds. Skipping this OLT."
+                progress_entry = {}
+                try:
+                    from .utils import get_onu_status_sync_progress
+                    snapshot = get_onu_status_sync_progress() or {}
+                    for entry in snapshot.get("olts") or []:
+                        if int(entry.get("olt_id") or 0) == int(olt_id):
+                            progress_entry = entry
+                            break
+                except Exception:
+                    progress_entry = {}
+                checked = int(progress_entry.get("checked") or 0)
+                total = int(progress_entry.get("total") or 0)
+                updated = int(progress_entry.get("updated") or 0)
+                verified_ratio = (checked / total) if total else 0
+                partial = bool(total and checked and verified_ratio >= 0.60)
+                failed = not partial
+                if partial:
+                    message = (
+                        f"Partial: {checked}/{total} verified ({verified_ratio:.0%}) before timeout. "
+                        "Pending ONUs will be prioritized next cycle."
+                    )
+                else:
+                    message = (
+                        f"Incomplete: {checked}/{total} verified ({verified_ratio:.0%}) before timeout. "
+                        "This OLT will be retried next cycle."
+                    )
                 try:
                     update_onu_status_sync_progress(
                         olt_id,
                         running=False,
                         done=True,
-                        failed=True,
+                        failed=failed,
+                        partial=partial,
+                        checked=checked,
+                        total=total,
+                        updated=updated,
                         message=message,
                     )
                 except Exception:
@@ -843,10 +873,12 @@ def _onu_status_sync_loop():
                 logger.warning("OLT %s %s", olt_id, message)
                 return {
                     "olt": olt_id,
-                    "checked": 0,
-                    "updated": 0,
+                    "checked": checked,
+                    "updated": updated,
                     "status": message,
                     "timed_out": True,
+                    "partial": partial,
+                    "failed": failed,
                 }
             if not result_queue.empty():
                 state, payload = result_queue.get()

@@ -14302,12 +14302,19 @@ def sync_runtime_statuses_for_olt(
             pon_groups = sorted(records_by_pon.items())
             total_gpon_records = sum(len(group_records) for _, group_records in pon_groups)
             fetched_gpon_records = 0
+            per_pon_seconds = max(
+                3.0,
+                float(os.environ.get("ONU_STATUS_SYNC_PON_TIMEOUT_SECONDS", getattr(settings, "ONU_STATUS_SYNC_PON_TIMEOUT_SECONDS", 12)) or 12),
+            )
             for group_index, ((slot_no, port_no), group_records) in enumerate(pon_groups, start=1):
                 try:
+                    group_budget = _remaining_seconds()
+                    if group_budget is not None:
+                        group_budget = min(float(group_budget), per_pon_seconds)
                     group_result = fetch_olt_snmp_status_map_for_records(
                         olt,
                         group_records,
-                        max_seconds=_remaining_seconds(),
+                        max_seconds=group_budget,
                         chunk_size=120,
                     )
                 except TimeoutError:
