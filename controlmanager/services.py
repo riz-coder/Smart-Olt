@@ -316,17 +316,20 @@ def _run_command(args, *, timeout=120, cwd=None):
     return result.returncode == 0, output
 
 
-def _docker_user_args():
+def _docker_user_args(tenant=None):
     if os.name == "nt" or not hasattr(os, "getuid") or not hasattr(os, "getgid"):
         return []
     configured = os.environ.get("CONTROL_TENANT_DOCKER_USER", "").strip()
-    user_value = configured or f"{os.getuid()}:{os.getgid()}"
+    # Control may run as root while tenant files belong to the deployment user.
+    # Keep web/worker ownership stable across CLI and control-panel provisioning.
+    owner = Path(tenant.database_path).stat() if tenant is not None else None
+    user_value = configured or (f"{owner.st_uid}:{owner.st_gid}" if owner else f"{os.getuid()}:{os.getgid()}")
     return ["--user", user_value] if user_value else []
 
 
 def _prepare_docker_lock_permissions(tenant, image):
     """Repair only tenant command-lock ownership, preserving live lock inodes."""
-    user_args = _docker_user_args()
+    user_args = _docker_user_args(tenant)
     if not user_args:
         return
     parts = user_args[-1].split(":")
@@ -541,7 +544,7 @@ def _write_docker_tenant_runtime(tenant):
         "--restart", "unless-stopped",
         "--network", "host",
         "--cpus", _tenant_web_cpus(),
-        *_docker_user_args(),
+        *_docker_user_args(tenant),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
@@ -581,7 +584,7 @@ def _write_docker_tenant_runtime(tenant):
         "--restart", "unless-stopped",
         "--network", "host",
         "--cpus", _tenant_worker_cpus(),
-        *_docker_user_args(),
+        *_docker_user_args(tenant),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
         "--workdir", "/app",
