@@ -945,6 +945,8 @@ def _onu_status_sync_loop():
                             except Exception:
                                 logger.exception("Dashboard status sample write failed after OLT status sync.")
                                 close_old_connections()
+                            if result.get("partial") or result.get("failed"):
+                                _queue_onu_status_sync_priority(olt_id)
                     except Exception as exc:
                         logger.exception("OLT %s ONU status sync failed.", olt_id)
                         try:

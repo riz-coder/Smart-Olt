@@ -819,7 +819,7 @@
       const overallCyclePercent = (progress) => {
           const olts = Array.isArray(progress?.olts) ? progress.olts : [];
           const totalOlts = Math.max(1, Number(progress?.total_olts || olts.length || 1));
-          const doneOlts = Number(progress?.done_olts || 0);
+          const completedOlts = Number(progress?.completed_olts || progress?.done_olts || 0);
           const partial = olts.reduce((sum, item) => {
               if (!item.running || item.done) return sum;
               const checked = Number(item.checked || 0);
@@ -827,7 +827,7 @@
               if (total > 0) return sum + Math.max(0, Math.min(0.95, checked / total));
               return sum + 0.12;
           }, 0);
-          return Math.max(3, Math.min(99, ((doneOlts + partial) / totalOlts) * 100));
+          return Math.max(3, Math.min(99, ((completedOlts + partial) / totalOlts) * 100));
       };
 
       const pickOltProgress = (progress) => {
@@ -881,12 +881,16 @@
           const updated = Number(oltItem?.updated || 0);
           const name = String(oltItem?.olt || 'ONU status sync');
           const totalOlts = Number(latestProgress.total_olts || 0);
-          const doneOlts = Number(latestProgress.done_olts || 0);
+          const completedOlts = Number(latestProgress.completed_olts || latestProgress.done_olts || 0);
+          const failedOlts = Number(latestProgress.failed_olts || 0);
+          const partialOlts = Number(latestProgress.partial_olts || 0);
           const runningOlts = Number(latestProgress.running_olts || 0);
 
           progressBox.hidden = false;
           if (metaNode) {
-              metaNode.textContent = `${doneOlts}/${totalOlts} OLTs completed${runningOlts ? ` - ${runningOlts} running` : ''}`;
+              const failedText = failedOlts ? ` (${failedOlts} skipped)` : '';
+              const partialText = partialOlts ? `, ${partialOlts} partial` : '';
+              metaNode.textContent = `${completedOlts}/${totalOlts} OLTs processed${runningOlts ? ` - ${runningOlts} running` : ''}${failedText}${partialText}`;
           }
           if (total > 0) {
               labelNode.textContent = `${name}: ${checked} out of ${total} ONU status checked (${updated} DB changes)`;

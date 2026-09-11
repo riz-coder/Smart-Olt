@@ -143,6 +143,21 @@ def _is_admin_user(user):
     return bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
 
 
+def _parse_progress_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime.datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
 def admin_required(view_func):
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
@@ -5357,7 +5372,13 @@ def configured_onus(request):
     start_index = page_obj.start_index() if paginator.count else 0
     end_index = page_obj.end_index() if paginator.count else 0
     latest_inventory_sync_display = ""
-    sync_display_at = latest_status_sync or latest_inventory_sync
+    onu_status_progress = get_onu_status_sync_progress()
+    sync_display_at = _parse_progress_datetime(
+        (onu_status_progress or {}).get("last_completed_at")
+        or (onu_status_progress or {}).get("cycle_completed_at")
+    )
+    if not sync_display_at:
+        sync_display_at = latest_status_sync or latest_inventory_sync
     if sync_display_at:
         sync_display_at = timezone.localtime(sync_display_at, ZoneInfo("Asia/Karachi"))
         latest_inventory_sync_display = sync_display_at.strftime("%Y-%m-%d %I:%M:%S %p")

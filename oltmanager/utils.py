@@ -13941,6 +13941,7 @@ _ONU_STATUS_SYNC_PROGRESS = {
     "running": False,
     "cycle_started_at": None,
     "cycle_completed_at": None,
+    "last_completed_at": None,
     "next_run_at": None,
     "total_olts": 0,
     "olts": {},
@@ -13969,22 +13970,28 @@ def _onu_status_progress_snapshot_unlocked():
         olts.append(dict(item))
     olts.sort(key=lambda item: (
         0 if item.get("running") else 1 if not item.get("done") else 2,
+        int(item.get("sort_order") or item.get("olt_id") or 0),
         str(item.get("olt") or "").lower(),
     ))
     checked = sum(int(item.get("checked") or 0) for item in olts)
     total = sum(int(item.get("total") or 0) for item in olts)
     done_olts = sum(1 for item in olts if item.get("done"))
     failed_olts = sum(1 for item in olts if item.get("failed"))
+    partial_olts = sum(1 for item in olts if item.get("partial"))
+    completed_olts = sum(1 for item in olts if item.get("done") or item.get("failed"))
     running_olts = sum(1 for item in olts if item.get("running"))
     total_olts = int(_ONU_STATUS_SYNC_PROGRESS.get("total_olts") or len(olts))
     return {
         "running": bool(_ONU_STATUS_SYNC_PROGRESS.get("running")),
         "cycle_started_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_started_at")),
         "cycle_completed_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")),
+        "last_completed_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("last_completed_at")),
         "next_run_at": _onu_status_progress_datetime(_ONU_STATUS_SYNC_PROGRESS.get("next_run_at")),
         "total_olts": total_olts,
         "done_olts": done_olts,
         "failed_olts": failed_olts,
+        "partial_olts": partial_olts,
+        "completed_olts": completed_olts,
         "running_olts": running_olts,
         "checked": checked,
         "total": total,
@@ -14047,25 +14054,48 @@ def _normalize_onu_status_progress_snapshot(payload):
         cleaned = [dict(item) for item in olts if isinstance(item, dict)]
         cleaned.sort(key=lambda item: (
             0 if item.get("running") else 1 if not item.get("done") else 2,
+            int(item.get("sort_order") or item.get("olt_id") or 0),
             str(item.get("olt") or "").lower(),
         ))
         normalized["olts"] = cleaned
+    if "completed_olts" not in normalized:
+        cleaned_olts = normalized.get("olts") if isinstance(normalized.get("olts"), list) else []
+        normalized["completed_olts"] = sum(1 for item in cleaned_olts if item.get("done") or item.get("failed"))
+    if "partial_olts" not in normalized:
+        cleaned_olts = normalized.get("olts") if isinstance(normalized.get("olts"), list) else []
+        normalized["partial_olts"] = sum(1 for item in cleaned_olts if item.get("partial"))
+    if not normalized.get("last_completed_at") and normalized.get("cycle_completed_at"):
+        normalized["last_completed_at"] = normalized.get("cycle_completed_at")
     return normalized
+
+
+def _last_onu_status_completion_from_file():
+    payload = _normalize_onu_status_progress_snapshot(_read_onu_status_progress_file())
+    if not isinstance(payload, dict):
+        return None
+    return payload.get("last_completed_at") or payload.get("cycle_completed_at")
 
 
 def start_onu_status_sync_progress(olt_rows):
     now = timezone.now()
+    last_completed_at = (
+        _ONU_STATUS_SYNC_PROGRESS.get("last_completed_at")
+        or _ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")
+        or _last_onu_status_completion_from_file()
+    )
     olts = {}
-    for row in olt_rows or []:
+    for index, row in enumerate(olt_rows or [], start=1):
         olt_id = int(row.get("id") if isinstance(row, dict) else getattr(row, "id", 0) or 0)
         if not olt_id:
             continue
         olts[str(olt_id)] = {
             "olt_id": olt_id,
+            "sort_order": index,
             "olt": str(row.get("name") if isinstance(row, dict) else getattr(row, "name", "") or ""),
             "running": False,
             "done": False,
             "failed": False,
+            "partial": False,
             "checked": 0,
             "total": 0,
             "updated": 0,
@@ -14079,6 +14109,7 @@ def start_onu_status_sync_progress(olt_rows):
             "running": True,
             "cycle_started_at": now,
             "cycle_completed_at": None,
+            "last_completed_at": last_completed_at,
             "next_run_at": None,
             "total_olts": len(olts),
             "olts": olts,
@@ -14095,10 +14126,12 @@ def update_onu_status_sync_progress(olt_id, **kwargs):
         olts = _ONU_STATUS_SYNC_PROGRESS.setdefault("olts", {})
         entry = olts.setdefault(key, {
             "olt_id": int(olt_id),
+            "sort_order": int(kwargs.get("sort_order") or int(olt_id)),
             "olt": str(kwargs.get("olt") or ""),
             "running": False,
             "done": False,
             "failed": False,
+            "partial": False,
             "checked": 0,
             "total": 0,
             "updated": 0,
@@ -14111,7 +14144,7 @@ def update_onu_status_sync_progress(olt_id, **kwargs):
             entry["started_at"] = _onu_status_progress_datetime(now)
         if kwargs.get("done") or kwargs.get("failed"):
             entry["completed_at"] = _onu_status_progress_datetime(now)
-        for field in ("olt", "running", "done", "failed", "checked", "total", "updated", "status_changed", "message"):
+        for field in ("olt", "running", "done", "failed", "partial", "checked", "total", "updated", "status_changed", "message"):
             if field in kwargs:
                 entry[field] = kwargs[field]
         _write_onu_status_progress_file_unlocked()
@@ -14123,15 +14156,22 @@ def finish_onu_status_sync_progress(next_run_at=None):
         _ONU_STATUS_SYNC_PROGRESS.update({
             "running": False,
             "cycle_completed_at": now,
+            "last_completed_at": now,
             "next_run_at": next_run_at,
         })
         _write_onu_status_progress_file_unlocked()
 
 
 def schedule_onu_status_sync_progress(next_run_at=None):
+    last_completed_at = (
+        _ONU_STATUS_SYNC_PROGRESS.get("last_completed_at")
+        or _ONU_STATUS_SYNC_PROGRESS.get("cycle_completed_at")
+        or _last_onu_status_completion_from_file()
+    )
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
         _ONU_STATUS_SYNC_PROGRESS.update({
             "running": False,
+            "last_completed_at": last_completed_at,
             "next_run_at": next_run_at,
         })
         _write_onu_status_progress_file_unlocked()
@@ -14142,6 +14182,8 @@ def get_onu_status_sync_progress():
         snapshot = _onu_status_progress_snapshot_unlocked()
     file_snapshot = _normalize_onu_status_progress_snapshot(_read_onu_status_progress_file())
     if file_snapshot:
+        if not snapshot.get("last_completed_at") and file_snapshot.get("last_completed_at"):
+            snapshot["last_completed_at"] = file_snapshot.get("last_completed_at")
         snapshot_completed = str(snapshot.get("cycle_completed_at") or "")
         file_completed = str(file_snapshot.get("cycle_completed_at") or "")
         snapshot_started = str(snapshot.get("cycle_started_at") or "")
@@ -14197,7 +14239,7 @@ def sync_runtime_statuses_for_olt(
     qs = ConfiguredONU.objects.filter(olt=olt)
     if only_non_online:
         qs = qs.exclude(derived_status="online")
-    qs = qs.order_by("id")
+    qs = qs.order_by("status_updated_at", "id")
     wrapped = False
     if start_pk:
         records = list(qs.filter(id__gt=int(start_pk))[:limit] if limit else qs.filter(id__gt=int(start_pk)))
@@ -14241,12 +14283,63 @@ def sync_runtime_statuses_for_olt(
         if on_progress:
             on_progress({"checked": 0, "total": total_records, "updated": 0, "status_changed": 0, "running": True, "message": "Fetching ONU status from SNMP..."})
         trap_status_map = get_active_onu_trap_status_map(olt)
-        snmp_result = (
-            {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status fetch for EPON batch."}
-            if all_records_are_epon
-            else fetch_olt_snmp_status_map_for_records(olt, records, max_seconds=_remaining_seconds())
-        )
-        if not all_records_are_epon and not (snmp_result.get("items") or {}):
+        snmp_result = {"items": {}, "truncated": False, "status": "Skipped GPON SNMP status fetch for EPON batch."}
+        if not all_records_are_epon:
+            # Large OLTs can have thousands of ONUs. Fetching every ONU's exact
+            # status OID in one long pass often times out before any DB update is
+            # possible, leaving the dashboard stuck at "0 checked". Query by PON
+            # instead: each PON result is merged immediately and incomplete PONs
+            # leave existing DB statuses untouched.
+            records_by_pon = {}
+            for record in records:
+                if str(_slot_pon_tech(olt, int(record.slot)) or "").upper() == "EPON":
+                    continue
+                records_by_pon.setdefault((int(record.slot), int(record.port)), []).append(record)
+
+            fetched_items = {}
+            truncated = False
+            last_status = ""
+            pon_groups = sorted(records_by_pon.items())
+            total_gpon_records = sum(len(group_records) for _, group_records in pon_groups)
+            fetched_gpon_records = 0
+            for group_index, ((slot_no, port_no), group_records) in enumerate(pon_groups, start=1):
+                try:
+                    group_result = fetch_olt_snmp_status_map_for_records(
+                        olt,
+                        group_records,
+                        max_seconds=_remaining_seconds(),
+                        chunk_size=120,
+                    )
+                except TimeoutError:
+                    truncated = True
+                    last_status = f"Timed out while fetching PON {slot_no}/{port_no}."
+                    break
+                group_items = group_result.get("items") or {}
+                if group_items:
+                    fetched_items.update(group_items)
+                if bool(group_result.get("truncated")) or len(group_items) < len(group_records):
+                    truncated = True
+                fetched_gpon_records += len(group_items)
+                last_status = str(group_result.get("status") or "").strip()
+                if on_progress:
+                    on_progress({
+                        "checked": fetched_gpon_records,
+                        "total": total_records,
+                        "updated": updated,
+                        "status_changed": status_changed,
+                        "running": True,
+                        "message": (
+                            f"Fetched ONU status from PON {slot_no}/{port_no} "
+                            f"({group_index}/{len(pon_groups)} PONs, {fetched_gpon_records}/{total_gpon_records} GPON ONUs)."
+                        ),
+                    })
+
+            snmp_result = {
+                "items": fetched_items,
+                "truncated": truncated,
+                "status": last_status or f"SNMP ONU direct status map fetched: {len(fetched_items)}",
+            }
+        if not all_records_are_epon and not (snmp_result.get("items") or {}) and total_records <= 512:
             snmp_result = fetch_olt_snmp_status_map(olt, max_seconds=_remaining_seconds())
         snmp_status_map = snmp_result.get("items") or {}
         epon_inventory_map = {}
@@ -14291,8 +14384,18 @@ def sync_runtime_statuses_for_olt(
                 "status": message,
                 "last_pk": records[-1].id if records else (start_pk or 0),
                 "wrapped": wrapped,
+                "verified": 0,
+                "pending": total_records,
+                "verified_percent": 0,
+                "partial": False,
+                "failed": True,
             }
         snmp_complete = bool(snmp_status_map) and not bool(snmp_result.get("truncated"))
+        verified_keys = {
+            (int(slot), int(port), int(ont_id))
+            for slot, port, ont_id in (snmp_status_map.keys() or [])
+        }
+        has_pending_records = len(verified_keys) < total_records
         for record in records:
             checked += 1
             changed = False
@@ -14334,6 +14437,12 @@ def sync_runtime_statuses_for_olt(
                 changed = True
             elif runtime_status and not record.status_first_seen_at:
                 record.status_first_seen_at = now
+                record.status_updated_at = now
+                changed = True
+            elif has_pending_records and record_key in verified_keys:
+                # In a partial/truncated cycle, touch verified records so the
+                # next cycle naturally starts from the ONUs that were not
+                # verified this time. Full cycles skip this to avoid DB churn.
                 record.status_updated_at = now
                 changed = True
 
@@ -14381,14 +14490,23 @@ def sync_runtime_statuses_for_olt(
             )
         if write_samples and status_samples:
             ONUStatusSample.objects.bulk_create(status_samples, batch_size=200)
-        verified = sum(
-            1 for record in records
-            if (int(record.slot), int(record.port), int(record.ont_id)) in snmp_status_map
-        )
+        verified = sum(1 for record in records if (int(record.slot), int(record.port), int(record.ont_id)) in verified_keys)
         pending = max(0, total_records - verified)
+        verified_percent = (verified / total_records) if total_records else 0
+        partial = bool(pending and verified_percent >= 0.60)
+        failed = bool(pending and not partial)
         final_message = f"Completed: {verified} verified, {updated} updated."
         if pending:
-            final_message = f"Partial: {verified} verified, {pending} pending, {updated} updated. Pending ONUs retain their previous status."
+            if partial:
+                final_message = (
+                    f"Partial: {verified}/{total_records} verified ({verified_percent:.0%}), "
+                    f"{pending} pending, {updated} updated. Pending ONUs will be prioritized next cycle."
+                )
+            else:
+                final_message = (
+                    f"Incomplete: only {verified}/{total_records} verified ({verified_percent:.0%}), "
+                    f"{pending} pending, {updated} updated. This OLT will be retried before being treated as partial."
+                )
         if on_progress:
             on_progress({
                 "checked": checked,
@@ -14397,7 +14515,8 @@ def sync_runtime_statuses_for_olt(
                 "status_changed": status_changed,
                 "running": False,
                 "done": True,
-                "failed": bool(pending),
+                "failed": failed,
+                "partial": partial,
                 "message": final_message,
             })
         return {
@@ -14407,6 +14526,11 @@ def sync_runtime_statuses_for_olt(
             "status": final_message,
             "last_pk": records[-1].id if records else (start_pk or 0),
             "wrapped": wrapped,
+            "verified": verified,
+            "pending": pending,
+            "verified_percent": round(verified_percent * 100, 1),
+            "partial": partial,
+            "failed": failed,
         }
     except Exception as exc:
         if on_progress:
