@@ -5216,6 +5216,7 @@ def configured_onus(request):
         "signal_bucket",
         "attached_vlans_cache",
         "onu_type_cache",
+        "catv_operational_cache",
         "derived_status",
         "status_source",
         "status_first_seen_at",
