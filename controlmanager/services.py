@@ -47,9 +47,9 @@ def _tenant_bind_host():
 
 def _tenant_web_workers():
     try:
-        return max(1, int(os.environ.get("CONTROL_TENANT_WEB_WORKERS", "3")))
+        return max(1, int(os.environ.get("CONTROL_TENANT_WEB_WORKERS", "2")))
     except (TypeError, ValueError):
-        return 3
+        return 2
 
 
 def _tenant_web_cpus():
@@ -204,7 +204,7 @@ SQLITE_DB_PATH={tenant.database_path}
 SQLITE_TIMEOUT_SECONDS=60
 ONU_STATUS_SYNC_PROGRESS_FILE={tenant_dir / "onu_status_sync_progress.json"}
 OLT_ENABLE_EMBEDDED_SYNC=true
-OLT_BACKGROUND_SYNC_THREADS=snmp_monitor,onu_status,signal_sample
+OLT_BACKGROUND_SYNC_THREADS={os.environ.get("CONTROL_TENANT_BACKGROUND_SYNC_THREADS", "onu_status")}
 OLT_ONU_OPTICAL_SAMPLE_INTERVAL_SECONDS=3600
 OLT_ONU_OPTICAL_RETENTION_DAYS=15
 OLT_ONU_STATUS_RETENTION_DAYS=30
