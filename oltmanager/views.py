@@ -5461,6 +5461,45 @@ def unconfigured_onus(request):
     else:
         total_rows = sum(group["count"] for group in grouped_rows)
     authorize_debug = request.session.pop("authorize_debug_payload", None)
+    batch_vlan_options = []
+    batch_svlan_options = []
+    batch_download_speed_options = []
+    batch_upload_speed_options = []
+    if selected_olts and len(selected_ordered) == 1:
+        selected_batch_olt = selected_ordered[0]
+        for vlan_row in list(getattr(selected_batch_olt, "vlan_cache", []) or []):
+            vlan_id_text = str(vlan_row.get("vlan_id") or "").strip()
+            if not vlan_id_text or vlan_row.get("is_management"):
+                continue
+            vlan_label = vlan_id_text
+            vlan_desc = str(vlan_row.get("description") or "").strip()
+            if vlan_desc and vlan_desc != "-":
+                vlan_label = f"{vlan_id_text} - {vlan_desc}"
+            batch_svlan_options.append({"value": vlan_id_text, "label": vlan_label})
+        batch_vlan_options = list(batch_svlan_options)
+        if not any(str(item.get("value") or "").strip().lower() == "untagged" for item in batch_vlan_options):
+            batch_vlan_options.append({"value": "untagged", "label": "untagged"})
+        speed_profile_templates = list(SpeedProfile.objects.filter(is_active=True).order_by("speed_mbps_value", "name"))
+        for profile in speed_profile_templates:
+            base_name = (profile.name or "").strip()
+            base_name = re.sub(r"(?i)(?:-|_)?(up|down)$", "", base_name).strip(" -_") or (profile.name or "")
+            speed_display = (profile.speed_display or "").strip() or (
+                f"{profile.speed_mbps_value} Mbps" if profile.speed_mbps_value else "-"
+            )
+            batch_download_speed_options.append(
+                {
+                    "value": str(int(profile.index_number or 0)),
+                    "label": (profile.download_name or f"{base_name}-DOWN").strip(),
+                    "speed": speed_display,
+                }
+            )
+            batch_upload_speed_options.append(
+                {
+                    "value": str(int((profile.index_number or 0) + 1)),
+                    "label": (profile.upload_name or f"{base_name}-UP").strip(),
+                    "speed": speed_display,
+                }
+            )
     context = {
         "unconfigured_groups": grouped_rows,
         "unconfigured_group_targets": group_targets,
@@ -5473,8 +5512,10 @@ def unconfigured_onus(request):
         "unconfigured_new_total": total_new,
         "unconfigured_resync_total": total_resync,
         "unconfigured_onu_type_options": [],
-        "unconfigured_download_speed_options": [],
-        "unconfigured_upload_speed_options": [],
+        "unconfigured_vlan_options": batch_vlan_options,
+        "unconfigured_svlan_options": batch_svlan_options,
+        "unconfigured_download_speed_options": batch_download_speed_options,
+        "unconfigured_upload_speed_options": batch_upload_speed_options,
         "unconfigured_return_query": request.GET.urlencode(),
         "authorize_debug": authorize_debug,
     }

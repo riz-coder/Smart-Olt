@@ -175,6 +175,9 @@
         font-size: 13px;
         font-weight: 700;
     }
+    .autofind-summary[hidden] {
+        display: none;
+    }
     .autofind-summary span {
         display: inline-flex;
         align-items: center;
@@ -186,6 +189,149 @@
     }
     .autofind-summary a:hover {
         color: #ffffff;
+    }
+    .batch-config-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: -4px 0 14px;
+    }
+    .btn-batch-config {
+        border: 1px solid rgba(74, 222, 128, 0.44);
+        background: linear-gradient(135deg, #059669, #22c55e);
+        color: #ffffff;
+        box-shadow: 0 0 18px rgba(34, 197, 94, 0.24);
+    }
+    .btn-batch-config:disabled {
+        cursor: not-allowed;
+        filter: blur(0.35px) grayscale(0.35);
+        opacity: 0.48;
+        box-shadow: none;
+    }
+    .batch-config-hint {
+        color: #8fb0d8;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .batch-config-panel {
+        display: none;
+        margin: 0 0 18px;
+        padding: 16px;
+        border: 1px solid rgba(74, 222, 128, 0.24);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(12, 31, 51, 0.96), rgba(10, 22, 41, 0.98));
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.26);
+    }
+    .batch-config-panel.is-open {
+        display: block;
+    }
+    .batch-config-panel.is-results-only {
+        display: block;
+        max-width: 760px;
+        margin: 18px auto;
+    }
+    .batch-config-panel.is-results-only .batch-panel-head,
+    .batch-config-panel.is-results-only .authorize-grid,
+    .batch-config-panel.is-results-only .authorize-submit-row {
+        display: none;
+    }
+    .batch-panel-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .batch-panel-head h3 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        color: #f5fbff;
+    }
+    .batch-panel-head p {
+        margin: 0;
+        color: #9eb5d6;
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .batch-progress {
+        margin-top: 12px;
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(5, 12, 28, 0.74);
+        border: 1px solid rgba(110, 161, 255, 0.18);
+        color: #dceaff;
+        font-size: 12px;
+        font-weight: 800;
+    }
+    .batch-progress[hidden] {
+        display: none;
+    }
+    .batch-result-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    .batch-result-list[hidden] {
+        display: none;
+    }
+    .batch-result-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(34, 197, 94, 0.10);
+        border: 1px solid rgba(34, 197, 94, 0.24);
+        color: #dfffee;
+        font-size: 12px;
+        font-weight: 900;
+        text-decoration: none;
+    }
+    .batch-result-link:hover {
+        color: #ffffff;
+        border-color: rgba(34, 197, 94, 0.44);
+    }
+    .batch-results-title {
+        margin: 0 0 12px;
+        color: #f4fff8;
+        font-size: 18px;
+        font-weight: 1000;
+    }
+    .batch-select-col {
+        width: 150px;
+        text-align: center;
+    }
+    .batch-select-col label,
+    .batch-select-col {
+        vertical-align: middle;
+    }
+    .batch-onu-checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: #22c55e;
+        cursor: pointer;
+    }
+    .batch-onu-name-input {
+        display: block;
+        width: 128px;
+        height: 28px;
+        margin: 6px auto 0;
+        padding: 0 8px;
+        border: 1px solid rgba(132, 170, 230, 0.24);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #e8f0ff;
+        font-size: 11px;
+        font-weight: 800;
+    }
+    .batch-onu-name-input::placeholder {
+        color: #6f86a9;
+    }
+    tr.batch-configured {
+        opacity: 0.58;
+        background: rgba(34, 197, 94, 0.08);
     }
     .summary-filter-active {
         color: #84efae !important;
@@ -712,6 +858,32 @@
     html[data-theme="light"] .autofind-summary,
     html[data-theme="light"] .autofind-summary a { color: #3a4862; }
     html[data-theme="light"] .autofind-summary a:hover { color: #16233c; }
+    html[data-theme="light"] .batch-config-panel {
+        background: #ffffff;
+        border-color: #d6e6fb;
+        box-shadow: 0 14px 34px rgba(40, 70, 120, 0.08);
+    }
+    html[data-theme="light"] .batch-panel-head h3 { color: #16233c; }
+    html[data-theme="light"] .batch-panel-head p,
+    html[data-theme="light"] .batch-config-hint { color: #5a6b86; }
+    html[data-theme="light"] .batch-progress {
+        background: #f4f8fe;
+        color: #243653;
+        border-color: #dce6f3;
+    }
+    html[data-theme="light"] .batch-result-link {
+        background: #ecfff4;
+        border-color: #b8efd0;
+        color: #10643a;
+    }
+    html[data-theme="light"] .batch-onu-name-input {
+        background: #ffffff;
+        border-color: #cdd9ec;
+        color: #16233c;
+    }
+    html[data-theme="light"] .batch-onu-name-input::placeholder {
+        color: #8290aa;
+    }
     html[data-theme="light"] .previous-running {
         background: #f1f5fc;
         border-color: #dce6f3;
@@ -798,10 +970,117 @@
             </div>
             <button type="submit" class="btn btn-primary">Refresh</button>
         </form>
-        <div class="autofind-summary">
+        <div class="autofind-summary" data-autofind-summary {% if unconfigured_group_targets %}hidden{% endif %}>
             <span><a href="{% url 'unconfigured_onus' %}{% if unconfigured_selected_olts or unconfigured_search_query %}?{% endif %}{% for olt in unconfigured_selected_olts %}olts={{ olt }}&{% endfor %}{% if unconfigured_search_query %}q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if not unconfigured_category_filter %}summary-filter-active{% endif %}">Total ONUs: <span data-unconfigured-total>{{ unconfigured_total }}</span></a></span>
             <span><a href="{% url 'unconfigured_onus' %}?category=resync{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'resync' %}summary-filter-active{% endif %}">Resync: <span data-unconfigured-resync>{{ unconfigured_resync_total|default:0 }}</span></a></span>
             <span><a href="{% url 'unconfigured_onus' %}?category=new{% for olt in unconfigured_selected_olts %}&olts={{ olt }}{% endfor %}{% if unconfigured_search_query %}&q={{ unconfigured_search_query|urlencode }}{% endif %}" class="{% if unconfigured_category_filter == 'new' %}summary-filter-active{% endif %}">New: <span data-unconfigured-new>{{ unconfigured_new_total|default:0 }}</span></a></span>
+        </div>
+        <div class="batch-config-bar">
+            <button
+                type="button"
+                class="btn btn-batch-config"
+                data-batch-config-toggle
+                {% if unconfigured_selected_olts|length != 1 %}disabled{% endif %}
+                title="{% if unconfigured_selected_olts|length == 1 %}Configure selected NEW ONUs with one config{% else %}Select exactly one OLT to use batch config{% endif %}"
+            >One Config → Multiple ONUs</button>
+            <span class="batch-config-hint" data-batch-config-hint>
+                {% if unconfigured_selected_olts|length == 1 %}
+                    Select NEW ONUs below, then apply one shared config.
+                {% else %}
+                    Select exactly one OLT to enable batch config.
+                {% endif %}
+            </span>
+        </div>
+        <div class="batch-config-panel" data-batch-config-panel>
+            <div class="batch-panel-head">
+                <div>
+                    <h3>One Config → Multiple ONUs</h3>
+                    <p>Only checked NEW ONUs from the selected OLT will be configured one by one.</p>
+                </div>
+                <button type="button" class="btn btn-mini" data-batch-select-all>Select all NEW</button>
+            </div>
+            <form class="authorize-panel" data-batch-config-form>
+                <div class="authorize-grid">
+                    <div class="authorize-field">
+                        <label>ONU Mode</label>
+                        <select name="onu_mode" required>
+                            <option value="">Select mode</option>
+                            <option value="routing">Routing</option>
+                            <option value="bridging">Bridging</option>
+                        </select>
+                    </div>
+                    <div class="authorize-field">
+                        <label>Mapping</label>
+                        <div class="authorize-mapping-tabs" role="radiogroup" aria-label="Batch ONU mapping mode">
+                            <label>
+                                <input type="radio" name="mapping_mode" value="priority" checked>
+                                <span>Priority Mapping</span>
+                            </label>
+                            <label>
+                                <input type="radio" name="mapping_mode" value="vlan">
+                                <span>VLAN Mapping</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="authorize-field">
+                        <label>Name pattern</label>
+                        <input type="text" name="subscriber_pattern" placeholder="e.g. Client-{no} or {sn}">
+                        <div class="authorize-empty">Per-row name box has priority. Tokens: {no}, {sn}, {board}, {port}</div>
+                    </div>
+                    <div class="authorize-field authorize-vlan-stack">
+                        <label class="authorize-inline-check">
+                            <input type="checkbox" name="use_svlan" data-authorize-svlan-toggle>
+                            <span>Use SVLAN</span>
+                        </label>
+                        <div class="authorize-svlan-controls" data-authorize-svlan-controls hidden>
+                            <select name="service_vlan" data-authorize-svlan-select disabled>
+                                <option value="">Select SVLAN</option>
+                                {% for option in unconfigured_svlan_options %}
+                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="tag_transform" data-authorize-tag-transform disabled>
+                                <option value="default">default</option>
+                                <option value="translate">translate</option>
+                            </select>
+                        </div>
+                        <div class="authorize-vlan-user">
+                            <label>User VLAN</label>
+                            <select name="vlan" required>
+                                <option value="">Select User VLAN</option>
+                                {% for option in unconfigured_vlan_options %}
+                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="authorize-field authorize-speed-stack">
+                        <div class="authorize-speed-field">
+                            <label>Download Speed</label>
+                            <select name="download_speed" required>
+                                <option value="">Select download profile</option>
+                                {% for option in unconfigured_download_speed_options %}
+                                <option value="{{ option.value }}">{{ option.label }}{% if option.speed %} | {{ option.speed }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="authorize-speed-field">
+                            <label>Upload Speed</label>
+                            <select name="upload_speed" required>
+                                <option value="">Select upload profile</option>
+                                {% for option in unconfigured_upload_speed_options %}
+                                <option value="{{ option.value }}">{{ option.label }}{% if option.speed %} | {{ option.speed }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="authorize-submit-row">
+                    <button type="submit" class="btn btn-authorize" data-batch-submit>Configure selected ONUs</button>
+                </div>
+                <div class="batch-progress" data-batch-progress hidden></div>
+                <div class="batch-result-list" data-batch-results hidden></div>
+            </form>
         </div>
 
         <div data-unconfigured-groups-root>
@@ -924,7 +1203,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const stopProgressPolling = () => {
         if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     };
-    const startProgressPolling = (taskId, onDone) => {
+    const startProgressPolling = (taskId, onDone, labelPrefix) => {
         stopProgressPolling();
         const url = _getProgressUrl(taskId);
         const poll = async () => {
@@ -938,7 +1217,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const data = await res.json().catch(() => ({}));
                 const step = Number(data.step || 0);
                 const prog = STEP_PROGRESS[step] !== undefined ? STEP_PROGRESS[step] : 14;
-                setWaitStep(step, prog);
+                const cleanPrefix = String(labelPrefix || '').trim();
+                const serverLabel = String(data.label || '').trim();
+                const label = cleanPrefix
+                    ? `${cleanPrefix}${serverLabel ? ` — ${serverLabel}` : ''}`
+                    : (serverLabel || undefined);
+                setWaitStep(step, prog, label);
                 if (data.done) {
                     stopProgressPolling();
                     onDone(data);
@@ -1073,9 +1357,289 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
+    const batchToggle = document.querySelector('[data-batch-config-toggle]');
+    const batchPanel = document.querySelector('[data-batch-config-panel]');
+    const batchForm = document.querySelector('[data-batch-config-form]');
+    const batchHint = document.querySelector('[data-batch-config-hint]');
+    const batchSelectAll = document.querySelector('[data-batch-select-all]');
+    const batchSubmit = document.querySelector('[data-batch-submit]');
+    const batchProgress = document.querySelector('[data-batch-progress]');
+    const batchResults = document.querySelector('[data-batch-results]');
+    const batchMappingRadios = batchForm ? Array.from(batchForm.querySelectorAll('input[name="mapping_mode"]')) : [];
+    const batchSvlanToggle = batchForm ? batchForm.querySelector('[data-authorize-svlan-toggle]') : null;
+    const batchSvlanControls = batchForm ? batchForm.querySelector('[data-authorize-svlan-controls]') : null;
+    const batchSvlanSelect = batchForm ? batchForm.querySelector('[data-authorize-svlan-select]') : null;
+    const batchTagTransformSelect = batchForm ? batchForm.querySelector('[data-authorize-tag-transform]') : null;
+    const batchUserVlanSelect = batchForm ? batchForm.querySelector('select[name="vlan"]') : null;
+    const batchEnabled = Boolean(batchToggle && !batchToggle.disabled && batchPanel && batchForm);
+
+    const getBatchCheckboxes = () => Array.from(document.querySelectorAll('[data-batch-onu]'));
+    const getCheckedBatchCheckboxes = () => getBatchCheckboxes().filter((checkbox) => checkbox.checked && !checkbox.disabled);
+    const updateBatchSelectionUi = () => {
+        if (!batchEnabled) return;
+        const total = getBatchCheckboxes().filter((checkbox) => !checkbox.disabled).length;
+        const selected = getCheckedBatchCheckboxes().length;
+        if (batchHint) {
+            batchHint.textContent = selected
+                ? `${selected}/${total} NEW ONUs selected.`
+                : `Select NEW ONUs below, then apply one shared config.`;
+        }
+        if (batchSubmit) {
+            batchSubmit.textContent = selected ? `Configure ${selected} selected ONUs` : 'Configure selected ONUs';
+        }
+        if (batchSelectAll) {
+            const allSelected = total > 0 && selected === total;
+            batchSelectAll.textContent = allSelected ? 'Clear selection' : 'Select all NEW';
+        }
+    };
+    const wireBatchCheckboxes = (scope) => {
+        if (!batchEnabled) return;
+        const root = scope || document;
+        Array.from(root.querySelectorAll('[data-batch-onu]')).forEach((checkbox) => {
+            if (checkbox.dataset.batchBound === '1') return;
+            checkbox.dataset.batchBound = '1';
+            checkbox.addEventListener('change', updateBatchSelectionUi);
+        });
+        updateBatchSelectionUi();
+    };
+
+    const syncBatchSvlanControls = () => {
+        if (!batchForm || !batchSvlanToggle) return;
+        const vlanMappingMode = batchMappingRadios.some((radio) => radio.checked && radio.value === 'vlan');
+        const enabled = batchSvlanToggle.checked && !vlanMappingMode;
+        const wrap = batchSvlanToggle.closest('.authorize-inline-check');
+        if (wrap) wrap.hidden = vlanMappingMode;
+        batchSvlanToggle.disabled = vlanMappingMode;
+        if (batchSvlanControls) batchSvlanControls.hidden = !enabled;
+        if (batchSvlanSelect) {
+            batchSvlanSelect.disabled = !enabled;
+            if (!enabled) batchSvlanSelect.value = '';
+        }
+        if (batchTagTransformSelect) {
+            batchTagTransformSelect.disabled = !enabled;
+            if (!enabled) batchTagTransformSelect.value = 'default';
+        }
+        if (batchUserVlanSelect && batchTagTransformSelect) {
+            const isUntagged = String(batchUserVlanSelect.value || '').toLowerCase() === 'untagged';
+            const translateOption = Array.from(batchTagTransformSelect.options).find((option) => option.value === 'translate');
+            if (translateOption) {
+                translateOption.hidden = isUntagged;
+                translateOption.disabled = isUntagged;
+            }
+            if (isUntagged) batchTagTransformSelect.value = 'default';
+        }
+    };
+
+    const buildBatchSubscriberName = (checkbox, sourceForm, index) => {
+        const key = checkbox.getAttribute('data-authorize-key') || '';
+        const rowNameInput = document.querySelector(`[data-batch-onu-name][data-authorize-key="${key}"]`);
+        const typedName = String(rowNameInput ? rowNameInput.value : '').trim();
+        if (typedName) return typedName;
+        const source = new FormData(sourceForm);
+        const sn = String(checkbox.getAttribute('data-sn') || '').trim();
+        const board = String(checkbox.getAttribute('data-board') || '').trim();
+        const port = String(checkbox.getAttribute('data-port') || '').trim();
+        const no = String(checkbox.getAttribute('data-number') || index || '').trim();
+        const pattern = String(source.get('subscriber_pattern') || '').trim() || 'ONU-{no}-{sn}';
+        const name = pattern
+            .replaceAll('{sn}', sn || 'SN')
+            .replaceAll('{board}', board || '0')
+            .replaceAll('{port}', port || '0')
+            .replaceAll('{no}', no || String(index || 1))
+            .trim();
+        return name || `${sn || 'ONU'}-${index || 1}`;
+    };
+
+    const applyBatchValuesToAuthorizeForm = (targetForm, sourceForm, checkbox, index) => {
+        const source = new FormData(sourceForm);
+        ['onu_mode', 'vlan', 'download_speed', 'upload_speed'].forEach((name) => {
+            const field = targetForm.querySelector(`[name="${name}"]`);
+            if (field) field.value = source.get(name) || '';
+        });
+        const subscriberField = targetForm.querySelector('[name="subscriber_name"]');
+        if (subscriberField) subscriberField.value = buildBatchSubscriberName(checkbox, sourceForm, index);
+        const mappingMode = String(source.get('mapping_mode') || 'priority');
+        Array.from(targetForm.querySelectorAll('[name="mapping_mode"]')).forEach((radio) => {
+            radio.checked = radio.value === mappingMode;
+        });
+        const useSvlanSource = Boolean(source.get('use_svlan'));
+        const useSvlanTarget = targetForm.querySelector('[name="use_svlan"]');
+        if (useSvlanTarget) useSvlanTarget.checked = useSvlanSource;
+        const serviceVlanTarget = targetForm.querySelector('[name="service_vlan"]');
+        if (serviceVlanTarget) {
+            serviceVlanTarget.disabled = !useSvlanSource;
+            serviceVlanTarget.value = useSvlanSource ? (source.get('service_vlan') || '') : '';
+        }
+        const tagTransformTarget = targetForm.querySelector('[name="tag_transform"]');
+        if (tagTransformTarget) {
+            tagTransformTarget.disabled = !useSvlanSource;
+            tagTransformTarget.value = useSvlanSource ? (source.get('tag_transform') || 'default') : 'default';
+        }
+    };
+
+    const runAuthorizeFormAsPromise = async (form, labelPrefix) => {
+        const response = await fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok || !data.task_id) {
+            throw new Error(data.message || 'Authorize request failed.');
+        }
+        return new Promise((resolve, reject) => {
+            startProgressPolling(data.task_id, (result) => {
+                if (result.ok) {
+                    resolve(result);
+                } else {
+                    reject(new Error(result.message || 'Could not complete. Please try again.'));
+                }
+            }, labelPrefix);
+        });
+    };
+
+    const renderBatchResults = (results) => {
+        if (!batchResults) return;
+        batchResults.innerHTML = '';
+        const heading = document.createElement('h3');
+        heading.className = 'batch-results-title';
+        heading.textContent = 'Configured ONUs';
+        batchResults.appendChild(heading);
+        results.forEach((item, index) => {
+            if (!item || !item.url) return;
+            const link = document.createElement('a');
+            link.className = 'batch-result-link';
+            link.href = item.url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            const title = document.createElement('span');
+            title.textContent = `${index + 1}. ${item.name || item.sn || 'Configured ONU'}`;
+            const action = document.createElement('span');
+            action.textContent = 'Open ONU →';
+            link.appendChild(title);
+            link.appendChild(action);
+            batchResults.appendChild(link);
+        });
+        batchResults.hidden = batchResults.children.length <= 1;
+    };
+
+    const showBatchResultsOnly = () => {
+        const searchBar = document.querySelector('.search-bar');
+        const summary = document.querySelector('.autofind-summary');
+        const batchBar = document.querySelector('.batch-config-bar');
+        const groupsRoot = document.querySelector('[data-unconfigured-groups-root]');
+        const emptyTable = document.querySelector('.table-wrap');
+        if (searchBar) searchBar.hidden = true;
+        if (summary) summary.hidden = true;
+        if (batchBar) batchBar.hidden = true;
+        if (groupsRoot) groupsRoot.hidden = true;
+        if (emptyTable && !emptyTable.closest('.olt-group')) emptyTable.hidden = true;
+        if (batchPanel) {
+            batchPanel.classList.add('is-open', 'is-results-only');
+            batchPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
+
+    if (batchEnabled) {
+        batchToggle.addEventListener('click', () => {
+            batchPanel.classList.toggle('is-open');
+            batchPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+        if (batchSelectAll) {
+            batchSelectAll.addEventListener('click', () => {
+                const boxes = getBatchCheckboxes().filter((checkbox) => !checkbox.disabled);
+                const shouldCheck = boxes.some((checkbox) => !checkbox.checked);
+                boxes.forEach((checkbox) => { checkbox.checked = shouldCheck; });
+                updateBatchSelectionUi();
+            });
+        }
+        if (batchSvlanToggle) batchSvlanToggle.addEventListener('change', syncBatchSvlanControls);
+        batchMappingRadios.forEach((radio) => radio.addEventListener('change', syncBatchSvlanControls));
+        if (batchUserVlanSelect) batchUserVlanSelect.addEventListener('change', syncBatchSvlanControls);
+        syncBatchSvlanControls();
+
+        batchForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!batchForm.reportValidity()) return;
+            const selected = getCheckedBatchCheckboxes();
+            if (!selected.length) {
+                window.alert('Please select at least one NEW ONU.');
+                return;
+            }
+            if (batchSubmit) batchSubmit.disabled = true;
+            getBatchCheckboxes().forEach((checkbox) => { checkbox.disabled = true; });
+            if (batchProgress) {
+                batchProgress.hidden = false;
+                batchProgress.textContent = `Starting batch: 0/${selected.length} completed.`;
+            }
+            if (batchResults) {
+                batchResults.hidden = true;
+                batchResults.innerHTML = '';
+            }
+            showWaitOverlay();
+            let completed = 0;
+            const configuredResults = [];
+            try {
+                for (const checkbox of selected) {
+                    const key = checkbox.getAttribute('data-authorize-key');
+                    const sn = checkbox.getAttribute('data-sn') || key || 'ONU';
+                    const rowForm = document.querySelector(`[data-authorize-panel="${key}"] form.unconfigured-authorize-form`);
+                    if (!rowForm) {
+                        throw new Error(`Authorize form not found for ${sn}.`);
+                    }
+                    const batchMappingMode = new FormData(batchForm).get('mapping_mode') || 'priority';
+                    const rowPonType = String(rowForm.querySelector('[name="pon_type"]')?.value || '').toUpperCase();
+                    if (batchMappingMode === 'vlan' && rowPonType === 'EPON') {
+                        throw new Error(`VLAN Mapping is not available for EPON ONU ${sn}.`);
+                    }
+                    applyBatchValuesToAuthorizeForm(rowForm, batchForm, checkbox, completed + 1);
+                    const subscriberName = rowForm.querySelector('[name="subscriber_name"]')?.value || sn;
+                    const counterLabel = `${completed}/${selected.length} ONU configured`;
+                    setWaitStep(1, 18, `${counterLabel} — Configuring ${completed + 1}/${selected.length}: ${sn}`);
+                    if (batchProgress) {
+                        batchProgress.textContent = `${counterLabel} | Configuring ${completed + 1}/${selected.length}: ${sn}`;
+                    }
+                    const result = await runAuthorizeFormAsPromise(
+                        rowForm,
+                        `${completed}/${selected.length} ONU configured`
+                    );
+                    completed += 1;
+                    configuredResults.push({
+                        sn,
+                        name: subscriberName,
+                        url: result.redirect_url || '',
+                    });
+                    checkbox.checked = false;
+                    checkbox.closest('tr')?.classList.add('batch-configured');
+                    if (batchProgress) {
+                        batchProgress.textContent = `${completed}/${selected.length} ONU configured.`;
+                    }
+                }
+                setWaitStep(4, 100, `${completed}/${selected.length} ONU configured — completed.`);
+                renderBatchResults(configuredResults);
+                showBatchResultsOnly();
+                if (batchProgress) {
+                    batchProgress.textContent = `${completed}/${selected.length} ONU configured. Open configured ONUs below.`;
+                }
+                hideWaitOverlay();
+            } catch (error) {
+                hideWaitOverlay();
+                if (batchProgress) {
+                    batchProgress.textContent = `Stopped after ${completed}/${selected.length}: ${error.message || 'Authorize failed.'}`;
+                }
+                window.alert(error.message || 'Batch authorize failed.');
+            } finally {
+                if (batchSubmit) batchSubmit.disabled = false;
+                getBatchCheckboxes().forEach((checkbox) => { checkbox.disabled = false; });
+                updateBatchSelectionUi();
+            }
+        });
+    }
+
     const totalNode = document.querySelector('[data-unconfigured-total]');
     const newNode = document.querySelector('[data-unconfigured-new]');
     const resyncNode = document.querySelector('[data-unconfigured-resync]');
+    const autofindSummary = document.querySelector('[data-autofind-summary]');
     let loadedTotal = Number(totalNode ? totalNode.textContent : 0) || 0;
     let loadedNew = Number(newNode ? newNode.textContent : 0) || 0;
     let loadedResync = Number(resyncNode ? resyncNode.textContent : 0) || 0;
@@ -1083,6 +1647,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (totalNode) totalNode.textContent = String(loadedTotal);
         if (newNode) newNode.textContent = String(loadedNew);
         if (resyncNode) resyncNode.textContent = String(loadedResync);
+    };
+    const showAutofindSummary = () => {
+        renderSummary();
+        if (autofindSummary) autofindSummary.hidden = false;
     };
     const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const loadGroup = async (placeholder) => {
@@ -1111,6 +1679,7 @@ document.addEventListener('DOMContentLoaded', function () {
             placeholder.replaceWith(node);
             wireAuthorizeButtons(node);
             wireAuthorizeForms(node);
+            wireBatchCheckboxes(node);
         } catch (error) {
             const body = placeholder.querySelector('.autofind-loading-body');
             if (body) {
@@ -1121,22 +1690,31 @@ document.addEventListener('DOMContentLoaded', function () {
 
     wireAuthorizeButtons(document);
     wireAuthorizeForms(document);
+    wireBatchCheckboxes(document);
     const placeholders = Array.from(document.querySelectorAll('[data-unconfigured-group-placeholder]'));
     if (placeholders.length) {
+        if (autofindSummary) autofindSummary.hidden = true;
         const maxParallel = 3;
         let nextIndex = 0;
         let active = 0;
+        let finished = 0;
         const pump = () => {
             while (active < maxParallel && nextIndex < placeholders.length) {
                 const placeholder = placeholders[nextIndex++];
                 active += 1;
                 loadGroup(placeholder).finally(() => {
                     active -= 1;
+                    finished += 1;
+                    if (finished >= placeholders.length) {
+                        showAutofindSummary();
+                    }
                     pump();
                 });
             }
         };
         pump();
+    } else {
+        showAutofindSummary();
     }
 });
 </script>

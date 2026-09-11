@@ -4,6 +4,7 @@
         <table>
             <thead>
                 <tr>
+                    <th class="batch-select-col">Select</th>
                     <th>No.</th>
                     <th>PON type</th>
                     <th>Board</th>
@@ -19,6 +20,34 @@
             <tbody>
                 {% for row in group.rows %}
                 <tr>
+                    <td class="batch-select-col">
+                        {% if row.category == 'new' %}
+                        {% if user.is_staff or user.is_superuser %}
+                        <input
+                            type="checkbox"
+                            class="batch-onu-checkbox"
+                            data-batch-onu
+                            data-authorize-key="{{ row.authorize_key }}"
+                            data-olt-id="{{ row.olt_id }}"
+                            data-board="{{ row.board|default:0 }}"
+                            data-port="{{ row.port|default:0 }}"
+                            data-number="{{ row.number|default:forloop.counter }}"
+                            data-sn="{{ row.sn|default:'' }}"
+                        >
+                        <input
+                            type="text"
+                            class="batch-onu-name-input"
+                            data-batch-onu-name
+                            data-authorize-key="{{ row.authorize_key }}"
+                            placeholder="Name"
+                        >
+                        {% else %}
+                        <span class="muted-cell">-</span>
+                        {% endif %}
+                        {% else %}
+                        <span class="muted-cell">-</span>
+                        {% endif %}
+                    </td>
                     <td>{{ row.number|default:forloop.counter }}</td>
                     <td>{{ row.pon_type|default:"-" }}</td>
                     <td>{% if row.board is not None %}{{ row.board }}{% else %}-{% endif %}</td>
@@ -59,7 +88,7 @@
                 </tr>
                 {% if user.is_staff or user.is_superuser %}{% if row.category == 'new' or row.category == 'resync' %}
                 <tr class="authorize-row" data-authorize-panel="{{ row.authorize_key }}">
-                    <td colspan="10">
+                    <td colspan="11">
                         <form method="post" action="{% url 'unconfigured_onu_authorize' %}" class="authorize-panel unconfigured-authorize-form">
                             {% csrf_token %}
                             <input type="hidden" name="return_query" value="{{ unconfigured_return_query }}">
@@ -202,7 +231,7 @@
                 {% endif %}{% endif %}
                 {% empty %}
                 <tr>
-                    <td colspan="10" class="muted-cell">
+                    <td colspan="11" class="muted-cell">
                         {% if group.is_pending %}
                             Loading autofind rows for this OLT...
                         {% elif group.is_unreachable %}
