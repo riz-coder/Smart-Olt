@@ -27,16 +27,17 @@ _ONU_STATUS_PRIORITY_LOCK = threading.Lock()
 _ONU_STATUS_PRIORITY_IDS = []
 _ONU_SIGNAL_SAMPLE_THREAD = None
 _ONU_SIGNAL_SAMPLE_GUARD = threading.Lock()
+_OLT_HEAVY_SYNC_LANE = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
 SNMP_MONITOR_SECONDS = 10
-SNMP_MONITOR_MAX_WORKERS = max(1, int(getattr(settings, "SNMP_MONITOR_MAX_WORKERS", 2) or 2))
+SNMP_MONITOR_MAX_WORKERS = max(1, int(os.environ.get("SNMP_MONITOR_MAX_WORKERS", getattr(settings, "SNMP_MONITOR_MAX_WORKERS", 2)) or 2))
 # ONU dashboard counts/status snapshots follow the 10-minute dashboard cycle.
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
-ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 180) or 180))
-ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600) or 3600))
-ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1) or 1))
-ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1) or 1))
+ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(os.environ.get("ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 180)) or 180))
+ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(os.environ.get("ONU_SIGNAL_SAMPLE_SECONDS", getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600)) or 3600))
+ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(os.environ.get("ONU_STATUS_SYNC_MAX_WORKERS", getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1)) or 1))
+ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(os.environ.get("ONU_SIGNAL_SAMPLE_MAX_WORKERS", getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1)) or 1))
 # The monitor already runs every 10 seconds, so apply a failed SNMP probe on the
 # same cycle instead of waiting for a second/third failure.
 SNMP_DOWN_THRESHOLD_SECONDS = 0
@@ -920,53 +921,54 @@ def _onu_status_sync_loop():
                     time.sleep(2)
             olt_ids = [row["id"] for row in olt_rows]
             if olt_ids:
-                start_onu_status_sync_progress(olt_rows)
-                cycle_started = True
-                pending_ids = list(olt_ids)
-                while pending_ids:
-                    priority_id = _pop_onu_status_sync_priority(pending_ids)
-                    if priority_id is not None:
-                        olt_id = priority_id
-                        pending_ids.remove(priority_id)
-                    else:
-                        olt_id = pending_ids.pop(0)
-                    try:
-                        result = _sync_single_olt_status_with_hard_timeout(olt_id)
-                        if result:
-                            logger.info(
-                                "OLT %s ONU status sync: checked=%s updated=%s status=%s",
-                                result.get("olt") or olt_id,
-                                result.get("checked"),
-                                result.get("updated"),
-                                result.get("status"),
-                            )
-                            try:
-                                record_dashboard_status_samples(force=True, bypass_force_throttle=True)
-                            except Exception:
-                                logger.exception("Dashboard status sample write failed after OLT status sync.")
-                                close_old_connections()
-                            if result.get("partial") or result.get("failed"):
-                                _queue_onu_status_sync_priority(olt_id)
-                    except Exception as exc:
-                        logger.exception("OLT %s ONU status sync failed.", olt_id)
+                with _OLT_HEAVY_SYNC_LANE:
+                    start_onu_status_sync_progress(olt_rows)
+                    cycle_started = True
+                    pending_ids = list(olt_ids)
+                    while pending_ids:
+                        priority_id = _pop_onu_status_sync_priority(pending_ids)
+                        if priority_id is not None:
+                            olt_id = priority_id
+                            pending_ids.remove(priority_id)
+                        else:
+                            olt_id = pending_ids.pop(0)
                         try:
-                            update_onu_status_sync_progress(
-                                olt_id,
-                                running=False,
-                                done=True,
-                                failed=True,
-                                message=f"ONU status sync failed: {exc}",
-                            )
-                        except Exception:
-                            pass
+                            result = _sync_single_olt_status_with_hard_timeout(olt_id)
+                            if result:
+                                logger.info(
+                                    "OLT %s ONU status sync: checked=%s updated=%s status=%s",
+                                    result.get("olt") or olt_id,
+                                    result.get("checked"),
+                                    result.get("updated"),
+                                    result.get("status"),
+                                )
+                                try:
+                                    record_dashboard_status_samples(force=True, bypass_force_throttle=True)
+                                except Exception:
+                                    logger.exception("Dashboard status sample write failed after OLT status sync.")
+                                    close_old_connections()
+                                if result.get("partial") or result.get("failed"):
+                                    _queue_onu_status_sync_priority(olt_id)
+                        except Exception as exc:
+                            logger.exception("OLT %s ONU status sync failed.", olt_id)
+                            try:
+                                update_onu_status_sync_progress(
+                                    olt_id,
+                                    running=False,
+                                    done=True,
+                                    failed=True,
+                                    message=f"ONU status sync failed: {exc}",
+                                )
+                            except Exception:
+                                pass
+                            close_old_connections()
+                    try:
+                        record_dashboard_status_samples(force=True, bypass_force_throttle=True)
+                    except Exception:
+                        logger.exception("Dashboard status sample write failed after ONU status sync.")
                         close_old_connections()
-                try:
-                    record_dashboard_status_samples(force=True, bypass_force_throttle=True)
-                except Exception:
-                    logger.exception("Dashboard status sample write failed after ONU status sync.")
-                    close_old_connections()
-                finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
-                cycle_started = False
+                    finish_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
+                    cycle_started = False
             else:
                 schedule_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=ONU_STATUS_SYNC_SECONDS))
         except Exception:
@@ -1044,11 +1046,19 @@ def _onu_signal_sample_loop():
                 # burst while still giving every active OLT one signal pass per cycle.
                 stagger_delay = max(0.0, float(ONU_SIGNAL_SAMPLE_SECONDS) / max(1, len(olt_ids)))
                 for index, olt_id in enumerate(olt_ids):
+                    acquired_lane = _OLT_HEAVY_SYNC_LANE.acquire(timeout=1)
+                    if not acquired_lane:
+                        logger.info("ONU signal sample skipped one slot because ONU status sync is active.")
                     try:
-                        _sample_single_olt(olt_id)
-                    except Exception:
-                        logger.exception("ONU signal sample worker failed.")
-                        close_old_connections()
+                        if acquired_lane:
+                            try:
+                                _sample_single_olt(olt_id)
+                            except Exception:
+                                logger.exception("ONU signal sample worker failed.")
+                                close_old_connections()
+                    finally:
+                        if acquired_lane:
+                            _OLT_HEAVY_SYNC_LANE.release()
                     if index < len(olt_ids) - 1 and stagger_delay > 0:
                         next_slot_at = cycle_started_at + ((index + 1) * stagger_delay)
                         time.sleep(max(0.0, next_slot_at - time.monotonic()))
