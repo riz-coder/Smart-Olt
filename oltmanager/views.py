@@ -4,6 +4,7 @@ import calendar
 import base64
 import ipaddress
 import json
+import logging
 import os
 import secrets
 import subprocess
@@ -17,6 +18,8 @@ import time
 import uuid
 from urllib.parse import quote_plus, urlencode, urlparse
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 from django.conf import settings
 from django.contrib import messages
@@ -988,19 +991,14 @@ def _get_cached_autofind_existing_serial_map():
     existing_by_serial = {}
     rows = (
         ConfiguredONU.objects
-        .select_related("olt")
-        .only("olt_id", "olt__name", "slot", "port", "ont_id", "sn")
+        .values("olt_id", "olt__name", "slot", "port", "ont_id", "sn",
+                "onu_mode_cache", "description", "user_vlan_cache", "attached_vlans_cache",
+                "mapping_mode_cache", "download_profile_index_cache", "upload_profile_index_cache")
         .exclude(sn="")
     )
     for record in rows:
-        payload = {
-            "olt_id": int(record.olt_id or 0),
-            "olt_name": str(getattr(record.olt, "name", "") or ""),
-            "slot": int(record.slot or 0),
-            "port": int(record.port or 0),
-            "ont_id": int(record.ont_id or 0),
-        }
-        for token in _normalize_onu_serial_token(record.sn):
+        payload = {**record, "olt_name": record["olt__name"] or ""}
+        for token in _normalize_onu_serial_token(record["sn"]):
             if token and token not in existing_by_serial:
                 existing_by_serial[token] = payload
 
@@ -2345,22 +2343,22 @@ def _build_unconfigured_group(
         if equipment_id and equipment_id not in {"-", ""}:
             matched_onu_type = onu_type_lookup.get(equipment_id.lower(), "")
         item["authorize_onu_type"] = matched_onu_type
-        item["authorize_onu_mode"] = str(getattr(existing_record, "onu_mode_cache", "") or "").strip() if existing_record else ""
-        item["authorize_subscriber_name"] = str(getattr(existing_record, "description", "") or "").strip() if existing_record else ""
-        existing_user_vlan_cache = str(getattr(existing_record, "user_vlan_cache", "") or "").strip() if existing_record else ""
-        existing_service_vlan_cache = str(getattr(existing_record, "attached_vlans_cache", "") or "").strip() if existing_record else ""
+        item["authorize_onu_mode"] = str(existing_record.get("onu_mode_cache") or "").strip() if existing_record else ""
+        item["authorize_subscriber_name"] = str(existing_record.get("description") or "").strip() if existing_record else ""
+        existing_user_vlan_cache = str(existing_record.get("user_vlan_cache") or "").strip() if existing_record else ""
+        existing_service_vlan_cache = str(existing_record.get("attached_vlans_cache") or "").strip() if existing_record else ""
         item["authorize_vlan"] = (existing_user_vlan_cache.split(",")[0].strip() if existing_user_vlan_cache else "")
         existing_service_vlan = existing_service_vlan_cache.split(",")[0].strip() if existing_service_vlan_cache else ""
         existing_user_vlan = item["authorize_vlan"]
         item["authorize_svlan"] = existing_service_vlan if existing_service_vlan and existing_service_vlan != existing_user_vlan else ""
         item["authorize_tag_transform"] = "default"
-        item["authorize_mapping_mode"] = str(getattr(existing_record, "mapping_mode_cache", "") or "").strip().lower() if existing_record else ""
+        item["authorize_mapping_mode"] = str(existing_record.get("mapping_mode_cache") or "").strip().lower() if existing_record else ""
         if item["authorize_mapping_mode"] not in {"priority", "vlan"}:
             item["authorize_mapping_mode"] = "priority"
         if item["authorize_vlan_mapping_disabled"]:
             item["authorize_mapping_mode"] = "priority"
-        item["authorize_download_speed"] = str(getattr(existing_record, "download_profile_index_cache", "") or "").strip() if existing_record else ""
-        item["authorize_upload_speed"] = str(getattr(existing_record, "upload_profile_index_cache", "") or "").strip() if existing_record else ""
+        item["authorize_download_speed"] = str(existing_record.get("download_profile_index_cache") or "").strip() if existing_record else ""
+        item["authorize_upload_speed"] = str(existing_record.get("upload_profile_index_cache") or "").strip() if existing_record else ""
         if existing_record:
             total_resync += 1
         else:

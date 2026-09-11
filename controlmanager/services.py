@@ -53,7 +53,7 @@ def _tenant_web_workers():
 
 
 def _tenant_web_cpus():
-    return str(os.environ.get("CONTROL_TENANT_WEB_CPUS", "1.25") or "1.25").strip()
+    return str(os.environ.get("CONTROL_TENANT_WEB_CPUS", "2") or "2").strip()
 
 
 def _tenant_worker_cpus():
@@ -324,6 +324,34 @@ def _docker_user_args():
     return ["--user", user_value] if user_value else []
 
 
+def _prepare_docker_lock_permissions(tenant, image):
+    """Repair only tenant command-lock ownership, preserving live lock inodes."""
+    user_args = _docker_user_args()
+    if not user_args:
+        return
+    parts = user_args[-1].split(":")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise TenantProvisionError("CONTROL_TENANT_DOCKER_USER must use numeric UID:GID.")
+    uid, gid = map(int, parts)
+    runtime_dir = Path(tenant.database_path).parent.resolve()
+    script = (
+        "import os, pathlib, stat; "
+        "p=pathlib.Path('/runtime/locks'); "
+        "assert not p.is_symlink(), 'Tenant locks directory must not be a symlink'; "
+        "p.mkdir(exist_ok=True); "
+        f"os.chown(p, {uid}, {gid}); os.chmod(p, 0o750); "
+        "files=[f for f in p.glob('olt-telnet-*.lock') "
+        "if stat.S_ISREG(f.lstat().st_mode)]; "
+        f"[(os.chown(f, {uid}, {gid}, follow_symlinks=False), os.chmod(f, 0o640)) for f in files]"
+    )
+    ok, output = _run_command([
+        "docker", "run", "--rm", "--user", "0:0", "--network", "none",
+        "-v", f"{runtime_dir}:/runtime", image, "python", "-c", script,
+    ], timeout=60)
+    if not ok:
+        raise TenantProvisionError(output or "Could not prepare tenant command locks.")
+
+
 def _remove_file_with_sqlite_sidecars(path, log_lines):
     target = Path(str(path or "")).expanduser()
     if not str(target):
@@ -484,6 +512,10 @@ def _write_docker_tenant_runtime(tenant):
     worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
     codebase = Path(tenant.codebase_path)
 
+    if not (codebase / "manage.py").is_file():
+        raise TenantProvisionError("Tenant codebase does not contain manage.py.")
+    _prepare_docker_lock_permissions(tenant, image)
+
     legacy_container_name = _tenant_legacy_container_name(tenant)
     if legacy_container_name not in {container_name, worker_container_name}:
         ok, _ = _run_command(["docker", "container", "inspect", legacy_container_name], timeout=20)
@@ -513,6 +545,8 @@ def _write_docker_tenant_runtime(tenant):
         "--env-file", str(tenant.env_path),
         "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
+        "--workdir", "/app",
+        "-v", f"{codebase}:/app",
         "-v", f"{tenant_dir}:{tenant_dir}",
         "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
         image,
@@ -550,6 +584,8 @@ def _write_docker_tenant_runtime(tenant):
         *_docker_user_args(),
         "--env-file", str(tenant.env_path),
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
+        "--workdir", "/app",
+        "-v", f"{codebase}:/app",
         "-v", f"{tenant_dir}:{tenant_dir}",
         "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
         image,
