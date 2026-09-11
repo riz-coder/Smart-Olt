@@ -13969,7 +13969,7 @@ def _onu_status_progress_snapshot_unlocked():
     for item in (_ONU_STATUS_SYNC_PROGRESS.get("olts") or {}).values():
         olts.append(dict(item))
     olts.sort(key=lambda item: (
-        0 if item.get("running") else 1 if not item.get("done") else 2,
+        0 if item.get("running") else 1 if item.get("done") or item.get("failed") else 2,
         int(item.get("sort_order") or item.get("olt_id") or 0),
         str(item.get("olt") or "").lower(),
     ))
@@ -14053,7 +14053,7 @@ def _normalize_onu_status_progress_snapshot(payload):
     if isinstance(olts, list):
         cleaned = [dict(item) for item in olts if isinstance(item, dict)]
         cleaned.sort(key=lambda item: (
-            0 if item.get("running") else 1 if not item.get("done") else 2,
+            0 if item.get("running") else 1 if item.get("done") or item.get("failed") else 2,
             int(item.get("sort_order") or item.get("olt_id") or 0),
             str(item.get("olt") or "").lower(),
         ))
@@ -14315,7 +14315,10 @@ def sync_runtime_statuses_for_olt(
                         olt,
                         group_records,
                         max_seconds=group_budget,
-                        chunk_size=120,
+                        chunk_size=max(
+                            20,
+                            int(os.environ.get("ONU_STATUS_SYNC_SNMP_CHUNK_SIZE", getattr(settings, "ONU_STATUS_SYNC_SNMP_CHUNK_SIZE", 40)) or 40),
+                        ),
                     )
                 except TimeoutError:
                     truncated = True

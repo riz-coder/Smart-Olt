@@ -35,7 +35,7 @@ SNMP_MONITOR_MAX_WORKERS = max(1, int(os.environ.get("SNMP_MONITOR_MAX_WORKERS",
 # The independent SNMP monitor below remains at 10 seconds for OLT reachability.
 ONU_STATUS_SYNC_SECONDS = 600
 ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS = max(30, int(os.environ.get("ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", getattr(settings, "ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS", 180)) or 180))
-ONU_STATUS_SYNC_OLT_BATCH_SIZE = max(100, int(os.environ.get("ONU_STATUS_SYNC_OLT_BATCH_SIZE", getattr(settings, "ONU_STATUS_SYNC_OLT_BATCH_SIZE", 2500)) or 2500))
+ONU_STATUS_SYNC_OLT_BATCH_SIZE = max(100, int(os.environ.get("ONU_STATUS_SYNC_OLT_BATCH_SIZE", getattr(settings, "ONU_STATUS_SYNC_OLT_BATCH_SIZE", 1000)) or 1000))
 ONU_SIGNAL_SAMPLE_SECONDS = max(300, int(os.environ.get("ONU_SIGNAL_SAMPLE_SECONDS", getattr(settings, "ONU_SIGNAL_SAMPLE_SECONDS", 3600)) or 3600))
 ONU_STATUS_SYNC_MAX_WORKERS = max(1, int(os.environ.get("ONU_STATUS_SYNC_MAX_WORKERS", getattr(settings, "ONU_STATUS_SYNC_MAX_WORKERS", 1)) or 1))
 ONU_SIGNAL_SAMPLE_MAX_WORKERS = max(1, int(os.environ.get("ONU_SIGNAL_SAMPLE_MAX_WORKERS", getattr(settings, "ONU_SIGNAL_SAMPLE_MAX_WORKERS", 1)) or 1))
@@ -775,7 +775,7 @@ def _onu_status_sync_loop():
     )
 
     def _sync_single_olt_status(olt_id):
-        from .models import OLT
+        from .models import ConfiguredONU, OLT
 
         close_old_connections()
         try:
@@ -785,13 +785,17 @@ def _onu_status_sync_loop():
             olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
             if not olt:
                 return
+            total_records = ConfiguredONU.objects.filter(olt=olt).count()
+            visible_total = min(total_records, ONU_STATUS_SYNC_OLT_BATCH_SIZE) if ONU_STATUS_SYNC_OLT_BATCH_SIZE else total_records
             update_onu_status_sync_progress(
                 olt.id,
                 olt=olt.name,
                 running=True,
                 done=False,
                 failed=False,
-                message="Starting ONU status sync...",
+                checked=0,
+                total=visible_total,
+                message=f"Starting ONU status sync for {visible_total} ONUs...",
             )
 
             def _progress(payload):
@@ -842,6 +846,13 @@ def _onu_status_sync_loop():
                     progress_entry = {}
                 checked = int(progress_entry.get("checked") or 0)
                 total = int(progress_entry.get("total") or 0)
+                if total <= 0:
+                    try:
+                        from .models import ConfiguredONU
+                        db_total = ConfiguredONU.objects.filter(olt_id=olt_id).count()
+                        total = min(db_total, ONU_STATUS_SYNC_OLT_BATCH_SIZE) if ONU_STATUS_SYNC_OLT_BATCH_SIZE else db_total
+                    except Exception:
+                        total = 0
                 updated = int(progress_entry.get("updated") or 0)
                 verified_ratio = (checked / total) if total else 0
                 partial = bool(total and checked and verified_ratio >= 0.60)
