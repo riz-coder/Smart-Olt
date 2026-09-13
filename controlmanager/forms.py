@@ -15,7 +15,7 @@ def _validate_deployment_form(form, cleaned):
         try:
             label = deployment.subdomain_label(label)
             if Tenant.objects.exclude(pk=form.instance.pk).filter(subdomain=label).exists():
-                raise ValueError('Yeh subdomain pehle use ho chuki hai.')
+                raise ValueError('This subdomain is already in use.')
             cleaned['subdomain'] = label
         except ValueError as exc:
             form.add_error('subdomain', str(exc))
@@ -25,13 +25,13 @@ def _validate_deployment_form(form, cleaned):
         form.add_error(None, str(exc))
     if cleaned.get('vpn_enabled'):
         if not cleaned.get('client_public_ip'):
-            form.add_error('client_public_ip', 'VPN ke liye client Ubuntu ka public IPv4 required hai.')
+            form.add_error('client_public_ip', 'The Ubuntu client public IPv4 address is required to enable VPN.')
         if not deployment.os.environ.get('CONTROL_VPN_PUBLIC_HOST', '').strip():
-            form.add_error(None, 'VPN setup pending: .env.control mein CONTROL_VPN_PUBLIC_HOST set karein.')
+            form.add_error(None, 'VPN setup is incomplete. Configure the server public IPv4 address in the deployment settings.')
         try:
             routes = deployment.route_networks(cleaned.get('vpn_routes'))
             if not routes:
-                raise ValueError('Kam az kam ek local/OLT subnet required hai.')
+                raise ValueError('At least one local or OLT subnet is required.')
             cleaned['vpn_routes'] = '\n'.join(map(str, routes))
         except ValueError as exc:
             form.add_error('vpn_routes', str(exc))
@@ -110,15 +110,15 @@ class TenantCreateForm(forms.ModelForm):
         }
         help_texts = {
             "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
-            "client_public_ip": "Client/router public IP. Local tenant me blank chhor sakte hain.",
-            "subdomain": "Misal: nexus. Blank ho to ISP name se banega. Main domain VPS settings se aayega.",
-            "vpn_enabled": "VPN off ho to existing local access rahega. On ho to isolated tunnel automatically prepare hoga.",
-            "vpn_routes": "Har line mein ek IPv4 subnet, e.g. 192.168.10.0/24. Sirf yeh routes tenant tunnel mein jayenge.",
+            "client_public_ip": "Client or router public IP address. Leave blank for local access without VPN.",
+            "subdomain": "Example: nexus. Leave blank to generate from the ISP name. The main domain comes from the server settings.",
+            "vpn_enabled": "Leave disabled to keep local access. Enable to automatically prepare an isolated site-to-site tunnel.",
+            "vpn_routes": "Enter one IPv4 subnet per line, e.g. 192.168.10.0/24. Only these routes will use the tenant tunnel.",
             "client_vpn_port": "Usually 51820.",
-            "client_local_subnet": "Client LAN subnet, e.g. 192.168.10.0/24. Local tenant me blank allowed.",
+            "client_local_subnet": "Client LAN subnet, e.g. 192.168.10.0/24. Leave blank for a local tenant.",
             "olt_management_subnet": "OLT subnet reachable from tenant, e.g. 10.101.11.0/24.",
-            "wg_server_endpoint": "VPS endpoint, e.g. your-vps-ip:51820. Local/no-VPN tenant me blank allowed.",
-            "wg_server_public_key": "VPS WireGuard public key. Local/no-VPN tenant me blank allowed.",
+            "wg_server_endpoint": "VPS endpoint, e.g. your-vps-ip:51820. Leave blank for local access without VPN.",
+            "wg_server_public_key": "VPS WireGuard public key. Leave blank for local access without VPN.",
             "docker_image": "Default: optiverse-tenant-app:latest",
         }
 
@@ -140,7 +140,7 @@ class TenantCreateForm(forms.ModelForm):
     def clean_client_vpn_port(self):
         value = self.cleaned_data.get('client_vpn_port') or 51820
         if not 1 <= value <= 65535:
-            raise forms.ValidationError('Port 1 se 65535 ke darmiyan honi chahiye.')
+            raise forms.ValidationError('The port must be between 1 and 65535.')
         return value
 
     def clean_panel_admin_initial_password(self):
@@ -157,7 +157,7 @@ class TenantCreateForm(forms.ModelForm):
         try:
             ipaddress.ip_network(value, strict=False)
         except ValueError:
-            raise forms.ValidationError("Valid subnet enter karein, e.g. 10.101.11.0/24.")
+            raise forms.ValidationError("Enter a valid subnet, e.g. 10.101.11.0/24.")
         return value
 
     def clean_client_local_subnet(self):
@@ -169,13 +169,13 @@ class TenantCreateForm(forms.ModelForm):
     def clean_wg_server_endpoint(self):
         value = str(self.cleaned_data.get("wg_server_endpoint") or "").strip()
         if value and ":" not in value:
-            raise forms.ValidationError("Endpoint me port bhi hona chahiye, e.g. your-vps-ip:51820.")
+            raise forms.ValidationError("The endpoint must include a port, e.g. your-vps-ip:51820.")
         return value
 
     def clean_docker_image(self):
         value = str(self.cleaned_data.get("docker_image") or "").strip() or "optiverse-tenant-app:latest"
         if not re.match(r"^[a-zA-Z0-9._:/-]+$", value):
-            raise forms.ValidationError("Docker image me invalid characters hain.")
+            raise forms.ValidationError("The Docker image name contains invalid characters.")
         return value
 
     def save(self, commit=True):

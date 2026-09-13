@@ -25,13 +25,13 @@
 </section>
 <section class="panel">
     <h2>Tenant Docker / VPN</h2>
-    <p class="subtle">{% if tenant.public_hostname %}Public URL: {{ tenant.panel_url }}{% else %}Main domain abhi set nahi: local IP:port active hai.{% endif %}</p>
+    <p class="subtle">{% if tenant.public_hostname %}Public URL: {{ tenant.panel_url }}{% else %}No main domain is configured. Local IP and port access is active.{% endif %}</p>
     {% if tenant.vpn_enabled %}
     <p>Tunnel server: {{ tenant.vpn_server_address }} | Client: {{ tenant.wg_client_address }} | UDP: {{ tenant.vpn_listen_port }}</p>
     <pre>{{ tenant.vpn_routes }}</pre>
     <form method="post" action="{% url 'control_tenant_vpn_download' tenant.pk %}">{% csrf_token %}<button class="btn btn-blue">Download Ubuntu VPN config</button></form>
     <button type="button" class="btn btn-dark" id="vpn-check">Check tunnel</button>
-    <p id="vpn-state" class="subtle">Client Ubuntu par config activate karne ke baad handshake aayega. Local subnet forwarding aur return route client side par required hain.</p>
+    <p id="vpn-state" class="subtle">A handshake will appear after the configuration is activated on the Ubuntu client. Configure local subnet forwarding and a return route on the client network.</p>
     <script>
     document.getElementById('vpn-check').addEventListener('click', async () => {
         const target = document.getElementById('vpn-state');
@@ -64,7 +64,7 @@
         {% csrf_token %}<input type="hidden" name="action" value="connections">
         {{ connection_form.non_field_errors }}
         {% for field in connection_form %}<div><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
-        <div class="wide"><p class="subtle">Apply karne par is tenant ka container restart hoga.</p><button class="btn btn-blue">Save and apply connection settings</button></div>
+        <div class="wide"><p class="subtle">Applying these settings will restart this tenant's container.</p><button class="btn btn-blue">Save and apply connection settings</button></div>
     </form></details>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="refresh_db"><button class="btn btn-blue" type="submit">Refresh DB Snapshot</button></form>

@@ -12,7 +12,7 @@ RESERVED_LABELS = {'www', 'control', 'admin', 'api', 'mail', 'smtp', 'ftp', 'vpn
 def subdomain_label(value):
     label = str(value or '').strip().lower()
     if not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) or label in RESERVED_LABELS:
-        raise ValueError('Subdomain mein letters, numbers aur hyphen use karein; control/www reserved hain.')
+        raise ValueError('Use letters, numbers and hyphens for the subdomain. Names such as control and www are reserved.')
     return label
 
 
@@ -20,7 +20,7 @@ def base_domain():
     value = os.environ.get('CONTROL_BASE_DOMAIN', '').strip().lower().rstrip('.')
     if value and (len(value) > 189 or '.' not in value or any(
             not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', p) for p in value.split('.'))):
-        raise ValueError('CONTROL_BASE_DOMAIN mein sirf domain likhein, protocol ya port nahi.')
+        raise ValueError('CONTROL_BASE_DOMAIN must contain only a domain name, without a protocol or port.')
     if value:
         try:
             ipaddress.ip_address(value)
@@ -38,7 +38,7 @@ def route_networks(value):
             continue
         net = ipaddress.ip_network(item, strict=False)
         if net.version != 4 or net.prefixlen == 0 or net.is_loopback or net.is_multicast or net.is_link_local:
-            raise ValueError('Specific IPv4 local/OLT subnets dein; default route allowed nahi.')
+            raise ValueError('Enter specific IPv4 local or OLT subnets. The default route is not allowed.')
         networks.append(net)
     return list(ipaddress.collapse_addresses(networks))
 
@@ -76,7 +76,7 @@ def prepare_deployment(tenant, keypair):
             if ip.version != 4:
                 raise ValueError('Use the VPS IPv4 address for CONTROL_VPN_PUBLIC_HOST.')
         except ValueError as exc:
-            raise ValueError('VPN ke liye CONTROL_VPN_PUBLIC_HOST mein VPS IPv4 address set karein.') from exc
+            raise ValueError('Set CONTROL_VPN_PUBLIC_HOST to the server public IPv4 address before enabling VPN.') from exc
         routes = route_networks(tenant.vpn_routes)
         if not routes or not tenant.client_public_ip:
             raise ValueError('VPN requires the client public IPv4 and local/OLT subnets.')
