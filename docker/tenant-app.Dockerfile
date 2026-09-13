@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libxml2-dev libxslt1-dev zlib1g-dev \
+    && apt-get install -y --no-install-recommends build-essential libxml2-dev libxslt1-dev zlib1g-dev wireguard-tools iproute2 util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt

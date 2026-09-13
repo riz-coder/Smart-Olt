@@ -8,12 +8,16 @@ import secrets
 import shutil
 import sqlite3
 import subprocess
+import json
+import time
+import http.client
 
 from django.conf import settings
 from django.core.management.utils import get_random_secret_key
 from django.utils import timezone
 
 from .models import Tenant, TenantOLTSnapshot, TenantSnapshot
+from . import deployment
 
 
 class TenantSnapshotError(Exception):
@@ -150,8 +154,11 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         "DJANGO_SETTINGS_MODULE": "oltportal.settings",
         "DJANGO_SECRET_KEY": _tenant_secret_key(tenant),
         "DJANGO_DEBUG": "False",
-        "DJANGO_ALLOWED_HOSTS": f"{tenant.panel_host},127.0.0.1,localhost",
-        "DJANGO_CSRF_TRUSTED_ORIGINS": f"http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}",
+        "DJANGO_ALLOWED_HOSTS": f"{tenant.public_hostname or tenant.panel_host},127.0.0.1,localhost",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": tenant.panel_url if tenant.public_hostname else f"http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}",
+        "DJANGO_SESSION_COOKIE_SECURE": str(bool(tenant.public_hostname)),
+        "DJANGO_CSRF_COOKIE_SECURE": str(bool(tenant.public_hostname)),
+        "DJANGO_SECURE_SSL_REDIRECT": str(bool(tenant.public_hostname)),
         "DJANGO_SESSION_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_sessionid",
         "DJANGO_CSRF_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken",
         "SQLITE_DB_PATH": tenant.database_path,
@@ -176,11 +183,11 @@ def _write_tenant_env_file(tenant):
     tenant_dir = Path(tenant.env_path).parent
     text = f"""DJANGO_SECRET_KEY={secret}
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS={tenant.panel_host},127.0.0.1,localhost
-DJANGO_CSRF_TRUSTED_ORIGINS=http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}
-DJANGO_SECURE_SSL_REDIRECT=False
-DJANGO_SESSION_COOKIE_SECURE=False
-DJANGO_CSRF_COOKIE_SECURE=False
+DJANGO_ALLOWED_HOSTS={tenant.public_hostname or tenant.panel_host},127.0.0.1,localhost
+DJANGO_CSRF_TRUSTED_ORIGINS={tenant.panel_url if tenant.public_hostname else f'http://{tenant.panel_host},http://{tenant.panel_host}:{tenant.panel_port}'}
+DJANGO_SECURE_SSL_REDIRECT={bool(tenant.public_hostname)}
+DJANGO_SESSION_COOKIE_SECURE={bool(tenant.public_hostname)}
+DJANGO_CSRF_COOKIE_SECURE={bool(tenant.public_hostname)}
 DJANGO_SESSION_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_sessionid
 DJANGO_CSRF_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken
 DJANGO_TIME_ZONE=Asia/Karachi
@@ -397,6 +404,21 @@ def delete_tenant_instance(tenant):
             if output:
                 log_lines.append(output)
 
+    try:
+        deployment.remove_proxy(tenant, _run_command)
+    except ValueError as exc:
+        raise TenantProvisionError(str(exc)) from exc
+    network_name = f"optiverse-vpn-{tenant.pk}"
+    network_ok, network_output = _run_command(["docker", "network", "inspect", network_name], timeout=20)
+    if network_ok:
+        info = json.loads(network_output)[0]
+        if info.get('Labels', {}).get('optiverse.tenant') != str(tenant.pk):
+            raise TenantProvisionError('VPN network ownership does not match this tenant.')
+        ok, output = _run_command(["docker", "network", "rm", network_name], timeout=30)
+        if not ok:
+            raise TenantProvisionError(output or 'Could not remove tenant VPN network.')
+        log_lines.append(f'Removed tenant VPN network: {network_name}')
+
     _remove_file_with_sqlite_sidecars(tenant.database_path, log_lines)
     _remove_file_with_sqlite_sidecars(tenant.env_path, log_lines)
     _remove_file_with_sqlite_sidecars(tenant.wg_config_path, log_lines)
@@ -492,7 +514,8 @@ def _write_docker_tenant_runtime(tenant):
     log_lines = []
     tenant_dir = Path(tenant.env_path).parent
     tenant_dir.mkdir(parents=True, exist_ok=True)
-    _write_vpn_config_if_requested(tenant, log_lines)
+    if tenant.vpn_enabled:
+        deployment.write_vpn_files(tenant)
     image = tenant.docker_image or "optiverse-tenant-app:latest"
     if image == "optiverse-agent:latest":
         image = "optiverse-tenant-app:latest"
@@ -503,6 +526,50 @@ def _write_docker_tenant_runtime(tenant):
     if not (codebase / "manage.py").is_file():
         raise TenantProvisionError("Tenant codebase does not contain manage.py.")
     _prepare_docker_lock_permissions(tenant, image)
+
+    network_args = ["--network", "host"]
+    user_args = _docker_user_args(tenant)
+    vpn_args = []
+    entrypoint_args = []
+    bind_host = "127.0.0.1" if tenant.public_hostname else _tenant_bind_host()
+    if tenant.vpn_enabled:
+        # Each VPN has its own namespace and route table, including duplicate LAN prefixes.
+        network_name = f"optiverse-vpn-{tenant.pk}"
+        subnet = str(deployment.vpn_transport_subnet(tenant))
+        ok, output = _run_command(["docker", "network", "inspect", network_name], timeout=20)
+        if not ok:
+            ok, output = _run_command(["docker", "network", "create", "--driver", "bridge",
+                "--subnet", subnet, "--label", f"optiverse.tenant={tenant.pk}", network_name], timeout=30)
+            if not ok:
+                raise TenantProvisionError(output or "Cannot create isolated VPN network.")
+        else:
+            info = json.loads(output)[0]
+            if info.get("Labels", {}).get("optiverse.tenant") != str(tenant.pk) or subnet not in [
+                    item.get("Subnet") for item in info.get("IPAM", {}).get("Config", [])]:
+                raise TenantProvisionError("Existing VPN network does not match this tenant's allocation.")
+        # Fail before stopping an existing app if the VPN-capable image is not built.
+        ok, output = _run_command(["docker", "run", "--rm", "--network", "none", image,
+            "sh", "-c", "command -v wg && command -v ip && command -v setpriv"], timeout=30)
+        if not ok:
+            raise TenantProvisionError("Build docker/tenant-app.Dockerfile before enabling tenant VPN.")
+        ok, output = _run_command(["docker", "run", "--rm", "--network", "none", "--cap-add", "NET_ADMIN",
+            image, "ip", "link", "add", "ovtest", "type", "wireguard"], timeout=30)
+        if not ok:
+            raise TenantProvisionError("WireGuard is unavailable in the VPS kernel/container runtime.")
+        network_args = ["--network", network_name,
+            "-p", f"{'127.0.0.1' if tenant.public_hostname else '0.0.0.0'}:{tenant.panel_port}:{tenant.panel_port}/tcp",
+            "-p", f"{tenant.vpn_listen_port}:51820/udp"]
+        runtime_user = user_args[-1] if user_args else "1000:1000"
+        if not re.fullmatch(r"\d+:\d+", runtime_user):
+            raise TenantProvisionError("VPN runtime requires numeric UID:GID.")
+        user_args = ["--user", "0:0"]
+        vpn_args = ["--cap-add", "NET_ADMIN",
+            "-e", f"OPTIVERSE_RUN_USER={runtime_user}",
+            "-e", f"OPTIVERSE_VPN_ADDRESS={tenant.vpn_server_address}",
+            "-e", f"OPTIVERSE_VPN_ROUTES={tenant.wg_client_address},{','.join(map(str, deployment.route_networks(tenant.vpn_routes)))}",
+            "-v", f"{Path(tenant.env_path).parent / 'vpn' / 'wg0.conf'}:/run/optiverse/wg0.conf:ro"]
+        entrypoint_args = ["python", "/app/docker/vpn_entrypoint.py"]
+        bind_host = "0.0.0.0"
 
     # Stop the dedicated scheduler before starting the combined runtime.
     ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
@@ -538,8 +605,9 @@ def _write_docker_tenant_runtime(tenant):
         "docker", "run", "-d",
         "--name", container_name,
         "--restart", "unless-stopped",
-        "--network", "host",
-        *_docker_user_args(tenant),
+        *network_args,
+        *user_args,
+        *vpn_args,
         "--env-file", str(tenant.env_path),
         "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
         "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
@@ -548,8 +616,9 @@ def _write_docker_tenant_runtime(tenant):
         "-v", f"{tenant_dir}:{tenant_dir}",
         "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
         image,
+        *entrypoint_args,
         "python", "manage.py", "run_tenant",
-        "--host", _tenant_bind_host(),
+        "--host", bind_host,
         "--port", str(tenant.panel_port),
     ], timeout=120)
     log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
@@ -558,6 +627,13 @@ def _write_docker_tenant_runtime(tenant):
     if not ok:
         raise TenantProvisionError(output or "Docker tenant web container failed.")
 
+    _wait_tenant_http(tenant)
+
+    try:
+        deployment.publish_proxy(tenant, _run_command)
+    except ValueError as exc:
+        raise TenantProvisionError(str(exc)) from exc
+
     tenant.container_name = container_name
     tenant.worker_container_name = ""
     tenant.provisioning_log = "\n".join(log_lines).strip()
@@ -565,6 +641,23 @@ def _write_docker_tenant_runtime(tenant):
     tenant.provisioned_at = timezone.now()
     tenant.save(update_fields=["container_name", "worker_container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
     return f"{container_name} running (web + background sync)"
+
+
+def _wait_tenant_http(tenant):
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        connection = http.client.HTTPConnection('127.0.0.1', int(tenant.panel_port), timeout=2)
+        try:
+            connection.request('GET', '/', headers={'Host': tenant.public_hostname or tenant.panel_host})
+            response = connection.getresponse()
+            if 200 <= response.status < 400:
+                return
+        except OSError:
+            pass
+        finally:
+            connection.close()
+        time.sleep(1)
+    raise TenantProvisionError('Tenant container started but the web app did not become ready. Check its logs.')
 
 
 def prepare_tenant_defaults(tenant):
@@ -602,6 +695,10 @@ def prepare_tenant_defaults(tenant):
 
 def provision_tenant_instance(tenant):
     tenant = prepare_tenant_defaults(tenant)
+    try:
+        deployment.prepare_deployment(tenant, _wireguard_keypair)
+    except ValueError as exc:
+        raise TenantProvisionError(str(exc)) from exc
     Path(tenant.database_path).parent.mkdir(parents=True, exist_ok=True)
     _write_tenant_env_file(tenant)
     _run_tenant_manage(tenant, ["migrate", "--noinput"], timeout=600)
@@ -611,9 +708,9 @@ def provision_tenant_instance(tenant):
     code = (
         "from django.contrib.auth import get_user_model; "
         "U=get_user_model(); "
-        f"u,_=U.objects.get_or_create(username={username!r}, defaults={{'email': {email!r}, 'is_staff': True, 'is_superuser': True}}); "
+        f"u,created=U.objects.get_or_create(username={username!r}, defaults={{'email': {email!r}, 'is_staff': True, 'is_superuser': True}}); "
         "u.is_staff=True; u.is_superuser=True; "
-        f"u.email={email!r}; u.set_password({password!r}); u.save(); print('tenant superuser ready')"
+        f"u.email={email!r}; u.set_password({password!r}) if created else None; u.save(); print('tenant superuser ready')"
     )
     _run_tenant_manage(tenant, ["shell", "-c", code], timeout=180)
     if _tenant_runtime() == "docker":

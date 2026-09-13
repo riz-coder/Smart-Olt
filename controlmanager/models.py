@@ -57,6 +57,13 @@ class Tenant(models.Model):
     panel_host = models.CharField(max_length=160, blank=True, default="")
     panel_port = models.PositiveIntegerField(default=8000)
     panel_base_path = models.CharField(max_length=120, blank=True, default="")
+    subdomain = models.SlugField(max_length=63, blank=True, default="")
+    public_hostname = models.CharField(max_length=253, blank=True, default="")
+    vpn_enabled = models.BooleanField(default=False)
+    vpn_routes = models.TextField(blank=True, default="")
+    vpn_listen_port = models.PositiveIntegerField(null=True, blank=True, unique=True)
+    vpn_server_address = models.CharField(max_length=64, blank=True, default="")
+    vpn_server_private_key = models.CharField(max_length=120, blank=True, default="")
     codebase_path = models.CharField(max_length=255, blank=True, default="")
     database_path = models.CharField(max_length=255, blank=True, default="")
     env_path = models.CharField(max_length=255, blank=True, default="")
@@ -93,6 +100,9 @@ class Tenant(models.Model):
     class Meta:
         ordering = ["name"]
 
+        constraints = [models.UniqueConstraint(fields=["subdomain"],
+            condition=~models.Q(subdomain=""), name="unique_nonempty_tenant_subdomain")]
+
     def save(self, *args, **kwargs):
         if not self.slug:
             base = slugify(self.name)[:70] or "tenant"
@@ -106,6 +116,8 @@ class Tenant(models.Model):
 
     @property
     def panel_url(self):
+        if self.public_hostname:
+            return f"https://{self.public_hostname}"
         host = (self.panel_host or "").strip()
         if not host:
             return ""

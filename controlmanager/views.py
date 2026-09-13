@@ -6,10 +6,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Sum
 from django.shortcuts import get_object_or_404, redirect, render
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .forms import TenantCreateForm
+from .forms import TenantCreateForm, TenantConnectionForm
+from . import deployment
 from .models import ControlAuditLog, Tenant
 from .services import (
     TenantProvisionError,
@@ -180,8 +183,23 @@ def tenant_create(request):
 @owner_required
 def tenant_detail(request, pk):
     tenant = get_object_or_404(Tenant.objects.select_related("plan"), pk=pk)
+    connection_form = TenantConnectionForm(instance=tenant)
     if request.method == "POST":
         action = str(request.POST.get("action") or "update").strip().lower()
+        if action == "connections":
+            connection_form = TenantConnectionForm(request.POST, instance=tenant)
+            if connection_form.is_valid():
+                connection_form.save()
+                try:
+                    result = provision_tenant_instance(tenant)
+                    messages.success(request, f"Connection settings applied: {result['panel_url']}")
+                    audit(request, "tenant_connections", tenant, "Tenant VPN/domain settings applied")
+                except TenantProvisionError as exc:
+                    tenant.status = Tenant.STATUS_PROVISIONING
+                    tenant.provisioning_error = str(exc)
+                    tenant.save(update_fields=['status', 'provisioning_error', 'updated_at'])
+                    messages.error(request, str(exc))
+                return redirect('control_tenant_detail', pk=tenant.pk)
         if action == "status":
             new_status = str(request.POST.get("status") or "").strip()
             valid = {choice[0] for choice in Tenant.STATUS_CHOICES}
@@ -228,6 +246,7 @@ def tenant_detail(request, pk):
             tenant_olts_error = str(exc)
     context = {
         "tenant": tenant,
+        "connection_form": connection_form,
         "status_choices": Tenant.STATUS_CHOICES,
         "olt_snapshots": tenant.olt_snapshots.all(),
         "tenant_olts": tenant_olts,
@@ -236,6 +255,49 @@ def tenant_detail(request, pk):
         "logs": ControlAuditLog.objects.filter(tenant=tenant).select_related("user")[:20],
     }
     return render(request, "controlmanager/tenant_detail.html", context)
+
+
+@login_required
+@owner_required
+@require_POST
+def tenant_vpn_download(request, pk):
+    tenant = get_object_or_404(Tenant, pk=pk)
+    if not tenant.vpn_enabled or not tenant.vpn_server_private_key or not tenant.wg_server_endpoint:
+        return HttpResponse('VPN configuration is not ready.', status=409)
+    response = HttpResponse(deployment.client_config(tenant), content_type='text/plain; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="optiverse-{tenant.pk}.conf"'
+    response['Cache-Control'] = 'no-store, private'
+    audit(request, 'tenant_vpn_download', tenant, 'Ubuntu client configuration downloaded')
+    return response
+
+
+@login_required
+@owner_required
+def tenant_vpn_status(request, pk):
+    import time
+    from .services import _run_command
+    tenant = get_object_or_404(Tenant, pk=pk)
+    if not tenant.vpn_enabled:
+        return JsonResponse({'status': 'VPN disabled (local access)'})
+    try:
+        ok, output = _run_command(['docker', 'exec', '--user', '0:0', tenant.container_name,
+                                  'wg', 'show', 'wg0', 'latest-handshakes'], timeout=10)
+    except Exception:
+        ok, output = False, ''
+    latest = 0
+    if ok:
+        for line in output.splitlines():
+            try:
+                latest = max(latest, int(line.split()[-1]))
+            except (ValueError, IndexError):
+                pass
+    status = 'Connected' if latest and time.time() - latest < 180 else 'Waiting for client handshake'
+    if not ok:
+        status = 'VPN interface is not ready. Check provisioning status.'
+    response = JsonResponse({'status': status, 'last_handshake': latest or None,
+                             'note': 'Handshake confirms the tunnel; OLT reachability also needs client routes/firewall.'})
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 def _parse_control_datetime(value):

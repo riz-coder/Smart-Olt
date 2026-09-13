@@ -6,6 +6,36 @@ import string
 from django import forms
 
 from .models import Plan, Tenant, TenantContact, TenantSnapshot
+from . import deployment
+
+
+def _validate_deployment_form(form, cleaned):
+    label = cleaned.get('subdomain', '')
+    if label:
+        try:
+            label = deployment.subdomain_label(label)
+            if Tenant.objects.exclude(pk=form.instance.pk).filter(subdomain=label).exists():
+                raise ValueError('Yeh subdomain pehle use ho chuki hai.')
+            cleaned['subdomain'] = label
+        except ValueError as exc:
+            form.add_error('subdomain', str(exc))
+    try:
+        deployment.base_domain()
+    except ValueError as exc:
+        form.add_error(None, str(exc))
+    if cleaned.get('vpn_enabled'):
+        if not cleaned.get('client_public_ip'):
+            form.add_error('client_public_ip', 'VPN ke liye client Ubuntu ka public IPv4 required hai.')
+        if not deployment.os.environ.get('CONTROL_VPN_PUBLIC_HOST', '').strip():
+            form.add_error(None, 'VPN setup pending: .env.control mein CONTROL_VPN_PUBLIC_HOST set karein.')
+        try:
+            routes = deployment.route_networks(cleaned.get('vpn_routes'))
+            if not routes:
+                raise ValueError('Kam az kam ek local/OLT subnet required hai.')
+            cleaned['vpn_routes'] = '\n'.join(map(str, routes))
+        except ValueError as exc:
+            form.add_error('vpn_routes', str(exc))
+    return cleaned
 
 
 class PlanForm(forms.ModelForm):
@@ -26,6 +56,7 @@ class TenantForm(forms.ModelForm):
             "plan", "status", "monthly_price_override", "panel_scheme", "panel_host",
             "panel_port", "panel_base_path", "codebase_path", "database_path",
             "env_path", "service_name", "panel_admin_username", "panel_admin_initial_password", "notes",
+            "subdomain", "vpn_enabled", "client_public_ip", "client_vpn_port", "vpn_routes",
         ]
         help_texts = {
             "slug": "Leave blank to generate automatically.",
@@ -43,6 +74,9 @@ class TenantForm(forms.ModelForm):
         value = str(self.cleaned_data.get("slug") or "").strip().lower()
         return value
 
+    def clean(self):
+        return _validate_deployment_form(self, super().clean())
+
 
 class TenantCreateForm(forms.ModelForm):
     class Meta:
@@ -52,13 +86,11 @@ class TenantCreateForm(forms.ModelForm):
             "owner_email",
             "panel_admin_username",
             "panel_admin_initial_password",
+            "subdomain",
+            "vpn_enabled",
             "client_public_ip",
             "client_vpn_port",
-            "client_local_subnet",
-            "olt_management_subnet",
-            "wg_server_endpoint",
-            "wg_server_public_key",
-            "docker_image",
+            "vpn_routes",
         ]
         labels = {
             "name": "ISP / Tenant name",
@@ -66,6 +98,9 @@ class TenantCreateForm(forms.ModelForm):
             "panel_admin_username": "Panel username",
             "panel_admin_initial_password": "Panel initial password",
             "client_public_ip": "Client public IP",
+            "subdomain": "ISP subdomain",
+            "vpn_enabled": "Enable site-to-site VPN (Ubuntu client)",
+            "vpn_routes": "Client local / OLT subnets",
             "client_vpn_port": "Client VPN port",
             "client_local_subnet": "Client local subnet",
             "olt_management_subnet": "OLT management subnet",
@@ -76,6 +111,9 @@ class TenantCreateForm(forms.ModelForm):
         help_texts = {
             "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
             "client_public_ip": "Client/router public IP. Local tenant me blank chhor sakte hain.",
+            "subdomain": "Misal: nexus. Blank ho to ISP name se banega. Main domain VPS settings se aayega.",
+            "vpn_enabled": "VPN off ho to existing local access rahega. On ho to isolated tunnel automatically prepare hoga.",
+            "vpn_routes": "Har line mein ek IPv4 subnet, e.g. 192.168.10.0/24. Sirf yeh routes tenant tunnel mein jayenge.",
             "client_vpn_port": "Usually 51820.",
             "client_local_subnet": "Client LAN subnet, e.g. 192.168.10.0/24. Local tenant me blank allowed.",
             "olt_management_subnet": "OLT subnet reachable from tenant, e.g. 10.101.11.0/24.",
@@ -92,13 +130,18 @@ class TenantCreateForm(forms.ModelForm):
         self.fields["client_public_ip"].required = False
         self.fields["client_vpn_port"].required = False
         self.fields["client_vpn_port"].initial = 51820
-        self.fields["client_local_subnet"].required = False
-        self.fields["olt_management_subnet"].required = False
-        self.fields["wg_server_endpoint"].required = False
-        self.fields["wg_server_public_key"].required = False
-        self.fields["docker_image"].required = False
-        self.fields["docker_image"].initial = "optiverse-tenant-app:latest"
+        self.fields["vpn_routes"].widget = forms.Textarea(attrs={"rows": 4})
+        self.fields["panel_admin_initial_password"].widget = forms.PasswordInput(render_value=True)
         _style_form(self)
+
+    def clean(self):
+        return _validate_deployment_form(self, super().clean())
+
+    def clean_client_vpn_port(self):
+        value = self.cleaned_data.get('client_vpn_port') or 51820
+        if not 1 <= value <= 65535:
+            raise forms.ValidationError('Port 1 se 65535 ke darmiyan honi chahiye.')
+        return value
 
     def clean_panel_admin_initial_password(self):
         value = str(self.cleaned_data.get("panel_admin_initial_password") or "").strip()
@@ -145,6 +188,20 @@ class TenantCreateForm(forms.ModelForm):
         if commit:
             tenant.save()
         return tenant
+
+
+class TenantConnectionForm(forms.ModelForm):
+    class Meta:
+        model = Tenant
+        fields = ['subdomain', 'vpn_enabled', 'client_public_ip', 'client_vpn_port', 'vpn_routes']
+        widgets = {'vpn_routes': forms.Textarea(attrs={'rows': 4})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _style_form(self)
+
+    def clean(self):
+        return _validate_deployment_form(self, super().clean())
 
 
 class TenantContactForm(forms.ModelForm):

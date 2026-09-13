@@ -4,9 +4,10 @@
 {% block content %}
 <section class="panel">
     <h2>New ISP Tenant</h2>
-    <p class="subtle">This creates a separate tenant database, assigns a new port, creates the first tenant superuser, and starts a tenant service using the same codebase.</p>
+    <p class="subtle">Har ISP ka alag database aur ek app + sync container banega. Optional site-to-site VPN ke routes bhi tenant ke apne network mein rahenge. Main domain set hone par ISP ka HTTPS subdomain automatically connect hoga; warna local IP:port use hoga.</p>
     <form method="post" class="form-grid">
         {% csrf_token %}
+        {% for error in form.non_field_errors %}<p class="wide" style="color:var(--red)">{{ error }}</p>{% endfor %}
         {% for field in form %}
         <div>
             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
