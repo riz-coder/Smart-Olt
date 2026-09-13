@@ -966,7 +966,7 @@
       const tbody = document.querySelector('.table-wrap tbody');
       if (!rows.length) return;
 
-    const csrftoken = document.cookie.split('; ').find((row) => row.startsWith('csrftoken='))?.split('=')[1] || '';
+    const csrftoken = document.querySelector('meta[name="optiverse-csrf"]')?.content || '';
 
     const barsMarkup = (bucket) => `
         <span class="signal-stack">

@@ -3147,7 +3147,7 @@
                 setOnuActionState(shortMessage, !response.ok || !data.ok);
                 if (response.ok && data.ok) {
                     if (data.redirect_url) {
-                        // Keep the "ONU Deleting" wheel up while we navigate to autofind.
+                        // Completion is confirmed; navigation must not keep the operation spinner open.
                         if (deleteOverlay) {
                             finishDeleteWaitProgress(deleteOverlay, true, 'ONU deleted. Opening Autofind...');
                             hideDeleteWaitProgress(deleteOverlay);
