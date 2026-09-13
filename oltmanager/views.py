@@ -44,6 +44,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
 from .forms import OLTForm, TenantProvisioningForm, VLANAddForm, VLANBulkAddForm
+from .authorize_progress import get_authorize_progress, save_authorize_progress
 from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, TenantProvisioning, UplinkPortTrafficSample
 from .services import get_olt_adapter
 from .utils import (
@@ -5650,6 +5651,7 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
             if task_id in _AUTHORIZE_TASKS:
                 _AUTHORIZE_TASKS[task_id]["step"] = step
                 _AUTHORIZE_TASKS[task_id]["label"] = label
+                save_authorize_progress(task_id, _AUTHORIZE_TASKS[task_id])
 
     try:
         with OltWriteOperationGuard(olt, "ONU configuration", f"{frame}/{slot}/{port}") as write_guard:
@@ -5707,15 +5709,18 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
                     "service_profile_id": payload.get("service_profile_id"),
                     "line_profile_id": payload.get("line_profile_id"),
                 })
+                save_authorize_progress(task_id, _AUTHORIZE_TASKS[task_id])
     except Exception as exc:
         with _AUTHORIZE_TASKS_LOCK:
             if task_id in _AUTHORIZE_TASKS:
                 _AUTHORIZE_TASKS[task_id].update({
                     "done": True,
                     "ok": False,
-                    "message": f"Authorize task encountered an unexpected error: {exc}",
+                    "message": "Unable to complete configuration. Please check the ONU status before retrying.",
                     "redirect_url": "",
                 })
+                logger.exception("Authorization task %s failed", task_id)
+                save_authorize_progress(task_id, _AUTHORIZE_TASKS[task_id])
 
 
 @login_required
@@ -5845,15 +5850,18 @@ def unconfigured_onu_authorize(request):
         now_ts = time.time()
         # Prune stale tasks (> 10 min old) to prevent unbounded growth
         with _AUTHORIZE_TASKS_LOCK:
-            stale = [tid for tid, t in _AUTHORIZE_TASKS.items() if now_ts - t.get("created_at", now_ts) > 600]
+            stale = [tid for tid, t in _AUTHORIZE_TASKS.items() if t.get("done") and now_ts - t.get("created_at", now_ts) > 600]
             for tid in stale:
                 _AUTHORIZE_TASKS.pop(tid, None)
             _AUTHORIZE_TASKS[task_id] = {
                 "done": False, "ok": False, "step": 0,
-                "label": "Opening Telnet session...",
+                "label": "Preparing configuration...",
                 "message": "", "redirect_url": "",
                 "created_at": now_ts,
+                "user_id": request.user.pk,
             }
+            # Publish before starting any device work or returning the task ID.
+            save_authorize_progress(task_id, _AUTHORIZE_TASKS[task_id])
         threading.Thread(
             target=_run_authorize_bg_task,
             args=(task_id, olt, authorize_kwargs, request.user.pk,
@@ -5909,12 +5917,16 @@ def unconfigured_onu_authorize(request):
 
 @login_required
 def unconfigured_onu_authorize_progress(request, task_id):
-    with _AUTHORIZE_TASKS_LOCK:
-        task = dict(_AUTHORIZE_TASKS.get(str(task_id) or "", {}) or {})
+    task = get_authorize_progress(task_id)
     if not task:
         return JsonResponse({"done": True, "ok": False, "message": "Task not found or expired."}, status=404)
+    if task.get("user_id") is not None and task["user_id"] != request.user.pk:
+        return JsonResponse({"ok": False, "message": "Task not found or expired."}, status=404)
     task.pop("created_at", None)
-    return JsonResponse(task)
+    task.pop("user_id", None)
+    response = JsonResponse(task)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _active_trap_status_for_onu(olt, slot, port, ont_id):

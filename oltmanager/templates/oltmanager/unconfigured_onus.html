@@ -1206,15 +1206,21 @@ document.addEventListener('DOMContentLoaded', function () {
     const startProgressPolling = (taskId, onDone, labelPrefix) => {
         stopProgressPolling();
         const url = _getProgressUrl(taskId);
+        let inFlight = false;
+        let failures = 0;
         const poll = async () => {
+            if (inFlight) return;
+            inFlight = true;
             try {
                 const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                if (!res.ok) {
+                if (res.redirected || res.status === 401 || res.status === 403) {
                     stopProgressPolling();
-                    onDone({ ok: false, done: true, message: 'Progress check failed.' });
+                    onDone({ ok: false, done: true, message: 'Please sign in again, then check the ONU status before retrying configuration.' });
                     return;
                 }
-                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error('Progress temporarily unavailable');
+                const data = await res.json();
+                failures = 0;
                 const step = Number(data.step || 0);
                 const prog = STEP_PROGRESS[step] !== undefined ? STEP_PROGRESS[step] : 14;
                 const cleanPrefix = String(labelPrefix || '').trim();
@@ -1228,11 +1234,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     onDone(data);
                 }
             } catch (_) {
-                // transient network error — keep polling
+                failures += 1;
+                if (failures >= 15) {
+                    stopProgressPolling();
+                    onDone({ ok: false, done: true, message: 'Progress is temporarily unavailable. Configuration may still be running. Check the ONU status before retrying.' });
+                }
+            } finally {
+                inFlight = false;
             }
         };
         poll();
-        _pollTimer = setInterval(poll, 600);
+        _pollTimer = setInterval(poll, 1000);
     };
 
     const showWaitOverlay = () => {
