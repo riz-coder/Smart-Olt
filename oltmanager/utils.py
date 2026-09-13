@@ -14129,7 +14129,7 @@ def _load_onu_status_progress_state_unlocked():
     rows = saved.get("olts")
     if isinstance(rows, list):
         _ONU_STATUS_SYNC_PROGRESS["olts"] = {
-            int(row["olt_id"]): dict(row) for row in rows if isinstance(row, dict) and row.get("olt_id")
+            str(int(row["olt_id"])): dict(row) for row in rows if isinstance(row, dict) and row.get("olt_id")
         }
 
 
@@ -14170,6 +14170,7 @@ def update_onu_status_sync_progress(olt_id, **kwargs):
 def finish_onu_status_sync_progress(next_run_at=None):
     now = timezone.now()
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _load_onu_status_progress_state_unlocked()
         _ONU_STATUS_SYNC_PROGRESS.update({
             "running": False,
             "cycle_completed_at": now,
