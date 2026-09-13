@@ -1,5 +1,6 @@
 """Run one tenant's HTTP/WebSocket server and sync threads in one process."""
 import threading
+import os
 
 from django.core.management.base import BaseCommand
 
@@ -16,6 +17,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         import uvicorn
 
+        os.environ.setdefault('ONU_STATUS_SYNC_STARTUP_DELAY_SECONDS', '15')
         stopping = threading.Event()
 
         def monitor():

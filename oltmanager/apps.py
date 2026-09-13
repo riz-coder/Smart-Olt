@@ -937,8 +937,14 @@ def _onu_status_sync_loop():
         return result_box.get("value")
 
     # Keep initial page loads responsive after service restart.
-    schedule_onu_status_sync_progress(_next_interval_boundary_datetime(ONU_STATUS_SYNC_SECONDS))
-    _sleep_until_interval_boundary(ONU_STATUS_SYNC_SECONDS)
+    startup_delay = os.environ.get("ONU_STATUS_SYNC_STARTUP_DELAY_SECONDS")
+    if startup_delay is not None:
+        delay = max(5, int(startup_delay))
+        schedule_onu_status_sync_progress(timezone.now() + datetime.timedelta(seconds=delay))
+        time.sleep(delay)
+    else:
+        schedule_onu_status_sync_progress(_next_interval_boundary_datetime(ONU_STATUS_SYNC_SECONDS))
+        _sleep_until_interval_boundary(ONU_STATUS_SYNC_SECONDS)
 
     while True:
         cycle_started = False
