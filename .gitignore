@@ -40,3 +40,4 @@ Thumbs.db
 .vscode/*.log
 
 onu_status_sync_progress.json
+authorize_progress/

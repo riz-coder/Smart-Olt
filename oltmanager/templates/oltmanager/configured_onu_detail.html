@@ -3124,17 +3124,17 @@
                 return 'Processing...';
             })();
             const deleteOverlay = isDeleteAction ? document.querySelector('[data-onu-delete-wait]') : null;
+            button.dataset.operationPending = '1';
             if (deleteOverlay) startDeleteWaitProgress(deleteOverlay);
             button.textContent = runningText;
             setOnuActionState(runningText, false);
             try {
-                const response = await fetch(url, {
+                const { response, data: started } = await window.OptiVerseOperation.request(url, {
                     method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
-                    },
                 });
-                const data = await response.json();
+                const data = started.task_id
+                    ? await window.OptiVerseOperation.wait(started.progress_url)
+                    : started;
                 let shortMessage = data.message || '';
                 if (response.ok && data.ok) {
                     const actionName = String(data.action || '').trim().toLowerCase();
@@ -3150,6 +3150,7 @@
                         // Keep the "ONU Deleting" wheel up while we navigate to autofind.
                         if (deleteOverlay) {
                             finishDeleteWaitProgress(deleteOverlay, true, 'ONU deleted. Opening Autofind...');
+                            hideDeleteWaitProgress(deleteOverlay);
                         }
                         window.location.href = data.redirect_url;
                         return;
@@ -3165,13 +3166,15 @@
                     }
                 }
             } catch (error) {
-                setOnuActionState('ONU action failed.', true);
+                setOnuActionState(error.message || 'Completion could not be confirmed. Check the ONU before retrying.', true);
                 if (deleteOverlay) {
                     finishDeleteWaitProgress(deleteOverlay, false, 'ONU action failed.');
                     setTimeout(() => hideDeleteWaitProgress(deleteOverlay), 1400);
                 }
             } finally {
                 button.disabled = false;
+                delete button.dataset.operationPending;
+                hideDeleteWaitProgress(deleteOverlay);
                 if (button === onuDisableButton) {
                     button.textContent = (statusTextNode && /admin disabled/i.test(statusTextNode.textContent || '')) ? 'Enable ONU' : 'Disable ONU';
                 } else {

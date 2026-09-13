@@ -34,6 +34,7 @@ urlpatterns = [
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/mapping-convert/', views.configured_onu_mapping_convert, name='configured_onu_mapping_convert'),
     path('configured/mapping-convert/progress/<str:task_id>/', views.configured_onu_mapping_convert_progress, name='configured_onu_mapping_convert_progress'),
     path('configured/<int:olt_pk>/<int:slot>/<int:port>/<int:ont_id>/action/<str:action>/', views.configured_onu_action, name='configured_onu_action'),
+    path('configured/actions/progress/<str:task_id>/', views.configured_onu_action_progress, name='configured_onu_action_progress'),
     path('report/', views.health_report, name='health_report'),
     path('settings/', views.settings_home, name='settings_home'),
     path('settings/alerts/', views.settings_alerts, name='settings_alerts'),

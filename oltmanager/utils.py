@@ -2792,6 +2792,11 @@ def probe_onu_snmp_delete(
             verify_attempts = []
             for attempt_no in range(max_attempts):
                 verify_values = _read_verify_values()
+                # A confirmed missing ONT row is already the success criterion.
+                # Do not perform a potentially slow service-flow walk afterwards.
+                if _snmp_instance_is_missing(verify_values.get("entry_status") or {}):
+                    verify_attempts.append(verify_values)
+                    return True, verify_attempts
                 flow_query_after = (
                     _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
                     if if_index is not None and ont_id is not None

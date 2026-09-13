@@ -231,48 +231,42 @@
     let pollTimer = null;
     const stopPoll = () => {
         if (pollTimer) {
-            window.clearTimeout(pollTimer);
+            pollTimer();
             pollTimer = null;
         }
     };
 
     const finish = (ok, message, redirectUrl) => {
         stopPoll();
-        setStep(4, `${ok ? 'OK' : 'FAILED'}: ${message || (ok ? 'Done.' : 'Failed.')}`, true);
-        if (!ok) {
-            window.alert(message || 'VLAN add failed.');
-        }
+        overlay.hidden = true;
+        const button = form.querySelector('button[type="submit"]');
+        if (button) { button.disabled = false; delete button.dataset.operationPending; }
+        let status = document.querySelector('[data-operation-result]');
+        if (!status) { status = document.createElement('p'); status.dataset.operationResult = '1'; form.before(status); }
+        status.textContent = message || (ok ? 'Completed.' : 'Could not confirm completion. Check the ONU before retrying.');
         if (ok && redirectUrl) {
-            window.setTimeout(() => { window.location.href = redirectUrl; }, 600);
+            window.location.assign(redirectUrl);
         }
     };
 
     const pollProgress = (taskId) => {
         const url = PROGRESS_URL.replace('__TASK__', taskId);
-        const tick = async () => {
-            try {
-                const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                const task = await res.json();
-                if (task.done) {
-                    finish(!!task.ok, task.message, task.redirect_url);
-                    return;
-                }
-                setStep(Number(task.step || 0), task.label, false);
-                pollTimer = window.setTimeout(tick, 600);
-            } catch (err) {
-                pollTimer = window.setTimeout(tick, 1000);
-            }
-        };
-        tick();
+        pollTimer = window.OptiVerseOperation.poll(url, {
+            onProgress: (task) => setStep(Number(task.step || 0), task.label, false),
+            onDone: (task) => finish(!!task.ok, task.message, task.redirect_url),
+            onError: (message) => finish(false, message, ''),
+        });
     };
 
     if (form && overlay) {
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
+            const button = form.querySelector('button[type="submit"]');
+            if (button) { button.disabled = true; button.dataset.operationPending = '1'; }
             overlay.hidden = false;
             setStep(0, STEP_LABELS[0], false);
             try {
-                const response = await fetch(form.action || window.location.href, {
+                const { response, data } = await window.OptiVerseOperation.request(form.action || window.location.href, {
                     method: 'POST',
                     headers: {
                         'X-CSRFToken': getCookie('csrftoken'),
@@ -280,7 +274,6 @@
                     },
                     body: new FormData(form),
                 });
-                const data = await response.json();
                 if (response.ok && data.ok && data.task_id) {
                     pollProgress(data.task_id);
                 } else {

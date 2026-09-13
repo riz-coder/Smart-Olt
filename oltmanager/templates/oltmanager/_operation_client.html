@@ -1,0 +1,68 @@
+<meta name="optiverse-csrf" content="{{ csrf_token }}">
+<script>
+(() => {
+    const active = new Set();
+    const unknown = 'Progress could not be confirmed. Check the ONU state before retrying.';
+    const csrf = () => document.querySelector('input[name="csrfmiddlewaretoken"]')?.value
+        || document.querySelector('meta[name="optiverse-csrf"]')?.content || '';
+    async function request(url, options = {}, timeoutMs = 20000) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const headers = { 'X-Requested-With': 'XMLHttpRequest', ...(options.headers || {}) };
+            if ((options.method || 'GET').toUpperCase() !== 'GET') headers['X-CSRFToken'] = csrf();
+            const response = await fetch(url, { ...options, headers, credentials: 'same-origin',
+                cache: 'no-store', signal: controller.signal });
+            if (response.redirected || response.status === 401 || response.status === 403) {
+                const error = new Error('Please sign in again, then check the ONU state before retrying.');
+                error.fatal = true; throw error;
+            }
+            const data = await response.json();
+            if (!response.ok || !data || typeof data !== 'object') {
+                throw new Error(data?.message || unknown);
+            }
+            return { response, data };
+        } finally { clearTimeout(timeout); }
+    }
+    function poll(url, { onProgress = () => {}, onDone, onError, timeoutMs = 1200000, intervalMs = 1000 }) {
+        let stopped = false, timer = null, failures = 0;
+        const started = Date.now();
+        const stop = () => { stopped = true; clearTimeout(timer); active.delete(stop); };
+        const fail = (message) => { stop(); onError(message || unknown); };
+        const tick = async () => {
+            if (stopped) return;
+            if (Date.now() - started >= timeoutMs) { fail(unknown); return; }
+            let data;
+            try {
+                ({ data } = await request(url));
+                if (typeof data.done !== 'boolean') throw new Error(unknown);
+                failures = 0;
+            } catch (error) {
+                if (stopped) return;
+                if (error.fatal || ++failures >= 15) { fail(error.fatal ? error.message : unknown); return; }
+                timer = setTimeout(tick, intervalMs); return;
+            }
+            if (stopped) return;
+            if (data.done) { stop(); onDone(data); return; }
+            onProgress(data);
+            timer = setTimeout(tick, intervalMs);
+        };
+        active.add(stop); tick(); return stop;
+    }
+    function wait(url, onProgress) {
+        return new Promise((resolve, reject) => poll(url, { onProgress,
+            onDone: resolve, onError: (message) => reject(new Error(message)) }));
+    }
+    window.OptiVerseOperation = { request, poll, wait };
+    window.addEventListener('pagehide', () => { for (const stop of [...active]) stop(); });
+    window.addEventListener('pageshow', (event) => {
+        if (!event.persisted) return;
+        document.querySelectorAll('.olt-wait-overlay').forEach((node) => {
+            node.hidden = true; node.classList.remove('is-open'); node.setAttribute('aria-hidden', 'true');
+        });
+        document.querySelectorAll('[data-operation-pending]').forEach((node) => {
+            node.disabled = false; delete node.dataset.operationPending;
+        });
+    });
+})();
+</script>

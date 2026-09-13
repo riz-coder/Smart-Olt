@@ -435,7 +435,7 @@
 
     const hideOverlay = () => {
         if (pollTimer) {
-            clearInterval(pollTimer);
+            pollTimer();
             pollTimer = null;
         }
         if (overlay) overlay.hidden = true;
@@ -443,6 +443,8 @@
 
     const showError = (message) => {
         hideOverlay();
+        const button = form.querySelector('button[type="submit"]');
+        if (button) { button.disabled = false; delete button.dataset.operationPending; }
         if (errorBox) {
             errorBox.textContent = message || 'Mapping conversion failed.';
             errorBox.hidden = false;
@@ -453,35 +455,17 @@
 
     const pollProgress = (taskId) => {
         const url = progressBase.replace('TASK_ID_PLACEHOLDER', taskId);
-        const poll = async () => {
-            try {
-                const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) {
-                    showError(data.message || 'Progress check failed.');
-                    return;
-                }
-                setStep(data.step || 0);
-                if (data.done) {
-                    if (pollTimer) {
-                        clearInterval(pollTimer);
-                        pollTimer = null;
-                    }
-                    if (data.ok && data.redirect_url) {
-                        if (fill) fill.style.width = '100%';
-                        if (percentNode) percentNode.textContent = '100%';
-                        if (labelNode) labelNode.textContent = 'Completed.';
-                        setTimeout(() => { window.location.href = data.redirect_url; }, 350);
-                    } else {
-                        showError(data.message || 'Mapping conversion failed.');
-                    }
-                }
-            } catch (_) {
-                // Keep polling through transient browser/network interruptions.
+        pollTimer = window.OptiVerseOperation.poll(url, {
+            onProgress: (data) => setStep(data.step || 0),
+            onError: showError,
+            onDone: (data) => {
+                hideOverlay();
+                if (data.ok && data.redirect_url) {
+                    if (labelNode) labelNode.textContent = 'Completed.';
+                    window.location.assign(data.redirect_url);
+                } else { showError(data.message || 'Mapping conversion could not be confirmed.'); }
             }
-        };
-        poll();
-        pollTimer = setInterval(poll, 700);
+        });
     };
 
     if (!form) return;
@@ -489,15 +473,14 @@
         event.preventDefault();
         if (errorBox) errorBox.hidden = true;
         const submitButton = form.querySelector('button[type="submit"]');
-        if (submitButton) submitButton.disabled = true;
+        if (submitButton) { submitButton.disabled = true; submitButton.dataset.operationPending = '1'; }
         showOverlay();
         try {
-            const response = await fetch(form.action || window.location.href, {
+            const { response, data } = await window.OptiVerseOperation.request(form.action || window.location.href, {
                 method: 'POST',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 body: new FormData(form),
             });
-            const data = await response.json().catch(() => ({}));
             if (!response.ok || !data.ok || !data.task_id) {
                 if (submitButton) submitButton.disabled = false;
                 showError(data.message || 'Mapping conversion could not be started.');

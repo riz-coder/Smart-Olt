@@ -22,7 +22,6 @@ _SNMP_MONITOR_THREAD = None
 _SNMP_MONITOR_GUARD = threading.Lock()
 _ONU_STATUS_SYNC_THREAD = None
 _ONU_STATUS_SYNC_GUARD = threading.Lock()
-_ONU_STATUS_SYNC_WAKE_EVENT = threading.Event()
 _ONU_STATUS_PRIORITY_LOCK = threading.Lock()
 _ONU_STATUS_PRIORITY_IDS = []
 _ONU_SIGNAL_SAMPLE_THREAD = None
@@ -122,6 +121,11 @@ def _parse_dashboard_uptime_minutes(uptime_text):
     return None
 
 
+def _wait_onu_status_cycle_gap():
+    # Priorities change next cycle's order, never its ten-minute cooldown.
+    time.sleep(ONU_STATUS_SYNC_SECONDS)
+
+
 def _queue_onu_status_sync_priority(olt_id):
     try:
         olt_id = int(olt_id)
@@ -130,7 +134,6 @@ def _queue_onu_status_sync_priority(olt_id):
     with _ONU_STATUS_PRIORITY_LOCK:
         if olt_id not in _ONU_STATUS_PRIORITY_IDS:
             _ONU_STATUS_PRIORITY_IDS.append(olt_id)
-    _ONU_STATUS_SYNC_WAKE_EVENT.set()
     return True
 
 
@@ -1032,8 +1035,7 @@ def _onu_status_sync_loop():
             schedule_onu_status_sync_progress(next_run_at)
         except Exception:
             pass
-        _ONU_STATUS_SYNC_WAKE_EVENT.wait(ONU_STATUS_SYNC_SECONDS)
-        _ONU_STATUS_SYNC_WAKE_EVENT.clear()
+        _wait_onu_status_cycle_gap()
 
 
 def _onu_signal_sample_loop():

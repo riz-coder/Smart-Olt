@@ -45,6 +45,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import OLTForm, TenantProvisioningForm, VLANAddForm, VLANBulkAddForm
 from .authorize_progress import get_authorize_progress, save_authorize_progress
+from .operation_progress import SharedTasks
 from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, TenantProvisioning, UplinkPortTrafficSample
 from .services import get_olt_adapter
 from .utils import (
@@ -266,9 +267,10 @@ _AUTOFIND_LIVE_FETCHING = set()
 _AUTHORIZE_TASKS_LOCK = threading.Lock()
 _AUTHORIZE_TASKS = {}
 _MAPPING_CONVERT_TASKS_LOCK = threading.Lock()
-_MAPPING_CONVERT_TASKS = {}
+_MAPPING_CONVERT_TASKS = SharedTasks('mapping')
 _SPEED_PROFILE_TASKS_LOCK = threading.Lock()
-_SPEED_PROFILE_TASKS = {}
+_SPEED_PROFILE_TASKS = SharedTasks('speed')
+_ONU_ACTION_TASKS = SharedTasks('onu-action')
 _NEW_OLT_VLAN_FILL_LOCK = threading.Lock()
 _NEW_OLT_VLAN_FILLING = set()
 _DEVICE_SNAPSHOT_SYNC_LOCK = threading.Lock()
@@ -4016,6 +4018,21 @@ def _debounced_onu_snmp_status(record, raw_status):
     return raw_status, "snmp_refresh", True
 
 
+def _schedule_single_onu_power_refresh(olt_id, slot, port, ont_id):
+    def refresh():
+        close_old_connections()
+        try:
+            olt = OLT.objects.filter(pk=olt_id).first()
+            record = ConfiguredONU.objects.filter(olt_id=olt_id, slot=slot, port=port, ont_id=ont_id).first()
+            if olt and record:
+                _refresh_single_onu_power_from_snmp(olt, record, slot, port, ont_id)
+        except Exception:
+            logger.exception('Deferred ONU signal refresh failed for OLT %s', olt_id)
+        finally:
+            close_old_connections()
+    threading.Thread(target=refresh, name=f'onu-post-action-{olt_id}-{ont_id}', daemon=True).start()
+
+
 def _refresh_single_onu_power_from_snmp(olt, record, slot, port, ont_id):
     if record is None or _is_olt_snmp_unreachable(getattr(olt, "snmp_last_status", "")):
         return {}
@@ -5683,7 +5700,7 @@ def _run_authorize_bg_task(task_id, olt, authorize_kwargs, user_pk, slot, port, 
                         olt=olt, slot=int(slot), port=int(port), ont_id=int(ont_id),
                     ).first()
                     if record is not None:
-                        _refresh_single_onu_power_from_snmp(olt, record, int(slot), int(port), int(ont_id))
+                        _schedule_single_onu_power_refresh(olt.pk, int(slot), int(port), int(ont_id))
                 except Exception:
                     pass
                 redirect_url = "{}?auth_debug=1".format(
@@ -7214,7 +7231,7 @@ def _execute_onu_mapping_conversion(olt, record, plan, user=None, *, on_progress
     ).first()
     if new_record is not None:
         try:
-            _refresh_single_onu_power_from_snmp(olt, new_record, old_slot, old_port, new_ont_id)
+            _schedule_single_onu_power_refresh(olt.pk, old_slot, old_port, new_ont_id)
         except Exception:
             pass
     _schedule_autofind_rows_refresh(int(olt.pk))
@@ -7320,7 +7337,7 @@ def configured_onu_mapping_convert(request, olt_pk, slot, port, ont_id):
             task_id = uuid.uuid4().hex[:20]
             now_ts = time.time()
             with _MAPPING_CONVERT_TASKS_LOCK:
-                stale = [tid for tid, task in _MAPPING_CONVERT_TASKS.items() if now_ts - task.get("created_at", now_ts) > 900]
+                stale = [tid for tid, task in _MAPPING_CONVERT_TASKS.items() if task.get("done") and now_ts - task.get("created_at", now_ts) > 900]
                 for tid in stale:
                     _MAPPING_CONVERT_TASKS.pop(tid, None)
                 _MAPPING_CONVERT_TASKS[task_id] = {
@@ -7369,7 +7386,9 @@ def configured_onu_mapping_convert_progress(request, task_id):
     if not task:
         return JsonResponse({"done": True, "ok": False, "message": "Task not found or expired."}, status=404)
     task.pop("created_at", None)
-    return JsonResponse(task)
+    response = JsonResponse({key: value for key, value in task.items() if not key.startswith('_')})
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 def _run_speed_profile_bg_task(task_id, olt, speed_kwargs, redirect_url):
@@ -7417,7 +7436,9 @@ def configured_onu_speed_profile_progress(request, task_id):
     if not task:
         return JsonResponse({"done": True, "ok": False, "message": "Task not found or expired."}, status=404)
     task.pop("created_at", None)
-    return JsonResponse(task)
+    response = JsonResponse({key: value for key, value in task.items() if not key.startswith('_')})
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @login_required
@@ -7512,7 +7533,7 @@ def configured_onu_speed_profile_config(request, olt_pk, slot, port, ont_id, row
                 task_id = uuid.uuid4().hex[:20]
                 now_ts = time.time()
                 with _SPEED_PROFILE_TASKS_LOCK:
-                    stale = [tid for tid, t in _SPEED_PROFILE_TASKS.items() if now_ts - t.get("created_at", now_ts) > 600]
+                    stale = [tid for tid, t in _SPEED_PROFILE_TASKS.items() if t.get("done") and now_ts - t.get("created_at", now_ts) > 600]
                     for tid in stale:
                         _SPEED_PROFILE_TASKS.pop(tid, None)
                     _SPEED_PROFILE_TASKS[task_id] = {
@@ -7775,7 +7796,7 @@ def configured_onu_add_vlan(request, olt_pk, slot, port, ont_id):
                 task_id = uuid.uuid4().hex[:20]
                 now_ts = time.time()
                 with _SPEED_PROFILE_TASKS_LOCK:
-                    stale = [tid for tid, t in _SPEED_PROFILE_TASKS.items() if now_ts - t.get("created_at", now_ts) > 600]
+                    stale = [tid for tid, t in _SPEED_PROFILE_TASKS.items() if t.get("done") and now_ts - t.get("created_at", now_ts) > 600]
                     for tid in stale:
                         _SPEED_PROFILE_TASKS.pop(tid, None)
                     _SPEED_PROFILE_TASKS[task_id] = {
@@ -8123,6 +8144,32 @@ def configured_onu_fetch_config(request, olt_pk, slot, port, ont_id):
     )
 
 
+def _run_onu_action_task(task_id, request, olt_pk, slot, port, ont_id, action):
+    close_old_connections()
+    try:
+        request._onu_action_background = True
+        response = configured_onu_action(request, olt_pk, slot, port, ont_id, action)
+        result = json.loads(response.content)
+        _ONU_ACTION_TASKS[task_id].update({**result, 'done': True})
+    except Exception:
+        logger.exception('ONU action task %s failed', task_id)
+        _ONU_ACTION_TASKS[task_id].update(done=True, ok=False, result_unknown=True,
+            message='Completion could not be confirmed. Check the ONU status before retrying.')
+    finally:
+        close_old_connections()
+
+
+@login_required
+def configured_onu_action_progress(request, task_id):
+    task = dict(_ONU_ACTION_TASKS.get(task_id) or {})
+    if not task or task.get('user_id') != request.user.pk:
+        return JsonResponse({'ok': False, 'message': 'Task not found or expired.'}, status=404)
+    allowed = ('ok', 'done', 'message', 'redirect_url', 'action', 'status_value', 'status_label', 'status_class', 'result_unknown')
+    response = JsonResponse({key: task[key] for key in allowed if key in task})
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 @login_required
 @require_POST
 @admin_required
@@ -8131,6 +8178,17 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
     locked_response = _deny_olt_access_if_locked(request, olt)
     if locked_response:
         return locked_response
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' and not getattr(request, '_onu_action_background', False):
+        if str(action).lower() not in {'delete', 'reset', 'restart', 'disable', 'enable'}:
+            return JsonResponse({'ok': False, 'message': 'Invalid ONU action.'}, status=400)
+        task_id = uuid.uuid4().hex[:20]
+        _ONU_ACTION_TASKS[task_id] = {'done': False, 'ok': False, 'action': action,
+            'message': 'Applying changes...', 'user_id': request.user.pk, 'created_at': time.time()}
+        threading.Thread(target=_run_onu_action_task,
+            args=(task_id, request, olt_pk, slot, port, ont_id, action),
+            name=f'onu-action-{task_id}', daemon=True).start()
+        return JsonResponse({'ok': True, 'task_id': task_id,
+            'progress_url': reverse('configured_onu_action_progress', kwargs={'task_id': task_id})})
     record = ConfiguredONU.objects.filter(olt=olt, slot=slot, port=port, ont_id=ont_id).first()
     action_key = str(action or "").strip().lower()
     redirect_url = ""
