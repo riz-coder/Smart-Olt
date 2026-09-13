@@ -14117,12 +14117,29 @@ def start_onu_status_sync_progress(olt_rows):
         _write_onu_status_progress_file_unlocked()
 
 
+def _load_onu_status_progress_state_unlocked():
+    """Continue the shared cycle in a fresh status-sync process."""
+    saved = _read_onu_status_progress_file()
+    if not saved:
+        return
+    for key in ("running", "cycle_started_at", "cycle_completed_at", "last_completed_at",
+                "next_run_at", "total_olts"):
+        if key in saved:
+            _ONU_STATUS_SYNC_PROGRESS[key] = saved[key]
+    rows = saved.get("olts")
+    if isinstance(rows, list):
+        _ONU_STATUS_SYNC_PROGRESS["olts"] = {
+            int(row["olt_id"]): dict(row) for row in rows if isinstance(row, dict) and row.get("olt_id")
+        }
+
+
 def update_onu_status_sync_progress(olt_id, **kwargs):
     now = timezone.now()
     key = str(int(olt_id or 0))
     if key == "0":
         return
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _load_onu_status_progress_state_unlocked()
         olts = _ONU_STATUS_SYNC_PROGRESS.setdefault("olts", {})
         entry = olts.setdefault(key, {
             "olt_id": int(olt_id),
@@ -14169,6 +14186,7 @@ def schedule_onu_status_sync_progress(next_run_at=None):
         or _last_onu_status_completion_from_file()
     )
     with _ONU_STATUS_SYNC_PROGRESS_LOCK:
+        _load_onu_status_progress_state_unlocked()
         _ONU_STATUS_SYNC_PROGRESS.update({
             "running": False,
             "last_completed_at": last_completed_at,
