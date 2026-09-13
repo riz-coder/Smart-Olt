@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
 
 COPY . /app
 
-CMD ["gunicorn", "oltportal.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "-w", "3", "-b", "0.0.0.0:8000", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["python", "manage.py", "run_tenant", "--host", "0.0.0.0", "--port", "8000"]

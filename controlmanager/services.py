@@ -45,13 +45,6 @@ def _tenant_bind_host():
     return os.environ.get("CONTROL_TENANT_BIND_HOST", "0.0.0.0")
 
 
-def _tenant_web_workers():
-    try:
-        return max(1, int(os.environ.get("CONTROL_TENANT_WEB_WORKERS", "2")))
-    except (TypeError, ValueError):
-        return 2
-
-
 def _tenant_start_port():
     return int(os.environ.get("CONTROL_TENANT_START_PORT", "8001"))
 
@@ -511,6 +504,17 @@ def _write_docker_tenant_runtime(tenant):
         raise TenantProvisionError("Tenant codebase does not contain manage.py.")
     _prepare_docker_lock_permissions(tenant, image)
 
+    # Stop the dedicated scheduler before starting the combined runtime.
+    ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
+    if ok:
+        ok, output = _run_command(["docker", "stop", worker_container_name], timeout=90)
+        if not ok:
+            raise TenantProvisionError(output or "Could not stop the old tenant worker.")
+        ok, output = _run_command(["docker", "rm", worker_container_name], timeout=90)
+        if not ok:
+            raise TenantProvisionError(output or "Could not remove the old tenant worker.")
+        log_lines.append("Dedicated worker removed; sync now runs inside the app container.")
+
     legacy_container_name = _tenant_legacy_container_name(tenant)
     if legacy_container_name not in {container_name, worker_container_name}:
         ok, _ = _run_command(["docker", "container", "inspect", legacy_container_name], timeout=20)
@@ -544,15 +548,9 @@ def _write_docker_tenant_runtime(tenant):
         "-v", f"{tenant_dir}:{tenant_dir}",
         "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
         image,
-        "gunicorn",
-        "oltportal.asgi:application",
-        "-k", "uvicorn.workers.UvicornWorker",
-        "-w", str(_tenant_web_workers()),
-        "-b", f"{_tenant_bind_host()}:{tenant.panel_port}",
-        "--timeout", os.environ.get("CONTROL_TENANT_WEB_TIMEOUT", "120"),
-        "--graceful-timeout", os.environ.get("CONTROL_TENANT_WEB_GRACEFUL_TIMEOUT", "30"),
-        "--access-logfile", "-",
-        "--error-logfile", "-",
+        "python", "manage.py", "run_tenant",
+        "--host", _tenant_bind_host(),
+        "--port", str(tenant.panel_port),
     ], timeout=120)
     log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
     if output:
@@ -560,43 +558,13 @@ def _write_docker_tenant_runtime(tenant):
     if not ok:
         raise TenantProvisionError(output or "Docker tenant web container failed.")
 
-    ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
-    if ok:
-        _run_command(["docker", "stop", worker_container_name], timeout=90)
-        ok, output = _run_command(["docker", "rm", worker_container_name], timeout=90)
-        log_lines.append(f"Docker tenant worker container recreate/remove: {'OK' if ok else 'FAILED'}")
-        if output:
-            log_lines.append(output)
-        if not ok:
-            raise TenantProvisionError(output or "Docker tenant worker container remove failed.")
-    ok, output = _run_command([
-        "docker", "run", "-d",
-        "--name", worker_container_name,
-        "--restart", "unless-stopped",
-        "--network", "host",
-        *_docker_user_args(tenant),
-        "--env-file", str(tenant.env_path),
-        "-e", "OLT_ENABLE_EMBEDDED_SYNC=true",
-        "--workdir", "/app",
-        "-v", f"{codebase}:/app",
-        "-v", f"{tenant_dir}:{tenant_dir}",
-        "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
-        image,
-        "python", "manage.py", "run_background_sync",
-    ], timeout=120)
-    log_lines.append(f"Docker tenant worker container create/start: {'OK' if ok else 'FAILED'}")
-    if output:
-        log_lines.append(output)
-    if not ok:
-        raise TenantProvisionError(output or "Docker tenant worker container failed.")
-
     tenant.container_name = container_name
-    tenant.worker_container_name = worker_container_name
+    tenant.worker_container_name = ""
     tenant.provisioning_log = "\n".join(log_lines).strip()
     tenant.provisioning_error = ""
     tenant.provisioned_at = timezone.now()
     tenant.save(update_fields=["container_name", "worker_container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
-    return f"{container_name} + {worker_container_name} running"
+    return f"{container_name} running (web + background sync)"
 
 
 def prepare_tenant_defaults(tenant):
@@ -622,7 +590,7 @@ def prepare_tenant_defaults(tenant):
         tenant.docker_image = "optiverse-tenant-app:latest"
     if not tenant.container_name or tenant.container_name == _tenant_legacy_container_name(tenant):
         tenant.container_name = _tenant_container_name(tenant)
-    tenant.worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
+    tenant.worker_container_name = ""
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",

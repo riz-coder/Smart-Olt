@@ -816,16 +816,14 @@ def _onu_status_sync_loop():
         if os.name != "nt":
             import multiprocessing
 
-            ctx = multiprocessing.get_context("fork")
+            from .status_sync_process import run_status_sync
+            ctx = multiprocessing.get_context("spawn")
             result_queue = ctx.Queue(maxsize=1)
 
-            def _process_target(queue):
-                try:
-                    queue.put(("ok", _sync_single_olt_status(olt_id)))
-                except Exception as exc:
-                    queue.put(("error", repr(exc)))
-
-            process = ctx.Process(target=_process_target, args=(result_queue,), daemon=True)
+            process = ctx.Process(target=run_status_sync, args=(
+                result_queue, olt_id, ONU_STATUS_SYNC_OLT_BATCH_SIZE,
+                ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS,
+            ), daemon=True)
             process.start()
             process.join(ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS + 10)
             if process.is_alive():
