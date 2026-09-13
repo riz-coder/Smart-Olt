@@ -590,7 +590,7 @@ def prepare_tenant_defaults(tenant):
         tenant.docker_image = "optiverse-tenant-app:latest"
     if not tenant.container_name or tenant.container_name == _tenant_legacy_container_name(tenant):
         tenant.container_name = _tenant_container_name(tenant)
-    tenant.worker_container_name = ""
+    # Preserve any legacy worker name until runtime migration stops it.
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",
