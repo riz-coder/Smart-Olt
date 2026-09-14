@@ -101,7 +101,12 @@ class Tenant(models.Model):
         ordering = ["name"]
 
         constraints = [models.UniqueConstraint(fields=["subdomain"],
-            condition=~models.Q(subdomain=""), name="unique_nonempty_tenant_subdomain")]
+            condition=~models.Q(subdomain=""), name="unique_nonempty_tenant_subdomain"),
+            models.UniqueConstraint(fields=["vpn_server_address"],
+                condition=~models.Q(vpn_server_address=""), name="unique_nonempty_vpn_server_address"),
+            models.UniqueConstraint(fields=["wg_client_address"],
+                condition=~models.Q(wg_client_address=""), name="unique_nonempty_wg_client_address"),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
