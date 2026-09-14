@@ -797,10 +797,28 @@
     .rc-vlan { color: #45db87; font-weight: 800; }   /* vlan / user-vlan */
     .rc-mac  { color: #ffb347; font-weight: 700; }   /* MAC / serial */
     .rc-num  { color: #c792ea; }                     /* numbers / indices */
+    .rc-section-heading {
+        display: block;
+        margin: 12px -5px 2px;
+        padding: 7px 10px;
+        border-left: 3px solid #45db87;
+        border-radius: 5px;
+        background: rgba(45, 128, 255, 0.13);
+        color: #7fd7ff;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: .04em;
+    }
+    .rc-section-heading:first-child { margin-top: 0; }
     html[data-theme="light"] .rc-kw   { color: #1d4ed8; }
     html[data-theme="light"] .rc-vlan { color: #128a4d; }
     html[data-theme="light"] .rc-mac  { color: #b5651d; }
     html[data-theme="light"] .rc-num  { color: #7c3aed; }
+    html[data-theme="light"] .rc-section-heading {
+        background: rgba(37, 99, 235, 0.09);
+        color: #174ea6;
+        border-left-color: #128a4d;
+    }
     .mac-output-view {
         display: grid;
         gap: 18px;
@@ -2337,7 +2355,7 @@
                     <div class="running-config-actions">
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-disable-button>{% if onu.status_value == 'admin_disabled' %}Enable ONU{% else %}Disable ONU{% endif %}</button>
                         <button type="button" class="btn btn-primary btn-pappu" data-onu-restart-button>Restart ONU</button>
-                        <button type="button" class="btn btn-primary btn-pappu" data-onu-reset-button>Reset ONU</button>
+                        <button type="button" class="btn btn-primary btn-pappu" data-onu-reset-button>Restore Defaults</button>
                         <button type="button" class="btn btn-danger btn-pappu" data-onu-delete-button>Delete ONU</button>
                         {% if onu_has_catv %}
                         <label class="catv-toggle-card {% if not onu_catv_enabled %}catv-disabled{% endif %}" data-catv-card>
@@ -2910,7 +2928,7 @@
     const RC_VLAN_KEYWORDS = new Set(['vlan', 'user-vlan']);
     // Syntax-colour a running-config block: keywords, VLANs, MAC/serial and numbers.
     // Tokenises the RAW text and escapes each token, so spans never get re-matched.
-    const formatRunningConfig = (text) => String(text || '').replace(
+    const formatRunningConfigLine = (text) => String(text || '').replace(
         /([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})|(\b\d+\b)|([A-Za-z][\w.-]*)|([^A-Za-z0-9]+)/g,
         (match, mac, num, word, other) => {
             if (mac) return `<span class="rc-mac">${escapeHtml(mac)}</span>`;
@@ -2924,6 +2942,25 @@
             return escapeHtml(other || '');
         }
     );
+    const RUNNING_CONFIG_HEADINGS = new Set([
+        'PORT CONFIGURATION', 'SERVICE PROFILE', 'LINE PROFILE', 'SERVICE PORT',
+    ]);
+    const formatRunningConfig = (text) => {
+        const rendered = [];
+        let headingWasLast = false;
+        String(text || '').split(/\r?\n/).forEach((line) => {
+            const clean = line.trim().replace(/^#+\s*/, '').replace(/:\s*$/, '').toUpperCase();
+            if (RUNNING_CONFIG_HEADINGS.has(clean)) {
+                rendered.push(`<span class="rc-section-heading">${escapeHtml(clean)}</span>`);
+                headingWasLast = true;
+                return;
+            }
+            if (headingWasLast && !line.trim()) return;
+            rendered.push(formatRunningConfigLine(line));
+            headingWasLast = false;
+        });
+        return rendered.join('\n');
+    };
 
     const setRunningConfigState = (statusText, outputText, isError = false, outputMode = 'text') => {
         if (runningConfigPanel) {
@@ -3110,6 +3147,7 @@
         button.addEventListener('click', async () => {
             const url = typeof getUrl === 'function' ? getUrl() : getUrl;
             if (!url) return;
+            if (button === onuResetButton && !window.confirm('Restore this ONU to factory defaults? Its local settings, including Wi-Fi and WAN credentials, may be erased and service will be interrupted. Continue?')) return;
             button.disabled = true;
             const originalText = button.textContent;
             const actionLabel = originalText.trim();
@@ -3117,7 +3155,7 @@
             const isDeleteAction = actionKey === 'delete onu';
             const runningText = (() => {
                 if (actionKey === 'delete onu') return 'Deleting...';
-                if (actionKey === 'reset onu') return 'Resetting...';
+                if (actionKey === 'restore defaults') return 'Restoring...';
                 if (actionKey === 'restart onu') return 'Restarting...';
                 if (actionKey === 'disable onu') return 'Disabling...';
                 if (actionKey === 'enable onu') return 'Enabling...';
@@ -3141,7 +3179,7 @@
                     if (actionName === 'disable') shortMessage = 'ONU Disabled';
                     else if (actionName === 'enable') shortMessage = 'ONU Enabled';
                     else if (actionName === 'restart') shortMessage = 'ONU Restarted';
-                    else if (actionName === 'reset') shortMessage = 'ONU Reset';
+                    else if (actionName === 'reset') shortMessage = 'Factory restore command accepted';
                     else if (actionName === 'delete') shortMessage = 'ONU Deleted';
                 }
                 setOnuActionState(shortMessage, !response.ok || !data.ok);

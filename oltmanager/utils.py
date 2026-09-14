@@ -2258,6 +2258,13 @@ def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0)
         legacy_epon_base = "1.3.6.1.4.1.2011.6.128.1.1.2.56.1"
         epon_control_base = "1.3.6.1.4.1.2011.6.128.1.1.2.57.1"
         table_bases = [epon_control_base] if tech == "EPON" else [gpon_base, legacy_epon_base]
+        if action_key == "reset":
+            # Huawei HUAWEI-XPON-MIB: reset(1), indexed by ifIndex and ONT ID.
+            # .56 is EPON capability and must never receive a reset SET.
+            if tech not in {"GPON", "EPON", "XGPON", "XG-PON", "XGS-PON", "XGSPON"}:
+                result["message"] = "PON technology could not be confirmed for SNMP reset."
+                return result
+            table_bases = [epon_control_base if tech == "EPON" else gpon_base]
 
         result["value"] = str(config["value"])
         last_error = ""
@@ -2288,6 +2295,64 @@ def execute_onu_snmp_control_action(olt, slot, port, ont_id, action, *, frame=0)
         return result
     except Exception as exc:
         result["message"] = f"SNMP ONU action failed: {exc}"
+        return result
+
+
+def execute_onu_reset_action(olt, slot, port, ont_id, *, frame=0):
+    """Send the Huawei ONT reset, falling back to the existing CLI operation.
+
+    Reset is not a factory-default restore. An acknowledged SET confirms command
+    acceptance, not completion of the ONU reboot.
+    """
+    with OltWriteOperationGuard(
+        olt, "ONU reset", f"{frame}/{slot}/{port} ont {ont_id}",
+    ) as guard:
+        if not guard.ok:
+            return {"ok": False, "message": guard.message}
+        snapshot = execute_onu_snmp_control_action(
+            olt, slot, port, ont_id, "reset", frame=frame,
+        )
+        if snapshot.get("ok"):
+            snapshot.update(method="snmp", message="ONU reset command accepted via SNMP.")
+            return snapshot
+        result = execute_onu_cli_reset_action(olt, slot, port, ont_id, frame=frame)
+        result.update(method="cli", snmp_error=snapshot.get("message", ""))
+        return result
+
+
+def execute_onu_factory_restore_action(olt, slot, port, ont_id, *, frame=0):
+    """HUAWEI-XPON-COMMON-MIB hwXponOntConfigFactoryConfiguration.
+
+    GPON/EPON share this object: ifIndex.ONT-ID, INTEGER restore(1).
+    Source: librenms/mibs/huawei/HUAWEI-XPON-COMMON-MIB (Huawei authored).
+    Never substitute reboot or completelyrestore(2) for restore(1).
+    """
+    with OltWriteOperationGuard(olt, 'ONU factory restore', f'{frame}/{slot}/{port} ont {ont_id}') as guard:
+        if not guard.ok:
+            return {'ok': False, 'message': guard.message}
+        reason = 'SNMP write community is not configured.'
+        if str(getattr(olt, 'snmp_write_community', '') or '').strip():
+            try:
+                if_index = _resolve_snmp_gpon_ifindex(olt, slot, port, frame=frame)
+                if if_index:
+                    oid = f'1.3.6.1.4.1.2011.6.145.1.1.1.9.1.1.{int(if_index)}.{int(ont_id)}'
+                    indication, status, _, _ = _snmp_set_value(olt, oid, 1, value_type='Integer', mp_model=1)
+                    if indication:
+                        # A lost SET acknowledgement does not prove failure.
+                        # Avoid sending the destructive action again via CLI.
+                        return {'ok': False, 'result_unknown': True, 'oid': oid,
+                                'message': 'Factory restore acknowledgement was not received. Check the ONU before retrying.'}
+                    if not status:
+                        return {'ok': True, 'method': 'snmp', 'oid': oid, 'value': '1',
+                                'message': 'Factory-default restore command accepted via SNMP.'}
+                    reason = str(status)
+                else:
+                    reason = 'SNMP ifIndex lookup failed.'
+            except Exception:
+                return {'ok': False, 'result_unknown': True,
+                        'message': 'Factory restore could not be confirmed. Check the ONU before retrying.'}
+        result = execute_onu_cli_reset_action(olt, slot, port, ont_id, frame=frame, factory_restore=True)
+        result.update(method='cli', snmp_error=reason)
         return result
 
 
@@ -2660,6 +2725,37 @@ def probe_onu_snmp_delete(
         if not bool(apply):
             result["message"] = result["snmp_failed_message"] or "SNMP ONU delete failed."
             return result
+        # SNMP replies can time out after the OLT has already applied destroy(6).
+        # Confirm the exact ONU with one short CLI query before entering the
+        # considerably heavier CLI delete/discovery workflow.
+        tn = None
+        try:
+            tn, _ = open_telnet_authenticated_session(olt)
+            if tn is not None:
+                _prepare_telnet_cli_session(tn, use_paging=True)
+                command = (
+                    f"display ont info {int(frame or 0)}/{int(slot or 0)} "
+                    f"{int(port or 0)} {int(ont_id or 0)}"
+                )
+                output = _run_telnet_bulk_command(
+                    tn, command, max_wait_seconds=6, idle_poke=b" ", poll_seconds=0.12,
+                )
+                lowered = str(output or "").lower()
+                if any(token in lowered for token in (
+                    "ont does not exist", "onu does not exist",
+                    "the ont does not exist", "the onu does not exist",
+                    "required object does not exist",
+                )):
+                    result["ok"] = True
+                    result["cli_verified_missing"] = True
+                    result["message"] = "ONU deletion confirmed by CLI."
+                    result["transcript"] = str(output or "")
+                    return result
+        except (socket.timeout, TimeoutError, EOFError, OSError):
+            pass
+        finally:
+            if tn is not None:
+                _close_telnet_session(tn)
         cli_result = execute_onu_cli_delete_action(
             olt,
             slot,
@@ -2788,33 +2884,20 @@ def probe_onu_snmp_delete(
                 })
             return formatted
 
-        def _verify_onu_deleted(max_attempts=7):
+        def _verify_onu_deleted(max_attempts=2):
             verify_attempts = []
             for attempt_no in range(max_attempts):
-                verify_values = _read_verify_values()
-                # A confirmed missing ONT row is already the success criterion.
-                # Do not perform a potentially slow service-flow walk afterwards.
-                if _snmp_instance_is_missing(verify_values.get("entry_status") or {}):
+                entry_probe = _read_snmp_instance(olt, entry_status_oid)
+                verify_values = {"entry_status": entry_probe}
+                if _snmp_instance_is_missing(entry_probe):
                     verify_attempts.append(verify_values)
                     return True, verify_attempts
-                flow_query_after = (
-                    _query_huawei_onu_service_flow_indexes(olt, if_index, ont_id)
-                    if if_index is not None and ont_id is not None
-                    else {}
-                )
-                verify_values["service_flow_query"] = flow_query_after
+                config_probe = _read_snmp_instance(olt, config_status_oid)
+                verify_values["config_status"] = config_probe
                 verify_attempts.append(verify_values)
-                entry_probe = verify_values.get("entry_status") or {}
-                config_probe = verify_values.get("config_status") or {}
-                service_flows_left = list((flow_query_after or {}).get("flow_indexes") or [])
-                if _snmp_instance_is_missing(entry_probe):
-                    return True, verify_attempts
-                if not service_flows_left and (
-                    _snmp_instance_is_missing(config_probe)
-                    or (
-                        entry_probe.get("ok")
-                        and not _snmp_rowstatus_value_is_active(entry_probe)
-                    )
+                if _snmp_instance_is_missing(config_probe) and (
+                    _snmp_instance_is_missing(entry_probe)
+                    or (entry_probe.get("ok") and not _snmp_rowstatus_value_is_active(entry_probe))
                 ):
                     return True, verify_attempts
                 if attempt_no < max_attempts - 1:
@@ -2822,7 +2905,10 @@ def probe_onu_snmp_delete(
             return False, verify_attempts
 
         last_error = ""
-        for cycle in range(4):
+        # One bounded SNMP cycle is enough. If its two quick reads cannot
+        # confirm the result, the targeted CLI confirmation/fallback below is
+        # both faster and more reliable than repeating long SNMP walks.
+        for cycle in range(1):
             if cycle:
                 retry_offset = service_flow_index_offset
                 if retry_offset is None:
@@ -3014,7 +3100,7 @@ def execute_onu_eth_port_cli_admin_state(olt, slot, port, ont_id, eth_port, admi
         write_guard.__exit__(None, None, None)
 
 
-def execute_onu_cli_reset_action(olt, slot, port, ont_id, *, frame=0):
+def execute_onu_cli_reset_action(olt, slot, port, ont_id, *, frame=0, factory_restore=False):
     """Reset an ONU through Huawei CLI with confirmation.
 
     Flow:
@@ -3065,7 +3151,8 @@ def execute_onu_cli_reset_action(olt, slot, port, ont_id, *, frame=0):
             result["message"] = f"Unable to enter {board_tech} interface {int(frame or 0)}/{int(slot or 0)}."
             return result
 
-        reset_command = f"ont reset {int(port or 0)} {int(ont_id or 0)}"
+        verb = 'factory-setting-restore' if factory_restore else 'reset'
+        reset_command = f"ont {verb} {int(port or 0)} {int(ont_id or 0)}"
         _mark_operation_stage(result, "reset_onu", "Resetting ONU")
         reset_output = _run_ont_reset_confirm_command(tn, reset_command, max_wait_seconds=22)
         _append_authorize_transcript(transcript, reset_command, reset_output)
@@ -3078,8 +3165,16 @@ def execute_onu_cli_reset_action(olt, slot, port, ont_id, *, frame=0):
             result["message"] = cleaned or "ONU reset failed."
             return result
 
+        confirmed_restore_prompt = bool(re.search(
+            r'(?is)factory configuration.*?\(y/n\).*?\by\s*[\r\n]+[^\r\n]*\(config-if-[^)]+\)#\s*$',
+            reset_output,
+        ))
+        if factory_restore and not (confirmed_restore_prompt or re.search(r'(?i)\bsuccess(?:ful(?:ly)?)?\b|\bsucceeded\b', cleaned)):
+            result['result_unknown'] = True
+            result['message'] = 'Factory restore was not explicitly confirmed by the OLT. Check the ONU before retrying.'
+            return result
         result["ok"] = True
-        result["message"] = "ONU reset command sent successfully."
+        result["message"] = "Factory-default restore command accepted via CLI." if factory_restore else "ONU reset command sent successfully."
         _mark_operation_stage(result, "complete", result["message"], status="done")
         return result
     except (socket.timeout, TimeoutError):
@@ -3115,6 +3210,7 @@ def _run_ont_reset_confirm_command(tn, command, *, max_wait_seconds=22):
     output = ""
     start_ts = time.time()
     confirm_sent = False
+    confirmation_offset = 0
     prompt_pattern = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
     confirm_pattern = re.compile(rb"(?i)(are\s+you\s+sure|resetting\s+the\s+ont|y\s*/\s*n|\(y/n\)\s*\[[yn]\]\s*:)")
     patterns = [confirm_pattern, prompt_pattern]
@@ -3137,10 +3233,12 @@ def _run_ont_reset_confirm_command(tn, command, *, max_wait_seconds=22):
             _touch_telnet_session(tn)
             tn.write(b"y\r\n")
             confirm_sent = True
+            confirmation_offset = len(output)
             continue
-        if confirm_sent and idx == 1:
-            break
-        if confirm_sent and PROMPT_LINE_PATTERN.search(output):
+        after_confirmation = output[confirmation_offset:]
+        # Only a fresh device prompt after our confirmation terminates the
+        # request. The transcript may contain older prompts from setup.
+        if confirm_sent and re.search(r'(?m)^[^\r\n]*[>#]\s*$', after_confirmation):
             break
     if confirm_sent and not output.endswith("\n"):
         try:
@@ -5812,7 +5910,7 @@ def _run_telnet_settled_command(tn, command, max_wait_seconds=6):
     return output
 
 
-def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=120):
+def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=120, stop_when=None):
     """Run slow Huawei current-config include commands and wait for the prompt.
 
     These commands often print the "It will take a long time..." warning, pause,
@@ -5834,6 +5932,7 @@ def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=
 
     output = ""
     start_ts = time.time()
+    compact_command = re.sub(r"\s+", "", str(command or "").strip().lower())
     prompt_re = re.compile(rb"(?m)^[^\r\n]*[>#\]]\s*$")
     more_patterns = [
         re.compile(rb"(?i)-+\s*more\s*-+"),
@@ -5866,6 +5965,14 @@ def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=
             if extra:
                 output += ANSI_ESCAPE_PATTERN.sub("", extra)
 
+        if callable(stop_when):
+            try:
+                if stop_when(output):
+                    _abort_telnet_pager_to_prompt(tn, max_wait_seconds=8)
+                    break
+            except Exception:
+                pass
+
         if idx == -1:
             continue
         if idx < len(more_patterns):
@@ -5884,7 +5991,15 @@ def _run_telnet_current_config_include_command(tn, command, *, max_wait_seconds=
             continue
 
         lines = [line.strip() for line in output.splitlines() if line.strip()]
-        if lines and PROMPT_LINE_PATTERN.match(lines[-1]):
+        compact_output = re.sub(r"\s+", "", output.lower())
+        command_seen = bool(
+            (compact_command and compact_command in compact_output)
+            or re.search(r"(?im)^\s*command\s*:\s*$", output)
+        )
+        # A delayed prompt from the preceding `scroll 512`/paging command can
+        # arrive just after the buffer drain. It is not completion of this
+        # command; accept the prompt only after this command's echo is present.
+        if command_seen and lines and PROMPT_LINE_PATTERN.match(lines[-1]):
             break
 
     output = re.sub(r"(?i)-+\s*more\s*-+", "", output)
@@ -12412,6 +12527,85 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
                 deduped.append(line)
         return deduped
 
+    def _profile_id(lines, token):
+        match = re.search(rf"(?i)\b{re.escape(token)}\s+(\d+)\b", "\n".join(lines or []))
+        return int(match.group(1)) if match else None
+
+    def _extract_profile_block(command_text, output_text, profile_kind, profile_id):
+        """Extract one CLI configuration block from a profile-section dump."""
+        text = _clean_cli_transcript_block(command_text, output_text)
+        wanted = re.compile(
+            rf"(?i)^\s*ont-{profile_kind}\s+{re.escape(pon_kw)}\s+profile-id\s+{int(profile_id)}\b"
+        )
+        any_profile = re.compile(rf"(?i)^\s*ont-{profile_kind}\s+{re.escape(pon_kw)}\s+profile-id\s+\d+\b")
+        captured = []
+        active = False
+        for raw_line in text.splitlines():
+            line = " ".join(str(raw_line or "").strip().split())
+            if not line or _is_running_config_noise(line):
+                continue
+            if wanted.match(line):
+                active = True
+                captured = [line]
+                continue
+            if active and any_profile.match(line):
+                break
+            if active:
+                captured.append(line)
+                if line.lower() == "quit":
+                    break
+        return captured
+
+    full_profile_config_output = None
+
+    def _fetch_profile_lines(tn, profile_kind, profile_id):
+        nonlocal full_profile_config_output
+        if profile_id is None:
+            return []
+        section_name = f"ont-{profile_kind}-{pon_kw}"
+        commands = (
+            f"display current-configuration | begin ont-{profile_kind} {pon_kw} profile-id {profile_id}",
+            f"display current-configuration section {section_name}",
+        )
+        target_header = re.compile(
+            rf"(?im)^\s*ont-{profile_kind}\s+{re.escape(pon_kw)}\s+profile-id\s+{int(profile_id)}\b"
+        )
+        next_header = re.compile(
+            rf"(?im)^\s*ont-{profile_kind}\s+{re.escape(pon_kw)}\s+profile-id\s+(?!{int(profile_id)}\b)\d+\b"
+        )
+
+        def _requested_block_finished(output):
+            match = target_header.search(str(output or ""))
+            if not match:
+                return False
+            tail = str(output or "")[match.end():]
+            return bool(next_header.search(tail) or re.search(r"(?im)^\s*quit\s*$", tail))
+
+        for command_index, command in enumerate(commands):
+            output = _run_telnet_current_config_include_command(
+                tn, command, max_wait_seconds=75,
+                stop_when=_requested_block_finished if command_index == 0 else None,
+            )
+            if _telnet_auth_output_detected(output):
+                raise OSError("Telnet session returned to login prompt.")
+            lines = _extract_profile_block(command, output, profile_kind, profile_id)
+            if lines:
+                return lines
+        # Some MA5600/MA5800 releases do not implement either targeted syntax.
+        # Fetch the full current configuration only once, then extract both the
+        # service and line profile blocks locally.
+        if full_profile_config_output is None:
+            full_command = "display current-configuration"
+            full_profile_config_output = _run_telnet_current_config_include_command(
+                tn, full_command, max_wait_seconds=180,
+            )
+            if _telnet_auth_output_detected(full_profile_config_output):
+                raise OSError("Telnet session returned to login prompt.")
+        return _extract_profile_block(
+            "display current-configuration", full_profile_config_output,
+            profile_kind, profile_id,
+        )
+
     def _is_proper_running_config_output(output_text):
         text = str(output_text or "").strip()
         lowered = text.lower()
@@ -12480,12 +12674,19 @@ def fetch_single_ont_running_config(olt, slot, port, ont_id, expected_sn=""):
             for line in _extract_service_port_lines(_clean_running_config_output(service_port_command, service_port_output)):
                 if line not in service_port_lines:
                     service_port_lines.append(line)
-            final_sections = ["\n".join(primary_lines)]
-            if service_port_lines:
-                final_sections.append("\n".join(service_port_lines))
-            final_output = "\n\n".join(section for section in final_sections if section).strip()
-            if not _is_proper_running_config_output(final_output):
+            raw_scoped_output = "\n\n".join(("\n".join(primary_lines), "\n".join(service_port_lines))).strip()
+            if not _is_proper_running_config_output(raw_scoped_output):
                 return "", "Running configuration output was incomplete. Retrying..."
+
+            service_profile_id = _profile_id(primary_lines, "ont-srvprofile-id")
+            line_profile_id = _profile_id(primary_lines, "ont-lineprofile-id")
+            service_profile_lines = _fetch_profile_lines(tn, "srvprofile", service_profile_id)
+            line_profile_lines = _fetch_profile_lines(tn, "lineprofile", line_profile_id)
+            final_sections = ["PORT CONFIGURATION", "\n".join(primary_lines)]
+            final_sections.extend(("SERVICE PROFILE", "\n".join(service_profile_lines) or "Profile configuration was not returned by the OLT."))
+            final_sections.extend(("LINE PROFILE", "\n".join(line_profile_lines) or "Profile configuration was not returned by the OLT."))
+            final_sections.extend(("SERVICE PORT", "\n".join(service_port_lines) or "No service-port is attached to this ONU."))
+            final_output = "\n\n".join(section for section in final_sections if section).strip()
             return final_output, ""
         finally:
             try:

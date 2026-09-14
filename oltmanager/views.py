@@ -8276,7 +8276,8 @@ def configured_onu_action(request, olt_pk, slot, port, ont_id, action):
 
     if action_key == "reset":
         frame_value = record.frame if record is not None else 0
-        snapshot = execute_onu_cli_reset_action(olt, slot, port, ont_id, frame=frame_value)
+        from .utils import execute_onu_factory_restore_action
+        snapshot = execute_onu_factory_restore_action(olt, slot, port, ont_id, frame=frame_value)
     else:
         snapshot = execute_onu_snmp_control_action(olt, slot, port, ont_id, action)
     if snapshot.get("ok") and record is not None:
