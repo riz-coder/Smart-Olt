@@ -280,8 +280,7 @@ def tenant_vpn_status(request, pk):
     if not tenant.vpn_enabled:
         return JsonResponse({'status': 'VPN disabled (local access)'})
     try:
-        ok, output = _run_command(['docker', 'exec', '--user', '0:0', tenant.container_name,
-                                  'wg', 'show', 'wg0', 'latest-handshakes'], timeout=10)
+        ok, output = _run_command(['wg', 'show', 'wg0', 'latest-handshakes'], timeout=10)
     except Exception:
         ok, output = False, ''
     latest = 0
@@ -424,7 +423,7 @@ def tenant_delete(request, pk):
     try:
         result = delete_tenant_instance(tenant)
         audit(request, "tenant_delete", details=f"Tenant fully deleted: {result.get('name')} ({result.get('slug')})\n{result.get('log')}")
-        messages.success(request, f"Tenant `{tenant_name}` deleted with its containers and local tenant files.")
+        messages.success(request, f"Tenant `{tenant_name}` deleted with its service and local tenant files.")
     except Exception as exc:
         audit(request, "tenant_delete_failed", tenant, str(exc))
         messages.error(request, f"Tenant delete failed: {exc}")

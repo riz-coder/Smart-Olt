@@ -17,7 +17,7 @@
             <td>{{ tenant.last_known_db_size_mb }} MB</td>
             <td>{{ tenant.updated_at|date:"Y-m-d H:i" }}</td>
             <td>
-                <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove Docker containers and delete tenant database/files.');">
+                <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove its system service and delete tenant database/files.');">
                     {% csrf_token %}
                     <button class="btn btn-red" type="submit">Delete</button>
                 </form>

@@ -77,7 +77,10 @@ def _tenant_auto_provision_enabled():
 
 
 def _tenant_runtime():
-    return os.environ.get("CONTROL_TENANT_RUNTIME", "docker").strip().lower()
+    # Tenant portals run directly from the shared virtualenv under systemd.
+    # Keep the setting reader for older installations, but Docker is no longer
+    # a supported tenant runtime.
+    return "systemd"
 
 
 def _wireguard_keypair():
@@ -271,7 +274,7 @@ def _write_systemd_service(tenant):
     if not _systemd_available():
         return "systemd not available; service file skipped"
     codebase = Path(tenant.codebase_path)
-    service_name = tenant.service_name
+    service_name = f"optiverse-{_safe_slug(tenant)}"
     service_text = f"""[Unit]
 Description=OptiVerse Tenant Portal - {tenant.name}
 After=network-online.target
@@ -283,7 +286,7 @@ User=root
 Group=root
 WorkingDirectory={codebase}
 EnvironmentFile={tenant.env_path}
-ExecStart={codebase}/.venv/bin/python -m daphne -b {_tenant_bind_host()} -p {tenant.panel_port} oltportal.asgi:application
+ExecStart={codebase}/.venv/bin/python manage.py run_tenant --host {_tenant_bind_host()} --port {tenant.panel_port}
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
@@ -297,9 +300,17 @@ WantedBy=multi-user.target
     path = Path("/etc/systemd/system") / f"{service_name}.service"
     path.write_text(service_text, encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, text=True)
-    subprocess.run(["systemctl", "disable", service_name], check=False, capture_output=True, text=True)
-    subprocess.run(["systemctl", "restart", service_name], check=True, capture_output=True, text=True)
-    return f"{service_name}.service started"
+    subprocess.run(["systemctl", "enable", "--now", service_name], check=True, capture_output=True, text=True)
+    tenant.service_name = service_name
+    tenant.container_name = ""
+    tenant.worker_container_name = ""
+    tenant.save(update_fields=["service_name", "container_name", "worker_container_name", "updated_at"])
+    _wait_tenant_http(tenant)
+    try:
+        deployment.publish_proxy(tenant, _run_command)
+    except ValueError as exc:
+        raise TenantProvisionError(str(exc)) from exc
+    return f"{service_name}.service started (web + background sync)"
 
 
 def _run_command(args, *, timeout=120, cwd=None):
@@ -385,40 +396,18 @@ def delete_tenant_instance(tenant):
     removed recursively. Shared codebase folders are never recursively removed.
     """
     log_lines = []
-    container_names = [
-        tenant.container_name,
-        tenant.worker_container_name,
-        _tenant_legacy_container_name(tenant),
-    ]
-    seen = set()
-    for name in container_names:
-        name = str(name or "").strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        ok, _ = _run_command(["docker", "container", "inspect", name], timeout=20)
-        if ok:
-            _run_command(["docker", "stop", name], timeout=90)
-            rm_ok, output = _run_command(["docker", "rm", name], timeout=90)
-            log_lines.append(f"Docker container remove ({name}): {'OK' if rm_ok else 'FAILED'}")
-            if output:
-                log_lines.append(output)
+    service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").strip()
+    if _systemd_available() and re.fullmatch(r"optiverse-[a-z0-9-]+", service_name):
+        _run_command(["systemctl", "disable", "--now", service_name], timeout=60)
+        service_path = Path("/etc/systemd/system") / f"{service_name}.service"
+        service_path.unlink(missing_ok=True)
+        _run_command(["systemctl", "daemon-reload"], timeout=30)
+        log_lines.append(f"Removed tenant service: {service_name}.service")
 
     try:
         deployment.remove_proxy(tenant, _run_command)
     except ValueError as exc:
         raise TenantProvisionError(str(exc)) from exc
-    network_name = f"optiverse-vpn-{tenant.pk}"
-    network_ok, network_output = _run_command(["docker", "network", "inspect", network_name], timeout=20)
-    if network_ok:
-        info = json.loads(network_output)[0]
-        if info.get('Labels', {}).get('optiverse.tenant') != str(tenant.pk):
-            raise TenantProvisionError('VPN network ownership does not match this tenant.')
-        ok, output = _run_command(["docker", "network", "rm", network_name], timeout=30)
-        if not ok:
-            raise TenantProvisionError(output or 'Could not remove tenant VPN network.')
-        log_lines.append(f'Removed tenant VPN network: {network_name}')
-
     _remove_file_with_sqlite_sidecars(tenant.database_path, log_lines)
     _remove_file_with_sqlite_sidecars(tenant.env_path, log_lines)
     _remove_file_with_sqlite_sidecars(tenant.wg_config_path, log_lines)
@@ -657,7 +646,7 @@ def _wait_tenant_http(tenant):
         finally:
             connection.close()
         time.sleep(1)
-    raise TenantProvisionError('Tenant container started but the web app did not become ready. Check its logs.')
+    raise TenantProvisionError('Tenant service started but the web app did not become ready. Check its journal.')
 
 
 def prepare_tenant_defaults(tenant):
@@ -672,18 +661,17 @@ def prepare_tenant_defaults(tenant):
     tenant.codebase_path = tenant.codebase_path or str(_tenant_codebase_path())
     tenant.database_path = tenant.database_path or str(base / "db.sqlite3")
     tenant.env_path = tenant.env_path or str(base / ".env")
-    tenant.service_name = tenant.service_name or f"optiverse-{slug}"
+    expected_service_name = f"optiverse-{slug}"
+    if not tenant.service_name or str(tenant.service_name).startswith("optiverse-tenant-"):
+        tenant.service_name = expected_service_name
     tenant.isp_name = tenant.isp_name or tenant.name
     tenant.owner_name = tenant.owner_name or tenant.name
     tenant.agent_token = tenant.agent_token or secrets.token_urlsafe(36)
     if not tenant.wg_client_private_key or not tenant.wg_client_public_key:
         tenant.wg_client_private_key, tenant.wg_client_public_key = _wireguard_keypair()
     tenant.wg_client_address = tenant.wg_client_address or _tenant_default_wg_address(tenant)
-    if not tenant.docker_image or tenant.docker_image == "optiverse-agent:latest":
-        tenant.docker_image = "optiverse-tenant-app:latest"
-    if not tenant.container_name or tenant.container_name == _tenant_legacy_container_name(tenant):
-        tenant.container_name = _tenant_container_name(tenant)
-    # Preserve any legacy worker name until runtime migration stops it.
+    tenant.container_name = ""
+    tenant.worker_container_name = ""
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",
@@ -713,11 +701,7 @@ def provision_tenant_instance(tenant):
         f"u.email={email!r}; u.set_password({password!r}) if created else None; u.save(); print('tenant superuser ready')"
     )
     _run_tenant_manage(tenant, ["shell", "-c", code], timeout=180)
-    if _tenant_runtime() == "docker":
-        service_status = _write_docker_tenant_runtime(tenant)
-        tenant.service_name = tenant.container_name
-    else:
-        service_status = _write_systemd_service(tenant)
+    service_status = _write_systemd_service(tenant)
     tenant.status = tenant.STATUS_ACTIVE
     tenant.save(update_fields=["status", "service_name", "updated_at"])
     try:

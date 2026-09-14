@@ -24,7 +24,7 @@
     </table></div>
 </section>
 <section class="panel">
-    <h2>Tenant Docker / VPN</h2>
+    <h2>Tenant Service / VPN</h2>
     <p class="subtle">{% if tenant.public_hostname %}Public URL: {{ tenant.panel_url }}{% else %}No main domain is configured. Local IP and port access is active.{% endif %}</p>
     {% if tenant.vpn_enabled %}
     <p>Tunnel interface — Server: {{ tenant.vpn_server_address }} | Client: {{ tenant.wg_client_address }} | UDP: {{ tenant.vpn_listen_port }}</p>
@@ -48,8 +48,8 @@
             <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
             <tr><th>Client Subnet</th><td>{{ tenant.client_local_subnet|default:"-" }}</td><th>OLT Subnet</th><td>{{ tenant.olt_management_subnet|default:"-" }}</td></tr>
             <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>WG Address</th><td>{{ tenant.wg_client_address|default:"-" }}</td></tr>
-            <tr><th>Docker Image</th><td>{{ tenant.docker_image|default:"-" }}</td><th>Web Container</th><td>{{ tenant.container_name|default:"-" }}</td></tr>
-            <tr><th>Background Sync</th><td colspan="3">{{ tenant.worker_container_name|default:"Runs inside the app container" }}</td></tr>
+            <tr><th>System Service</th><td>{{ tenant.service_name|default:"-" }}</td><th>Runtime</th><td>Python virtual environment</td></tr>
+            <tr><th>Background Sync</th><td colspan="3">Runs inside the tenant app service</td></tr>
             <tr><th>WG Config Path</th><td colspan="3">{{ tenant.wg_config_path|default:"-" }}</td></tr>
             <tr><th>Provisioned At</th><td colspan="3">{% if tenant.provisioned_at %}{{ tenant.provisioned_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td></tr>
         </tbody>
@@ -64,11 +64,11 @@
         {% csrf_token %}<input type="hidden" name="action" value="connections">
         {{ connection_form.non_field_errors }}
         {% for field in connection_form %}<div><label>{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
-        <div class="wide"><p class="subtle">Applying these settings will restart this tenant's container.</p><button class="btn btn-blue">Save and apply connection settings</button></div>
+        <div class="wide"><p class="subtle">Applying these settings will restart this tenant's system service.</p><button class="btn btn-blue">Save and apply connection settings</button></div>
     </form></details>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="refresh_db"><button class="btn btn-blue" type="submit">Refresh DB Snapshot</button></form>
-        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="provision"><button class="btn btn-blue" type="submit">Provision / Restart Docker</button></form>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="provision"><button class="btn btn-blue" type="submit">Provision / Restart Service</button></form>
         <form method="post" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
             {% csrf_token %}<input type="hidden" name="action" value="status">
             <select name="status" class="cp-input" style="width:180px;">{% for value,label in status_choices %}<option value="{{ value }}" {% if tenant.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
@@ -119,6 +119,6 @@
 <section class="panel">
     <h2>Delete Tenant Registry</h2>
     <p class="subtle">This removes only the control-plane tenant row. Tenant DB/service files are not deleted.</p>
-    <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove Docker containers and delete tenant database/files.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant</button></form>
+    <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove its system service and delete tenant database/files.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant</button></form>
 </section>
 {% endblock %}

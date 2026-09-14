@@ -9,7 +9,6 @@ from . import deployment
 from .forms import TenantCreateForm
 from .models import Tenant
 from .services import _wireguard_keypair, _write_tenant_env_file
-from .services import _write_docker_tenant_runtime
 
 
 class TenantDeploymentTests(TestCase):
@@ -122,32 +121,3 @@ class TenantDeploymentTests(TestCase):
                     with self.assertRaises(ValueError):
                         deployment.publish_proxy(tenant, lambda *a, **k: (False, 'invalid'))
                     self.assertEqual(path.read_text(), 'old configuration')
-
-    def test_vpn_runtime_has_one_container_and_no_host_network_capability(self):
-        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
-        deployment.prepare_deployment(tenant, _wireguard_keypair)
-        with tempfile.TemporaryDirectory() as directory:
-            tenant.codebase_path = directory
-            tenant.env_path = str(Path(directory) / '.env')
-            tenant.database_path = str(Path(directory) / 'db.sqlite3')
-            Path(directory, 'manage.py').touch()
-            Path(tenant.database_path).touch()
-            calls = []
-
-            def run(args, **kwargs):
-                calls.append(args)
-                return (False, '') if 'inspect' in args else (True, 'container-id')
-
-            with patch('controlmanager.services._run_command', side_effect=run), \
-                 patch('controlmanager.services._prepare_docker_lock_permissions'), \
-                 patch('controlmanager.services._wait_tenant_http'), \
-                 patch('controlmanager.services._docker_user_args', return_value=['--user', '1000:1000']):
-                _write_docker_tenant_runtime(tenant)
-            launches = [args for args in calls if args[:3] == ['docker', 'run', '-d']]
-            self.assertEqual(len(launches), 1)
-            launch = launches[0]
-            self.assertNotIn('host', launch)
-            self.assertIn('NET_ADMIN', launch)
-            self.assertIn('run_tenant', launch)
-            self.assertIn('/app/docker/vpn_entrypoint.py', launch)
-            self.assertEqual(tenant.worker_container_name, '')
