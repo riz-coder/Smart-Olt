@@ -7349,6 +7349,9 @@ def configured_onu_mapping_convert(request, olt_pk, slot, port, ont_id):
                     "transcript": "",
                     "redirect_url": "",
                     "created_at": now_ts,
+                    "olt_id": olt.pk,
+                    "serial": str(record.sn or "").strip(),
+                    "target_mode": str(plan.get("target_mode") or "").strip().lower(),
                 }
             threading.Thread(
                 target=_run_mapping_convert_bg_task,
@@ -7385,6 +7388,36 @@ def configured_onu_mapping_convert_progress(request, task_id):
         task = dict(_MAPPING_CONVERT_TASKS.get(str(task_id) or "", {}) or {})
     if not task:
         return JsonResponse({"done": True, "ok": False, "message": "Task not found or expired."}, status=404)
+    # Under ASGI the device/DB work may finish while the background thread's
+    # final cache write is delayed. Reconcile against the converted ONU so the
+    # browser cannot remain on a stale intermediate step indefinitely.
+    if not task.get("done"):
+        olt_id = task.get("olt_id")
+        serial = str(task.get("serial") or "").strip()
+        target_mode = str(task.get("target_mode") or "").strip().lower()
+        if olt_id and serial and target_mode in {"priority", "vlan"}:
+            converted = ConfiguredONU.objects.filter(
+                olt_id=olt_id, sn__iexact=serial,
+            ).order_by("-pk").first()
+            if converted is not None and str(converted.mapping_mode_cache or "").strip().lower() == target_mode:
+                terminal = {
+                    "done": True,
+                    "ok": True,
+                    "step": 6,
+                    "label": "Done",
+                    "message": "ONU mapping conversion completed.",
+                    "redirect_url": reverse("configured_onu_detail", kwargs={
+                        "olt_pk": converted.olt_id,
+                        "slot": converted.slot,
+                        "port": converted.port,
+                        "ont_id": converted.ont_id,
+                    }),
+                }
+                with _MAPPING_CONVERT_TASKS_LOCK:
+                    current = _MAPPING_CONVERT_TASKS.get(str(task_id) or "")
+                    if current and not current.get("done"):
+                        current.update(terminal)
+                        task.update(terminal)
     task.pop("created_at", None)
     response = JsonResponse({key: value for key, value in task.items() if not key.startswith('_')})
     response['Cache-Control'] = 'no-store'
