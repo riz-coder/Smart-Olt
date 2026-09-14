@@ -779,6 +779,7 @@ def _onu_status_sync_loop():
 
     def _sync_single_olt_status(olt_id):
         from .models import ConfiguredONU, OLT
+        from .status_sync_batches import sync_olt_batches
 
         close_old_connections()
         try:
@@ -788,34 +789,15 @@ def _onu_status_sync_loop():
             olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
             if not olt:
                 return
-            total_records = ConfiguredONU.objects.filter(olt=olt).count()
-            visible_total = min(total_records, ONU_STATUS_SYNC_OLT_BATCH_SIZE) if ONU_STATUS_SYNC_OLT_BATCH_SIZE else total_records
-            update_onu_status_sync_progress(
-                olt.id,
-                olt=olt.name,
-                running=True,
-                done=False,
-                failed=False,
-                checked=0,
-                total=visible_total,
-                message=f"Starting ONU status sync for {visible_total} ONUs...",
-            )
-
-            def _progress(payload):
-                update_onu_status_sync_progress(olt.id, olt=olt.name, **(payload or {}))
-
-            return sync_runtime_statuses_for_olt(
-                olt,
-                only_non_online=False,
-                limit=ONU_STATUS_SYNC_OLT_BATCH_SIZE,
-                write_samples=False,
-                max_seconds=max(30, ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS - 20),
-                on_progress=_progress,
-            )
+            return sync_olt_batches(olt, ONU_STATUS_SYNC_OLT_BATCH_SIZE, ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS)
         finally:
             close_old_connections()
 
     def _sync_single_olt_status_with_hard_timeout(olt_id):
+        from .models import ConfiguredONU
+        from .status_sync_batches import cycle_timeout
+        total_records = ConfiguredONU.objects.filter(olt_id=olt_id).count()
+        hard_timeout = cycle_timeout(total_records, ONU_STATUS_SYNC_OLT_BATCH_SIZE, ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS)
         if os.name != "nt":
             import multiprocessing
 
@@ -828,7 +810,7 @@ def _onu_status_sync_loop():
                 ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS,
             ), daemon=True)
             process.start()
-            process.join(ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS + 10)
+            process.join(hard_timeout)
             if process.is_alive():
                 process.terminate()
                 process.join(5)
@@ -851,7 +833,7 @@ def _onu_status_sync_loop():
                     try:
                         from .models import ConfiguredONU
                         db_total = ConfiguredONU.objects.filter(olt_id=olt_id).count()
-                        total = min(db_total, ONU_STATUS_SYNC_OLT_BATCH_SIZE) if ONU_STATUS_SYNC_OLT_BATCH_SIZE else db_total
+                        total = db_total
                     except Exception:
                         total = 0
                 updated = int(progress_entry.get("updated") or 0)
@@ -914,9 +896,9 @@ def _onu_status_sync_loop():
             daemon=True,
         )
         thread.start()
-        thread.join(ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS + 10)
+        thread.join(hard_timeout)
         if thread.is_alive():
-            message = f"ONU status sync timed out after {ONU_STATUS_SYNC_OLT_TIMEOUT_SECONDS} seconds. Skipping this OLT."
+            message = f"ONU status sync timed out after {hard_timeout} seconds. Remaining ONUs will be retried next cycle."
             try:
                 update_onu_status_sync_progress(
                     olt_id,

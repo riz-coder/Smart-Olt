@@ -14233,6 +14233,7 @@ def sync_runtime_statuses_for_olt(
     write_samples=True,
     on_progress=None,
     max_seconds=None,
+    record_ids=None,
 ):
     from django.utils import timezone
     from .models import ConfiguredONU
@@ -14261,6 +14262,8 @@ def sync_runtime_statuses_for_olt(
         }
 
     qs = ConfiguredONU.objects.filter(olt=olt)
+    if record_ids is not None:
+        qs = qs.filter(pk__in=record_ids)
     if only_non_online:
         qs = qs.exclude(derived_status="online")
     qs = qs.order_by("status_updated_at", "id")
@@ -14353,7 +14356,9 @@ def sync_runtime_statuses_for_olt(
                     fetched_items.update(group_items)
                 if bool(group_result.get("truncated")) or len(group_items) < len(group_records):
                     truncated = True
-                fetched_gpon_records += len(group_items)
+                fetched_gpon_records += sum(
+                    (int(r.slot), int(r.port), int(r.ont_id)) in group_items for r in group_records
+                )
                 last_status = str(group_result.get("status") or "").strip()
                 if on_progress:
                     on_progress({
@@ -14429,14 +14434,18 @@ def sync_runtime_statuses_for_olt(
             (int(slot), int(port), int(ont_id))
             for slot, port, ont_id in (snmp_status_map.keys() or [])
         }
+        selected_keys = {(int(r.slot), int(r.port), int(r.ont_id)) for r in records}
+        verified_keys &= selected_keys
         has_pending_records = len(verified_keys) < total_records
+        verified_so_far = 0
         for record in records:
             checked += 1
             changed = False
             record_key = (int(record.slot), int(record.port), int(record.ont_id))
+            verified_so_far += int(record_key in verified_keys)
             inventory_status = epon_inventory_map.get(record_key)
             snmp_status = str(snmp_status_map.get(record_key) or "").strip().lower()
-            if not snmp_status and snmp_complete:
+            if not snmp_status and snmp_complete and record_ids is None:
                 snmp_status = "offline"
             debounced_snmp_status = _debounced_snmp_runtime_status(record, snmp_status)
             runtime_run_state = "online" if debounced_snmp_status == "online" else "offline" if debounced_snmp_status in {"offline", "admin_disabled", "power_failure", "loss_of_signal"} else ""
@@ -14473,10 +14482,9 @@ def sync_runtime_statuses_for_olt(
                 record.status_first_seen_at = now
                 record.status_updated_at = now
                 changed = True
-            elif has_pending_records and record_key in verified_keys:
-                # In a partial/truncated cycle, touch verified records so the
-                # next cycle naturally starts from the ONUs that were not
-                # verified this time. Full cycles skip this to avoid DB churn.
+            elif (has_pending_records or record_ids is not None) and record_key in verified_keys:
+                # Retain verification order so pending ONUs lead the next cycle.
+                # Explicit batches also touch unchanged verified records.
                 record.status_updated_at = now
                 changed = True
 
@@ -14497,7 +14505,7 @@ def sync_runtime_statuses_for_olt(
                 bulk.append(record)
             if on_progress and (checked == 1 or checked % 100 == 0 or checked == total_records):
                 on_progress({
-                    "checked": checked,
+                    "checked": verified_so_far,
                     "total": total_records,
                     "updated": updated,
                     "status_changed": status_changed,
@@ -14543,7 +14551,7 @@ def sync_runtime_statuses_for_olt(
                 )
         if on_progress:
             on_progress({
-                "checked": checked,
+                "checked": verified,
                 "total": total_records,
                 "updated": updated,
                 "status_changed": status_changed,
