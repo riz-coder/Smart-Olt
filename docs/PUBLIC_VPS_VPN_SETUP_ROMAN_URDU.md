@@ -17,12 +17,17 @@ CONTROL_BASE_DOMAIN=
 # Abhi blank. VPN activate karte waqt VPS ka public IPv4 likhein.
 CONTROL_VPN_PUBLIC_HOST=
 CONTROL_VPN_PORT_START=52000
-CONTROL_VPN_TUNNEL_POOL=10.254.0.0/16
+CONTROL_VPN_TUNNEL_POOL=10.75.75.0/24
 CONTROL_VPN_TRANSPORT_POOL=172.30.0.0/16
 CONTROL_CADDY_SITES_DIR=/etc/caddy/optiverse-tenants
 CONTROL_PUBLIC_UPSTREAM_PORT=9000
 CONTROL_TENANT_RUNTIME=docker
 ```
+
+`10.75.75.0/24` se har tenant ko first-free `/30` tunnel automatically milta hai.
+Pehla pair server `10.75.75.1/30`, client `10.75.75.2/30`; doosra pair server
+`10.75.75.5/30`, client `10.75.75.6/30` hoga. `/24` mein total 64 isolated
+tenant tunnel subnets available hain. UI mein yeh addresses read-only show hotay hain.
 
 Misal ke taur par domain milne ke baad `CONTROL_BASE_DOMAIN=optiverse.com` hoga.
 `nexus` subdomain wala tenant `https://nexus.optiverse.com` par khulega. Browser URL

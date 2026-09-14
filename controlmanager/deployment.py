@@ -50,6 +50,45 @@ def transport_pool():
     return pool
 
 
+def tunnel_pool():
+    pool = ipaddress.ip_network(os.environ.get('CONTROL_VPN_TUNNEL_POOL', '10.75.75.0/24'))
+    if pool.version != 4 or pool.prefixlen > 24:
+        raise ValueError('CONTROL_VPN_TUNNEL_POOL must be an IPv4 /24 or larger pool.')
+    return pool
+
+
+def host_route(value):
+    return f'{ipaddress.ip_interface(value).ip}/32'
+
+
+def _allocate_tunnel_addresses(tenant):
+    pool = tunnel_pool()
+    # Preserve an already valid pair when connection settings are reapplied.
+    try:
+        server = ipaddress.ip_interface(tenant.vpn_server_address)
+        client = ipaddress.ip_interface(tenant.wg_client_address)
+        existing = ipaddress.ip_network(f'{server.ip}/30', strict=False)
+        if (client.ip in existing and existing.subnet_of(pool)
+                and server.ip == existing.network_address + 1
+                and client.ip == existing.network_address + 2):
+            return f'{server.ip}/30', f'{client.ip}/30'
+    except ValueError:
+        pass
+
+    from .models import Tenant
+    used = set()
+    for server_address in Tenant.objects.exclude(pk=tenant.pk).exclude(vpn_server_address='').values_list('vpn_server_address', flat=True):
+        try:
+            used.add(ipaddress.ip_network(f'{ipaddress.ip_interface(server_address).ip}/30', strict=False))
+        except ValueError:
+            continue
+    for subnet in pool.subnets(new_prefix=30):
+        server_ip = subnet.network_address + 1
+        if subnet not in used:
+            return f'{server_ip}/30', f'{subnet.network_address + 2}/30'
+    raise ValueError('VPN tunnel address pool is exhausted. Configure a larger non-overlapping pool.')
+
+
 def vpn_transport_subnet(tenant):
     # Unique /28 for each tenant, reserved from a configurable deployment pool.
     if not 0 < int(tenant.pk) < 4096:
@@ -84,16 +123,12 @@ def prepare_deployment(tenant, keypair):
         if client_ip.version != 4:
             raise ValueError('Client VPN endpoint must be IPv4.')
         # Tunnel addresses are unique /30s; overlapping customer LANs are fine.
-        tunnel_pool = ipaddress.ip_network(os.environ.get('CONTROL_VPN_TUNNEL_POOL', '10.254.0.0/16'))
-        if tunnel_pool.version != 4 or tunnel_pool.prefixlen != 16:
-            raise ValueError('CONTROL_VPN_TUNNEL_POOL must be an IPv4 /16.')
+        tunnel_network = tunnel_pool()
         vpn_transport_subnet(tenant)
         for route in routes:
-            if route.overlaps(transport_pool()) or route.overlaps(tunnel_pool) or ip in route or client_ip in route:
+            if route.overlaps(transport_pool()) or route.overlaps(tunnel_network) or ip in route or client_ip in route:
                 raise ValueError('Client route overlaps the VPN/transport pool or public endpoint. Use distinct deployment pools.')
-        base = int(tunnel_pool.network_address) + int(tenant.pk) * 4
-        tenant.vpn_server_address = f'{ipaddress.ip_address(base + 1)}/32'
-        tenant.wg_client_address = f'{ipaddress.ip_address(base + 2)}/32'
+        tenant.vpn_server_address, tenant.wg_client_address = _allocate_tunnel_addresses(tenant)
         if not tenant.vpn_listen_port:
             port = int(os.environ.get('CONTROL_VPN_PORT_START', '52000')) + int(tenant.pk)
             if not 1024 <= port <= 65535:
@@ -124,12 +159,12 @@ def client_config(tenant):
         '', '[Peer]', f'PublicKey = {tenant.wg_server_public_key}',
         f'Endpoint = {tenant.wg_server_endpoint}',
         # Customer LANs are behind this client, not behind the server!
-        f'AllowedIPs = {tenant.vpn_server_address}', 'PersistentKeepalive = 25', '',
+        f'AllowedIPs = {host_route(tenant.vpn_server_address)}', 'PersistentKeepalive = 25', '',
     ])
 
 
 def server_config(tenant):
-    allowed = [tenant.wg_client_address, *map(str, route_networks(tenant.vpn_routes))]
+    allowed = [host_route(tenant.wg_client_address), *map(str, route_networks(tenant.vpn_routes))]
     return '\n'.join([
         '[Interface]', f'PrivateKey = {tenant.vpn_server_private_key}', 'ListenPort = 51820',
         '', '[Peer]', f'PublicKey = {tenant.wg_client_public_key}',

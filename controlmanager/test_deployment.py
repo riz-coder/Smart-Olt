@@ -16,7 +16,7 @@ class TenantDeploymentTests(TestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {'CONTROL_BASE_DOMAIN': '',
             'CONTROL_VPN_PUBLIC_HOST': '203.0.113.10',
-            'CONTROL_VPN_TUNNEL_POOL': '10.254.0.0/16',
+            'CONTROL_VPN_TUNNEL_POOL': '10.75.75.0/24',
             'CONTROL_VPN_TRANSPORT_POOL': '172.30.0.0/16', 'CONTROL_VPN_PORT_START': '52000'})
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -56,7 +56,30 @@ class TenantDeploymentTests(TestCase):
         self.assertNotEqual(deployment.vpn_transport_subnet(first), deployment.vpn_transport_subnet(second))
         self.assertIn('192.168.1.0/24', deployment.server_config(first))
         self.assertNotIn('192.168.1.0/24', deployment.client_config(first))
-        self.assertIn(f'AllowedIPs = {first.vpn_server_address}', deployment.client_config(first))
+        self.assertIn('AllowedIPs = 10.75.75.1/32', deployment.client_config(first))
+        self.assertEqual(first.vpn_server_address, '10.75.75.1/30')
+        self.assertEqual(first.wg_client_address, '10.75.75.2/30')
+        self.assertEqual(second.vpn_server_address, '10.75.75.5/30')
+        self.assertEqual(second.wg_client_address, '10.75.75.6/30')
+        self.assertIn('AllowedIPs = 10.75.75.2/32, 192.168.1.0/24', deployment.server_config(first))
+
+    def test_deleted_tenant_tunnel_slot_is_reused(self):
+        first = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
+        deployment.prepare_deployment(first, _wireguard_keypair)
+        first.delete()
+        replacement = self.tenant('replacement', vpn_enabled=True,
+            client_public_ip='203.0.113.21', vpn_routes='192.168.2.0/24')
+        deployment.prepare_deployment(replacement, _wireguard_keypair)
+        self.assertEqual(replacement.vpn_server_address, '10.75.75.1/30')
+        self.assertEqual(replacement.wg_client_address, '10.75.75.2/30')
+
+    def test_legacy_host_addresses_are_normalized_without_changing_ips(self):
+        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20',
+            vpn_routes='192.168.1.0/24', vpn_server_address='10.75.75.9/32',
+            wg_client_address='10.75.75.10/32')
+        deployment.prepare_deployment(tenant, _wireguard_keypair)
+        self.assertEqual(tenant.vpn_server_address, '10.75.75.9/30')
+        self.assertEqual(tenant.wg_client_address, '10.75.75.10/30')
 
     def test_reapply_preserves_keys(self):
         tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')

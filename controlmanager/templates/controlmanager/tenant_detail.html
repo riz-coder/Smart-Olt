@@ -27,7 +27,7 @@
     <h2>Tenant Docker / VPN</h2>
     <p class="subtle">{% if tenant.public_hostname %}Public URL: {{ tenant.panel_url }}{% else %}No main domain is configured. Local IP and port access is active.{% endif %}</p>
     {% if tenant.vpn_enabled %}
-    <p>Tunnel server: {{ tenant.vpn_server_address }} | Client: {{ tenant.wg_client_address }} | UDP: {{ tenant.vpn_listen_port }}</p>
+    <p>Tunnel interface — Server: {{ tenant.vpn_server_address }} | Client: {{ tenant.wg_client_address }} | UDP: {{ tenant.vpn_listen_port }}</p>
     <pre>{{ tenant.vpn_routes }}</pre>
     <form method="post" action="{% url 'control_tenant_vpn_download' tenant.pk %}">{% csrf_token %}<button class="btn btn-blue">Download Ubuntu VPN config</button></form>
     <button type="button" class="btn btn-dark" id="vpn-check">Check tunnel</button>

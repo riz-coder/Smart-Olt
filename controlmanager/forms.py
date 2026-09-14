@@ -112,7 +112,7 @@ class TenantCreateForm(forms.ModelForm):
             "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
             "client_public_ip": "Client or router public IP address. Leave blank for local access without VPN.",
             "subdomain": "Example: nexus. Leave blank to generate from the ISP name. The main domain comes from the server settings.",
-            "vpn_enabled": "Leave disabled to keep local access. Enable to automatically prepare an isolated site-to-site tunnel.",
+            "vpn_enabled": "Enable to create an isolated site-to-site tunnel. A dedicated /30 interface subnet and server/client addresses are allocated automatically.",
             "vpn_routes": "Enter one IPv4 subnet per line, e.g. 192.168.10.0/24. Only these routes will use the tenant tunnel.",
             "client_vpn_port": "Usually 51820.",
             "client_local_subnet": "Client LAN subnet, e.g. 192.168.10.0/24. Leave blank for a local tenant.",

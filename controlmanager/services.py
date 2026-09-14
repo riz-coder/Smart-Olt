@@ -566,7 +566,7 @@ def _write_docker_tenant_runtime(tenant):
         vpn_args = ["--cap-add", "NET_ADMIN",
             "-e", f"OPTIVERSE_RUN_USER={runtime_user}",
             "-e", f"OPTIVERSE_VPN_ADDRESS={tenant.vpn_server_address}",
-            "-e", f"OPTIVERSE_VPN_ROUTES={tenant.wg_client_address},{','.join(map(str, deployment.route_networks(tenant.vpn_routes)))}",
+            "-e", f"OPTIVERSE_VPN_ROUTES={deployment.host_route(tenant.wg_client_address)},{','.join(map(str, deployment.route_networks(tenant.vpn_routes)))}",
             "-v", f"{Path(tenant.env_path).parent / 'vpn' / 'wg0.conf'}:/run/optiverse/wg0.conf:ro"]
         entrypoint_args = ["python", "/app/docker/vpn_entrypoint.py"]
         bind_host = "0.0.0.0"
