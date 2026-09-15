@@ -43,13 +43,6 @@ def route_networks(value):
     return list(ipaddress.collapse_addresses(networks))
 
 
-def transport_pool():
-    pool = ipaddress.ip_network(os.environ.get('CONTROL_VPN_TRANSPORT_POOL', '172.30.0.0/16'))
-    if pool.version != 4 or pool.prefixlen != 16:
-        raise ValueError('CONTROL_VPN_TRANSPORT_POOL must be an IPv4 /16.')
-    return pool
-
-
 def tunnel_pool():
     pool = ipaddress.ip_network(os.environ.get('CONTROL_VPN_TUNNEL_POOL', '10.75.75.0/24'))
     if pool.version != 4 or pool.prefixlen > 24:
@@ -89,13 +82,6 @@ def _allocate_tunnel_addresses(tenant):
     raise ValueError('VPN tunnel address pool is exhausted. Configure a larger non-overlapping pool.')
 
 
-def vpn_transport_subnet(tenant):
-    # Unique /28 for each tenant, reserved from a configurable deployment pool.
-    if not 0 < int(tenant.pk) < 4096:
-        raise ValueError('VPN transport allocation exhausted; extend the allocator before provisioning.')
-    return ipaddress.ip_network((int(transport_pool().network_address) + int(tenant.pk) * 16, 28))
-
-
 def prepare_deployment(tenant, keypair):
     from .models import Tenant
     if not tenant.subdomain:
@@ -124,10 +110,9 @@ def prepare_deployment(tenant, keypair):
             raise ValueError('Client VPN endpoint must be IPv4.')
         # Tunnel addresses are unique /30s; overlapping customer LANs are fine.
         tunnel_network = tunnel_pool()
-        vpn_transport_subnet(tenant)
         for route in routes:
-            if route.overlaps(transport_pool()) or route.overlaps(tunnel_network) or ip in route or client_ip in route:
-                raise ValueError('Client route overlaps the VPN/transport pool or public endpoint. Use distinct deployment pools.')
+            if route.overlaps(tunnel_network) or ip in route or client_ip in route:
+                raise ValueError('Client route overlaps the VPN tunnel pool or public endpoint. Use a distinct subnet.')
         tenant.vpn_server_address, tenant.wg_client_address = _allocate_tunnel_addresses(tenant)
         if not tenant.vpn_listen_port:
             port = int(os.environ.get('CONTROL_VPN_PORT_START', '52000')) + int(tenant.pk)
@@ -166,7 +151,8 @@ def client_config(tenant):
 def server_config(tenant):
     allowed = [host_route(tenant.wg_client_address), *map(str, route_networks(tenant.vpn_routes))]
     return '\n'.join([
-        '[Interface]', f'PrivateKey = {tenant.vpn_server_private_key}', 'ListenPort = 51820',
+        '[Interface]', f'PrivateKey = {tenant.vpn_server_private_key}',
+        f'Address = {tenant.vpn_server_address}', f'ListenPort = {tenant.vpn_listen_port}',
         '', '[Peer]', f'PublicKey = {tenant.wg_client_public_key}',
         f'Endpoint = {tenant.client_public_ip}:{tenant.client_vpn_port}',
         f'AllowedIPs = {", ".join(allowed)}', 'PersistentKeepalive = 25', '',
@@ -183,6 +169,7 @@ def write_vpn_files(tenant):
             handle.write(content)
         os.chmod(path, 0o600)
     tenant.wg_config_path = str(directory / 'client.conf')
+    tenant.save(update_fields=['wg_config_path', 'updated_at'])
 
 
 def proxy_text(tenant):

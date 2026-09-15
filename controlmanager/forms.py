@@ -1,5 +1,4 @@
 import ipaddress
-import re
 import secrets
 import string
 
@@ -86,10 +85,8 @@ class TenantCreateForm(forms.ModelForm):
             "owner_email",
             "panel_admin_username",
             "panel_admin_initial_password",
-            "subdomain",
             "vpn_enabled",
             "client_public_ip",
-            "client_vpn_port",
             "vpn_routes",
         ]
         labels = {
@@ -98,28 +95,14 @@ class TenantCreateForm(forms.ModelForm):
             "panel_admin_username": "Panel username",
             "panel_admin_initial_password": "Panel initial password",
             "client_public_ip": "Client public IP",
-            "subdomain": "ISP subdomain",
             "vpn_enabled": "Enable site-to-site VPN (Ubuntu client)",
-            "vpn_routes": "Client local / OLT subnets",
-            "client_vpn_port": "Client VPN port",
-            "client_local_subnet": "Client local subnet",
-            "olt_management_subnet": "OLT management subnet",
-            "wg_server_endpoint": "VPS WireGuard endpoint",
-            "wg_server_public_key": "VPS WireGuard public key",
-            "docker_image": "Tenant Docker image",
+            "vpn_routes": "Client local subnet(s)",
         }
         help_texts = {
             "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
             "client_public_ip": "Client or router public IP address. Leave blank for local access without VPN.",
-            "subdomain": "Example: nexus. Leave blank to generate from the ISP name. The main domain comes from the server settings.",
-            "vpn_enabled": "Enable to create an isolated site-to-site tunnel. A dedicated /30 interface subnet and server/client addresses are allocated automatically.",
-            "vpn_routes": "Enter one IPv4 subnet per line, e.g. 192.168.10.0/24. Only these routes will use the tenant tunnel.",
-            "client_vpn_port": "Usually 51820.",
-            "client_local_subnet": "Client LAN subnet, e.g. 192.168.10.0/24. Leave blank for a local tenant.",
-            "olt_management_subnet": "OLT subnet reachable from tenant, e.g. 10.101.11.0/24.",
-            "wg_server_endpoint": "VPS endpoint, e.g. your-vps-ip:51820. Leave blank for local access without VPN.",
-            "wg_server_public_key": "VPS WireGuard public key. Leave blank for local access without VPN.",
-            "docker_image": "Default: optiverse-tenant-app:latest",
+            "vpn_enabled": "Enable now or leave disabled and configure the tunnel later. A dedicated /30 pair is allocated automatically.",
+            "vpn_routes": "Enter one IPv4 subnet per line. Linux routes only these networks through this tenant tunnel.",
         }
 
     def __init__(self, *args, **kwargs):
@@ -128,20 +111,12 @@ class TenantCreateForm(forms.ModelForm):
         self.fields["panel_admin_username"].required = True
         self.fields["panel_admin_initial_password"].required = True
         self.fields["client_public_ip"].required = False
-        self.fields["client_vpn_port"].required = False
-        self.fields["client_vpn_port"].initial = 51820
         self.fields["vpn_routes"].widget = forms.Textarea(attrs={"rows": 4})
         self.fields["panel_admin_initial_password"].widget = forms.PasswordInput(render_value=True)
         _style_form(self)
 
     def clean(self):
         return _validate_deployment_form(self, super().clean())
-
-    def clean_client_vpn_port(self):
-        value = self.cleaned_data.get('client_vpn_port') or 51820
-        if not 1 <= value <= 65535:
-            raise forms.ValidationError('The port must be between 1 and 65535.')
-        return value
 
     def clean_panel_admin_initial_password(self):
         value = str(self.cleaned_data.get("panel_admin_initial_password") or "").strip()
@@ -172,16 +147,12 @@ class TenantCreateForm(forms.ModelForm):
             raise forms.ValidationError("The endpoint must include a port, e.g. your-vps-ip:51820.")
         return value
 
-    def clean_docker_image(self):
-        value = str(self.cleaned_data.get("docker_image") or "").strip() or "optiverse-tenant-app:latest"
-        if not re.match(r"^[a-zA-Z0-9._:/-]+$", value):
-            raise forms.ValidationError("The Docker image name contains invalid characters.")
-        return value
-
     def save(self, commit=True):
         tenant = super().save(commit=False)
         tenant.isp_name = tenant.name
         tenant.owner_name = tenant.name
+        tenant.subdomain = ""
+        tenant.client_vpn_port = 51820
         tenant.status = Tenant.STATUS_PROVISIONING
         if not tenant.panel_scheme:
             tenant.panel_scheme = "http"
@@ -193,8 +164,13 @@ class TenantCreateForm(forms.ModelForm):
 class TenantConnectionForm(forms.ModelForm):
     class Meta:
         model = Tenant
-        fields = ['subdomain', 'vpn_enabled', 'client_public_ip', 'client_vpn_port', 'vpn_routes']
+        fields = ['vpn_enabled', 'client_public_ip', 'vpn_routes']
         widgets = {'vpn_routes': forms.Textarea(attrs={'rows': 4})}
+        labels = {'vpn_enabled': 'Enable site-to-site VPN (Ubuntu client)',
+                  'client_public_ip': 'Client public IP',
+                  'vpn_routes': 'Client local subnet(s)'}
+        help_texts = {'vpn_enabled': 'Enable now or leave disabled and configure the tunnel later.',
+                      'vpn_routes': 'Enter one IPv4 subnet per line. Linux installs these routes through the tenant tunnel.'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

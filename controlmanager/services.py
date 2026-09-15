@@ -8,7 +8,6 @@ import secrets
 import shutil
 import sqlite3
 import subprocess
-import json
 import time
 import http.client
 
@@ -76,13 +75,6 @@ def _tenant_auto_provision_enabled():
     return _control_bool("CONTROL_TENANT_AUTO_PROVISION", _control_bool("OPTIVERSE_TENANT_AUTO_PROVISION", False))
 
 
-def _tenant_runtime():
-    # Tenant portals run directly from the shared virtualenv under systemd.
-    # Keep the setting reader for older installations, but Docker is no longer
-    # a supported tenant runtime.
-    return "systemd"
-
-
 def _wireguard_keypair():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import x25519
@@ -108,22 +100,6 @@ def _tenant_default_wg_address(tenant):
 
 def _safe_slug(tenant):
     return re.sub(r"[^a-z0-9-]+", "-", str(tenant.slug or tenant.name or "").lower()).strip("-") or f"tenant-{tenant.pk}"
-
-
-def _tenant_container_name(tenant):
-    return f"optiverse-tenant-{_safe_slug(tenant)}-web"
-
-
-def _tenant_legacy_container_name(tenant):
-    return f"optiverse-tenant-{_safe_slug(tenant)}"
-
-
-def _tenant_worker_container_name(tenant):
-    return f"optiverse-tenant-{_safe_slug(tenant)}-worker"
-
-
-def _agent_container_name(tenant):
-    return f"optiverse-agent-{_safe_slug(tenant)}"
 
 
 def _tenant_cookie_prefix(tenant):
@@ -301,10 +277,9 @@ WantedBy=multi-user.target
     path.write_text(service_text, encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, text=True)
     subprocess.run(["systemctl", "enable", "--now", service_name], check=True, capture_output=True, text=True)
+    _apply_tenant_vpn(tenant)
     tenant.service_name = service_name
-    tenant.container_name = ""
-    tenant.worker_container_name = ""
-    tenant.save(update_fields=["service_name", "container_name", "worker_container_name", "updated_at"])
+    tenant.save(update_fields=["service_name", "updated_at"])
     _wait_tenant_http(tenant)
     try:
         deployment.publish_proxy(tenant, _run_command)
@@ -313,49 +288,37 @@ WantedBy=multi-user.target
     return f"{service_name}.service started (web + background sync)"
 
 
+def _tenant_vpn_interface_name(tenant):
+    return f"optiverse-{int(tenant.pk)}"
+
+
+def _apply_tenant_vpn(tenant):
+    """Install one isolated WireGuard /30 interface and its customer routes."""
+    if not _systemd_available():
+        return
+    interface = _tenant_vpn_interface_name(tenant)
+    target = Path("/etc/wireguard") / f"{interface}.conf"
+    if not tenant.vpn_enabled:
+        _run_command(["systemctl", "disable", "--now", f"wg-quick@{interface}"], timeout=60)
+        target.unlink(missing_ok=True)
+        return
+    source = Path(tenant.env_path).parent / "vpn" / "wg0.conf"
+    if not source.is_file():
+        raise TenantProvisionError("Tenant WireGuard server configuration was not generated.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    os.chmod(target, 0o600)
+    ok, output = _run_command(["systemctl", "enable", f"wg-quick@{interface}"], timeout=60)
+    if ok:
+        ok, output = _run_command(["systemctl", "restart", f"wg-quick@{interface}"], timeout=60)
+    if not ok:
+        raise TenantProvisionError(output or f"Could not activate WireGuard interface {interface}.")
+
+
 def _run_command(args, *, timeout=120, cwd=None):
     result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
     output = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part and part.strip())
     return result.returncode == 0, output
-
-
-def _docker_user_args(tenant=None):
-    if os.name == "nt" or not hasattr(os, "getuid") or not hasattr(os, "getgid"):
-        return []
-    configured = os.environ.get("CONTROL_TENANT_DOCKER_USER", "").strip()
-    # Control may run as root while tenant files belong to the deployment user.
-    # Keep web/worker ownership stable across CLI and control-panel provisioning.
-    owner = Path(tenant.database_path).stat() if tenant is not None else None
-    user_value = configured or (f"{owner.st_uid}:{owner.st_gid}" if owner else f"{os.getuid()}:{os.getgid()}")
-    return ["--user", user_value] if user_value else []
-
-
-def _prepare_docker_lock_permissions(tenant, image):
-    """Repair only tenant command-lock ownership, preserving live lock inodes."""
-    user_args = _docker_user_args(tenant)
-    if not user_args:
-        return
-    parts = user_args[-1].split(":")
-    if len(parts) != 2 or not all(part.isdigit() for part in parts):
-        raise TenantProvisionError("CONTROL_TENANT_DOCKER_USER must use numeric UID:GID.")
-    uid, gid = map(int, parts)
-    runtime_dir = Path(tenant.database_path).parent.resolve()
-    script = (
-        "import os, pathlib, stat; "
-        "p=pathlib.Path('/runtime/locks'); "
-        "assert not p.is_symlink(), 'Tenant locks directory must not be a symlink'; "
-        "p.mkdir(exist_ok=True); "
-        f"os.chown(p, {uid}, {gid}); os.chmod(p, 0o750); "
-        "files=[f for f in p.glob('olt-telnet-*.lock') "
-        "if stat.S_ISREG(f.lstat().st_mode)]; "
-        f"[(os.chown(f, {uid}, {gid}, follow_symlinks=False), os.chmod(f, 0o640)) for f in files]"
-    )
-    ok, output = _run_command([
-        "docker", "run", "--rm", "--user", "0:0", "--network", "none",
-        "-v", f"{runtime_dir}:/runtime", image, "python", "-c", script,
-    ], timeout=60)
-    if not ok:
-        raise TenantProvisionError(output or "Could not prepare tenant command locks.")
 
 
 def _remove_file_with_sqlite_sidecars(path, log_lines):
@@ -403,6 +366,11 @@ def delete_tenant_instance(tenant):
         service_path.unlink(missing_ok=True)
         _run_command(["systemctl", "daemon-reload"], timeout=30)
         log_lines.append(f"Removed tenant service: {service_name}.service")
+    if _systemd_available():
+        interface = _tenant_vpn_interface_name(tenant)
+        _run_command(["systemctl", "disable", "--now", f"wg-quick@{interface}"], timeout=60)
+        vpn_path = Path("/etc/wireguard") / f"{interface}.conf"
+        vpn_path.unlink(missing_ok=True)
 
     try:
         deployment.remove_proxy(tenant, _run_command)
@@ -417,219 +385,6 @@ def delete_tenant_instance(tenant):
     slug = tenant.slug
     tenant.delete()
     return {"name": name, "slug": slug, "log": "\n".join(log_lines).strip()}
-
-
-def _tenant_client_config(tenant):
-    if not (tenant.wg_server_endpoint and tenant.wg_client_private_key):
-        return ""
-    server_key = tenant.wg_server_public_key or "<VPS_WIREGUARD_PUBLIC_KEY>"
-    allowed = ["10.200.0.0/16"]
-    if tenant.olt_management_subnet:
-        allowed.append(tenant.olt_management_subnet)
-    if tenant.client_local_subnet and tenant.client_local_subnet not in allowed:
-        allowed.append(tenant.client_local_subnet)
-    return "\n".join([
-        "[Interface]",
-        f"PrivateKey = {tenant.wg_client_private_key}",
-        f"Address = {tenant.wg_client_address}",
-        "",
-        "[Peer]",
-        f"PublicKey = {server_key}",
-        f"Endpoint = {tenant.wg_server_endpoint}",
-        f"AllowedIPs = {', '.join(allowed)}",
-        "PersistentKeepalive = 25",
-        "",
-    ])
-
-
-def _tenant_server_peer_config(tenant):
-    if not (tenant.client_public_ip and tenant.wg_client_public_key):
-        return ""
-    allowed = [tenant.wg_client_address]
-    if tenant.client_local_subnet:
-        allowed.append(tenant.client_local_subnet)
-    if tenant.olt_management_subnet and tenant.olt_management_subnet not in allowed:
-        allowed.append(tenant.olt_management_subnet)
-    return "\n".join([
-        f"# OptiVerse tenant {tenant.pk}: {tenant.slug}",
-        f"# Tenant: {tenant.name}",
-        "[Peer]",
-        f"PublicKey = {tenant.wg_client_public_key}",
-        f"AllowedIPs = {', '.join(allowed)}",
-        f"Endpoint = {tenant.client_public_ip}:{tenant.client_vpn_port or 51820}",
-        "PersistentKeepalive = 25",
-        "",
-    ])
-
-
-def _write_vpn_config_if_requested(tenant, log_lines):
-    tenant_dir = Path(tenant.env_path).parent
-    client_config = _tenant_client_config(tenant)
-    if client_config:
-        wg_path = tenant_dir / "wg0.conf"
-        wg_path.write_text(client_config, encoding="utf-8")
-        try:
-            os.chmod(wg_path, 0o600)
-        except OSError:
-            pass
-        tenant.wg_config_path = str(wg_path)
-        log_lines.append(f"Client WireGuard config written: {wg_path}")
-    else:
-        log_lines.append("VPN skipped: local/no-VPN tenant fields are blank.")
-
-    peer_config = _tenant_server_peer_config(tenant)
-    server_config = os.environ.get("CONTROL_WG_SERVER_CONFIG") or os.environ.get("OPTIVERSE_WG_SERVER_CONFIG", "")
-    if peer_config and server_config:
-        server_path = Path(server_config)
-        current = server_path.read_text(encoding="utf-8") if server_path.exists() else ""
-        marker = f"# OptiVerse tenant {tenant.pk}: {tenant.slug}"
-        if marker not in current:
-            with server_path.open("a", encoding="utf-8") as handle:
-                if current and not current.endswith("\n"):
-                    handle.write("\n")
-                handle.write("\n")
-                handle.write(peer_config)
-            log_lines.append(f"Server WireGuard peer appended: {server_path}")
-            if _control_bool("CONTROL_WG_RESTART_AFTER_PROVISION", _control_bool("OPTIVERSE_WG_RESTART_AFTER_PROVISION", False)):
-                ok, output = _run_command(["systemctl", "restart", "wg-quick@wg0"], timeout=60)
-                log_lines.append(f"WireGuard restart: {'OK' if ok else 'FAILED'}")
-                if output:
-                    log_lines.append(output)
-        else:
-            log_lines.append("Server WireGuard peer already exists.")
-
-
-def _write_docker_tenant_runtime(tenant):
-    log_lines = []
-    tenant_dir = Path(tenant.env_path).parent
-    tenant_dir.mkdir(parents=True, exist_ok=True)
-    if tenant.vpn_enabled:
-        deployment.write_vpn_files(tenant)
-    image = tenant.docker_image or "optiverse-tenant-app:latest"
-    if image == "optiverse-agent:latest":
-        image = "optiverse-tenant-app:latest"
-    container_name = tenant.container_name or _tenant_container_name(tenant)
-    worker_container_name = tenant.worker_container_name or _tenant_worker_container_name(tenant)
-    codebase = Path(tenant.codebase_path)
-
-    if not (codebase / "manage.py").is_file():
-        raise TenantProvisionError("Tenant codebase does not contain manage.py.")
-    _prepare_docker_lock_permissions(tenant, image)
-
-    network_args = ["--network", "host"]
-    user_args = _docker_user_args(tenant)
-    vpn_args = []
-    entrypoint_args = []
-    bind_host = "127.0.0.1" if tenant.public_hostname else _tenant_bind_host()
-    if tenant.vpn_enabled:
-        # Each VPN has its own namespace and route table, including duplicate LAN prefixes.
-        network_name = f"optiverse-vpn-{tenant.pk}"
-        subnet = str(deployment.vpn_transport_subnet(tenant))
-        ok, output = _run_command(["docker", "network", "inspect", network_name], timeout=20)
-        if not ok:
-            ok, output = _run_command(["docker", "network", "create", "--driver", "bridge",
-                "--subnet", subnet, "--label", f"optiverse.tenant={tenant.pk}", network_name], timeout=30)
-            if not ok:
-                raise TenantProvisionError(output or "Cannot create isolated VPN network.")
-        else:
-            info = json.loads(output)[0]
-            if info.get("Labels", {}).get("optiverse.tenant") != str(tenant.pk) or subnet not in [
-                    item.get("Subnet") for item in info.get("IPAM", {}).get("Config", [])]:
-                raise TenantProvisionError("Existing VPN network does not match this tenant's allocation.")
-        # Fail before stopping an existing app if the VPN-capable image is not built.
-        ok, output = _run_command(["docker", "run", "--rm", "--network", "none", image,
-            "sh", "-c", "command -v wg && command -v ip && command -v setpriv"], timeout=30)
-        if not ok:
-            raise TenantProvisionError("Build docker/tenant-app.Dockerfile before enabling tenant VPN.")
-        ok, output = _run_command(["docker", "run", "--rm", "--network", "none", "--cap-add", "NET_ADMIN",
-            image, "ip", "link", "add", "ovtest", "type", "wireguard"], timeout=30)
-        if not ok:
-            raise TenantProvisionError("WireGuard is unavailable in the VPS kernel/container runtime.")
-        network_args = ["--network", network_name,
-            "-p", f"{'127.0.0.1' if tenant.public_hostname else '0.0.0.0'}:{tenant.panel_port}:{tenant.panel_port}/tcp",
-            "-p", f"{tenant.vpn_listen_port}:51820/udp"]
-        runtime_user = user_args[-1] if user_args else "1000:1000"
-        if not re.fullmatch(r"\d+:\d+", runtime_user):
-            raise TenantProvisionError("VPN runtime requires numeric UID:GID.")
-        user_args = ["--user", "0:0"]
-        vpn_args = ["--cap-add", "NET_ADMIN",
-            "-e", f"OPTIVERSE_RUN_USER={runtime_user}",
-            "-e", f"OPTIVERSE_VPN_ADDRESS={tenant.vpn_server_address}",
-            "-e", f"OPTIVERSE_VPN_ROUTES={deployment.host_route(tenant.wg_client_address)},{','.join(map(str, deployment.route_networks(tenant.vpn_routes)))}",
-            "-v", f"{Path(tenant.env_path).parent / 'vpn' / 'wg0.conf'}:/run/optiverse/wg0.conf:ro"]
-        entrypoint_args = ["python", "/app/docker/vpn_entrypoint.py"]
-        bind_host = "0.0.0.0"
-
-    # Stop the dedicated scheduler before starting the combined runtime.
-    ok, _ = _run_command(["docker", "container", "inspect", worker_container_name], timeout=20)
-    if ok:
-        ok, output = _run_command(["docker", "stop", worker_container_name], timeout=90)
-        if not ok:
-            raise TenantProvisionError(output or "Could not stop the old tenant worker.")
-        ok, output = _run_command(["docker", "rm", worker_container_name], timeout=90)
-        if not ok:
-            raise TenantProvisionError(output or "Could not remove the old tenant worker.")
-        log_lines.append("Dedicated worker removed; sync now runs inside the app container.")
-
-    legacy_container_name = _tenant_legacy_container_name(tenant)
-    if legacy_container_name not in {container_name, worker_container_name}:
-        ok, _ = _run_command(["docker", "container", "inspect", legacy_container_name], timeout=20)
-        if ok:
-            _run_command(["docker", "stop", legacy_container_name], timeout=90)
-            ok, output = _run_command(["docker", "rm", legacy_container_name], timeout=90)
-            log_lines.append(f"Legacy Docker tenant container remove ({legacy_container_name}): {'OK' if ok else 'FAILED'}")
-            if output:
-                log_lines.append(output)
-
-    ok, _ = _run_command(["docker", "container", "inspect", container_name], timeout=20)
-    if ok:
-        _run_command(["docker", "stop", container_name], timeout=90)
-        ok, output = _run_command(["docker", "rm", container_name], timeout=90)
-        log_lines.append(f"Docker tenant web container recreate/remove: {'OK' if ok else 'FAILED'}")
-        if output:
-            log_lines.append(output)
-        if not ok:
-            raise TenantProvisionError(output or "Docker tenant web container remove failed.")
-    ok, output = _run_command([
-        "docker", "run", "-d",
-        "--name", container_name,
-        "--restart", "unless-stopped",
-        *network_args,
-        *user_args,
-        *vpn_args,
-        "--env-file", str(tenant.env_path),
-        "-e", "OLT_DISABLE_EMBEDDED_SYNC=1",
-        "-e", "OLT_ENABLE_EMBEDDED_SYNC=false",
-        "--workdir", "/app",
-        "-v", f"{codebase}:/app",
-        "-v", f"{tenant_dir}:{tenant_dir}",
-        "-v", f"{codebase / 'staticfiles'}:{codebase / 'staticfiles'}",
-        image,
-        *entrypoint_args,
-        "python", "manage.py", "run_tenant",
-        "--host", bind_host,
-        "--port", str(tenant.panel_port),
-    ], timeout=120)
-    log_lines.append(f"Docker tenant web container create/start: {'OK' if ok else 'FAILED'}")
-    if output:
-        log_lines.append(output)
-    if not ok:
-        raise TenantProvisionError(output or "Docker tenant web container failed.")
-
-    _wait_tenant_http(tenant)
-
-    try:
-        deployment.publish_proxy(tenant, _run_command)
-    except ValueError as exc:
-        raise TenantProvisionError(str(exc)) from exc
-
-    tenant.container_name = container_name
-    tenant.worker_container_name = ""
-    tenant.provisioning_log = "\n".join(log_lines).strip()
-    tenant.provisioning_error = ""
-    tenant.provisioned_at = timezone.now()
-    tenant.save(update_fields=["container_name", "worker_container_name", "wg_config_path", "provisioning_log", "provisioning_error", "provisioned_at", "updated_at"])
-    return f"{container_name} running (web + background sync)"
 
 
 def _wait_tenant_http(tenant):
@@ -670,13 +425,11 @@ def prepare_tenant_defaults(tenant):
     if not tenant.wg_client_private_key or not tenant.wg_client_public_key:
         tenant.wg_client_private_key, tenant.wg_client_public_key = _wireguard_keypair()
     tenant.wg_client_address = tenant.wg_client_address or _tenant_default_wg_address(tenant)
-    tenant.container_name = ""
-    tenant.worker_container_name = ""
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",
         "wg_client_private_key", "wg_client_public_key", "wg_client_address",
-        "docker_image", "container_name", "worker_container_name", "updated_at",
+        "updated_at",
     ])
     return tenant
 
@@ -687,6 +440,8 @@ def provision_tenant_instance(tenant):
         deployment.prepare_deployment(tenant, _wireguard_keypair)
     except ValueError as exc:
         raise TenantProvisionError(str(exc)) from exc
+    if tenant.vpn_enabled:
+        deployment.write_vpn_files(tenant)
     Path(tenant.database_path).parent.mkdir(parents=True, exist_ok=True)
     _write_tenant_env_file(tenant)
     _run_tenant_manage(tenant, ["migrate", "--noinput"], timeout=600)

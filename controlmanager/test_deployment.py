@@ -52,7 +52,6 @@ class TenantDeploymentTests(TestCase):
             deployment.prepare_deployment(item, _wireguard_keypair)
         for field in ('vpn_server_address', 'wg_client_address', 'vpn_listen_port', 'wg_client_public_key'):
             self.assertNotEqual(getattr(first, field), getattr(second, field))
-        self.assertNotEqual(deployment.vpn_transport_subnet(first), deployment.vpn_transport_subnet(second))
         self.assertIn('192.168.1.0/24', deployment.server_config(first))
         self.assertNotIn('192.168.1.0/24', deployment.client_config(first))
         self.assertIn('AllowedIPs = 10.75.75.1/32', deployment.client_config(first))
@@ -61,6 +60,8 @@ class TenantDeploymentTests(TestCase):
         self.assertEqual(second.vpn_server_address, '10.75.75.5/30')
         self.assertEqual(second.wg_client_address, '10.75.75.6/30')
         self.assertIn('AllowedIPs = 10.75.75.2/32, 192.168.1.0/24', deployment.server_config(first))
+        self.assertIn('Address = 10.75.75.1/30', deployment.server_config(first))
+        self.assertIn(f'ListenPort = {first.vpn_listen_port}', deployment.server_config(first))
 
     def test_deleted_tenant_tunnel_slot_is_reused(self):
         first = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
@@ -87,22 +88,29 @@ class TenantDeploymentTests(TestCase):
         deployment.prepare_deployment(tenant, _wireguard_keypair)
         self.assertEqual(keys, (tenant.vpn_server_private_key, tenant.wg_client_private_key))
 
-    def test_dangerous_or_transport_routes_rejected(self):
+    def test_dangerous_or_tunnel_routes_rejected(self):
         for value in ('0.0.0.0/0', '127.0.0.0/8', '::/0'):
             with self.assertRaises(ValueError):
                 deployment.route_networks(value)
-        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='172.30.1.0/24')
+        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='10.75.75.0/24')
         with self.assertRaises(ValueError):
             deployment.prepare_deployment(tenant, _wireguard_keypair)
 
-    def test_form_rejects_missing_vpn_routes_and_reserved_subdomain(self):
+    def test_form_uses_name_for_subdomain_and_rejects_missing_vpn_details(self):
         form = TenantCreateForm(data={'name': 'nexus', 'owner_email': 'a@example.com',
             'panel_admin_username': 'admin', 'panel_admin_initial_password': 'test-password',
-            'subdomain': 'control', 'vpn_enabled': True})
+            'vpn_enabled': True})
         self.assertFalse(form.is_valid())
-        self.assertIn('subdomain', form.errors)
         self.assertIn('vpn_routes', form.errors)
         self.assertIn('client_public_ip', form.errors)
+
+    def test_create_form_exposes_only_required_tenant_inputs(self):
+        form = TenantCreateForm()
+        self.assertEqual(list(form.fields), [
+            'name', 'owner_email', 'panel_admin_username',
+            'panel_admin_initial_password', 'vpn_enabled',
+            'client_public_ip', 'vpn_routes',
+        ])
 
     def test_local_creation_needs_no_vpn_endpoint(self):
         with patch.dict(os.environ, CONTROL_VPN_PUBLIC_HOST=''):

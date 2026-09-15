@@ -13,7 +13,7 @@
 <section class="panel">
     <h2>Tenant Access</h2>
     <div class="table-wrap"><table>
-        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>Service/Container</th></tr></thead>
+        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>System Service</th></tr></thead>
         <tbody><tr>
             <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
             <td>{{ tenant.panel_admin_username|default:"-" }}</td>
@@ -24,7 +24,7 @@
     </table></div>
 </section>
 <section class="panel">
-    <h2>Tenant Service / VPN</h2>
+    <h2>Tenant Network / VPN</h2>
     <p class="subtle">{% if tenant.public_hostname %}Public URL: {{ tenant.panel_url }}{% else %}No main domain is configured. Local IP and port access is active.{% endif %}</p>
     {% if tenant.vpn_enabled %}
     <p>Tunnel interface — Server: {{ tenant.vpn_server_address }} | Client: {{ tenant.wg_client_address }} | UDP: {{ tenant.vpn_listen_port }}</p>
@@ -45,9 +45,10 @@
     {% endif %}
     <div class="table-wrap"><table>
         <tbody>
-            <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
-            <tr><th>Client Subnet</th><td>{{ tenant.client_local_subnet|default:"-" }}</td><th>OLT Subnet</th><td>{{ tenant.olt_management_subnet|default:"-" }}</td></tr>
-            <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>WG Address</th><td>{{ tenant.wg_client_address|default:"-" }}</td></tr>
+            <tr><th>Subdomain</th><td>{{ tenant.subdomain|default:"-" }}</td><th>VPN Enabled</th><td>{{ tenant.vpn_enabled|yesno:"Yes,No" }}</td></tr>
+            <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Private VPN Pool</th><td>10.75.75.0/24</td></tr>
+            <tr><th>Local Routes</th><td><pre>{{ tenant.vpn_routes|default:"-" }}</pre></td><th>Tunnel /30</th><td>{% if tenant.vpn_enabled %}{{ tenant.vpn_server_address }} ↔ {{ tenant.wg_client_address }}{% else %}Allocated when VPN is enabled{% endif %}</td></tr>
+            <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
             <tr><th>System Service</th><td>{{ tenant.service_name|default:"-" }}</td><th>Runtime</th><td>Python virtual environment</td></tr>
             <tr><th>Background Sync</th><td colspan="3">Runs inside the tenant app service</td></tr>
             <tr><th>WG Config Path</th><td colspan="3">{{ tenant.wg_config_path|default:"-" }}</td></tr>
@@ -59,7 +60,7 @@
 </section>
 <section class="panel">
     <h2>Controls</h2>
-    <details><summary>VPN / subdomain settings</summary>
+    <details><summary>Site-to-site VPN settings</summary>
     <form method="post" class="form-grid">
         {% csrf_token %}<input type="hidden" name="action" value="connections">
         {{ connection_form.non_field_errors }}
