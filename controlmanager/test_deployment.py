@@ -39,7 +39,9 @@ class TenantDeploymentTests(TestCase):
             self.assertIn('reverse_proxy 127.0.0.1:8001', deployment.proxy_text(tenant))
             with tempfile.TemporaryDirectory() as directory:
                 tenant.env_path = str(Path(directory) / '.env')
-                tenant.database_path = str(Path(directory) / 'db.sqlite3')
+                tenant.database_name = 'optiverse_test'
+                tenant.database_user = 'optiverse_test'
+                tenant.database_password = 'test-only'
                 _write_tenant_env_file(tenant)
                 content = Path(tenant.env_path).read_text()
                 self.assertIn('DJANGO_CSRF_TRUSTED_ORIGINS=https://nexus.example.com', content)

@@ -22,8 +22,8 @@ def _load_local_env(path):
         return
     try:
         env_text = path.read_text(encoding="utf-8")
-    except OSError:
-        return
+    except OSError as exc:
+        raise RuntimeError(f'Cannot read environment file: {path}') from exc
     for raw_line in env_text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -144,15 +144,9 @@ CHANNEL_LAYERS = {
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.environ.get('SQLITE_DB_PATH', str(BASE_DIR / 'db.sqlite3')),
-        'OPTIONS': {
-            'timeout': int(os.environ.get('SQLITE_TIMEOUT_SECONDS', '30')),
-        },
-    }
-}
+from .database import database_config
+DATABASES = {'default': database_config()}
+OPTIVERSE_RUNTIME_DIR = os.environ.get('OPTIVERSE_RUNTIME_DIR', '')
 
 OLT_SAMPLE_RETENTION_DAYS = {
     'onu_optical': int(os.environ.get('OLT_ONU_OPTICAL_RETENTION_DAYS', '15')),

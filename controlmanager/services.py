@@ -6,7 +6,6 @@ import os
 import re
 import secrets
 import shutil
-import sqlite3
 import subprocess
 import time
 import http.client
@@ -17,6 +16,7 @@ from django.utils import timezone
 
 from .models import Tenant, TenantOLTSnapshot, TenantSnapshot
 from . import deployment
+from . import tenant_database
 
 
 class TenantSnapshotError(Exception):
@@ -28,8 +28,7 @@ class TenantProvisionError(Exception):
 
 
 def _table_exists(cursor, name):
-    cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [name])
-    return cursor.fetchone() is not None
+    return tenant_database.table_exists(cursor, name)
 
 
 def _tenant_base_dir():
@@ -129,6 +128,7 @@ def _tenant_secret_key(tenant):
 def _tenant_env(tenant, *, disable_embedded_sync=False):
     tenant_dir = Path(tenant.env_path).parent
     env = os.environ.copy()
+    env.update(_tenant_database_env(tenant))
     env.update({
         "DJANGO_SETTINGS_MODULE": "oltportal.settings",
         "DJANGO_SECRET_KEY": _tenant_secret_key(tenant),
@@ -140,8 +140,7 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         "DJANGO_SECURE_SSL_REDIRECT": str(bool(tenant.public_hostname)),
         "DJANGO_SESSION_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_sessionid",
         "DJANGO_CSRF_COOKIE_NAME": f"optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken",
-        "SQLITE_DB_PATH": tenant.database_path,
-        "SQLITE_TIMEOUT_SECONDS": "60",
+        "OPTIVERSE_RUNTIME_DIR": str(tenant_dir),
         "ONU_STATUS_SYNC_PROGRESS_FILE": str(tenant_dir / "onu_status_sync_progress.json"),
         "DJANGO_TIME_ZONE": os.environ.get("CONTROL_DJANGO_TIME_ZONE", "Asia/Karachi"),
         "DJANGO_LANGUAGE_CODE": "en-us",
@@ -155,6 +154,12 @@ def _tenant_env(tenant, *, disable_embedded_sync=False):
         env["OLT_DISABLE_EMBEDDED_SYNC"] = "1"
         env.pop("OLT_ENABLE_EMBEDDED_SYNC", None)
     return env
+
+
+def _tenant_database_env(tenant):
+    return {'DB_ENGINE': tenant.database_engine, 'DB_NAME': tenant.database_name,
+            'DB_USER': tenant.database_user, 'DB_PASSWORD': tenant.database_password,
+            'DB_HOST': tenant.database_host, 'DB_PORT': str(tenant.database_port)}
 
 
 def _write_tenant_env_file(tenant):
@@ -171,8 +176,13 @@ DJANGO_SESSION_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_sessionid
 DJANGO_CSRF_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken
 DJANGO_TIME_ZONE=Asia/Karachi
 DJANGO_LANGUAGE_CODE=en-us
-SQLITE_DB_PATH={tenant.database_path}
-SQLITE_TIMEOUT_SECONDS=60
+OPTIVERSE_RUNTIME_DIR={tenant_dir}
+DB_ENGINE={tenant.database_engine}
+DB_NAME={tenant.database_name}
+DB_USER={tenant.database_user}
+DB_PASSWORD={tenant.database_password}
+DB_HOST={tenant.database_host}
+DB_PORT={tenant.database_port}
 ONU_STATUS_SYNC_PROGRESS_FILE={tenant_dir / "onu_status_sync_progress.json"}
 OLT_ENABLE_EMBEDDED_SYNC=true
 OLT_BACKGROUND_SYNC_THREADS={os.environ.get("CONTROL_TENANT_BACKGROUND_SYNC_THREADS", "snmp_monitor,onu_status,signal_sample")}
@@ -207,7 +217,7 @@ OPTIVERSE_AGENT_TOKEN={tenant.agent_token}
         "DJANGO_SECRET_KEY",
         "DJANGO_SESSION_COOKIE_NAME",
         "DJANGO_CSRF_COOKIE_NAME",
-        "SQLITE_DB_PATH",
+        "DB_NAME", "DB_USER", "DB_PASSWORD",
         "ONU_STATUS_SYNC_PROGRESS_FILE",
         "OLT_BACKGROUND_SYNC_THREADS",
     }
@@ -250,7 +260,9 @@ def _write_systemd_service(tenant):
     if not _systemd_available():
         return "systemd not available; service file skipped"
     codebase = Path(tenant.codebase_path)
-    service_name = f"optiverse-{_safe_slug(tenant)}"
+    service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").removesuffix('.service')
+    if not re.fullmatch(r'optiverse(?:-[a-z0-9-]+)?', service_name):
+        raise TenantProvisionError('Invalid tenant system service name.')
     service_text = f"""[Unit]
 Description=OptiVerse Tenant Portal - {tenant.name}
 After=network-online.target
@@ -277,6 +289,7 @@ WantedBy=multi-user.target
     path.write_text(service_text, encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, text=True)
     subprocess.run(["systemctl", "enable", "--now", service_name], check=True, capture_output=True, text=True)
+    subprocess.run(["systemctl", "restart", service_name], check=True, capture_output=True, text=True)
     _apply_tenant_vpn(tenant)
     tenant.service_name = service_name
     tenant.save(update_fields=["service_name", "updated_at"])
@@ -321,11 +334,13 @@ def _run_command(args, *, timeout=120, cwd=None):
     return result.returncode == 0, output
 
 
-def _remove_file_with_sqlite_sidecars(path, log_lines):
+def _remove_tenant_file(path, log_lines):
+    if not path:
+        return
     target = Path(str(path or "")).expanduser()
     if not str(target):
         return
-    for candidate in [target, Path(f"{target}-wal"), Path(f"{target}-shm"), Path(f"{target}-journal")]:
+    for candidate in [target]:
         try:
             if candidate.is_file():
                 candidate.unlink()
@@ -360,7 +375,7 @@ def delete_tenant_instance(tenant):
     """
     log_lines = []
     service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").strip()
-    if _systemd_available() and re.fullmatch(r"optiverse-[a-z0-9-]+", service_name):
+    if _systemd_available() and re.fullmatch(r"optiverse(?:-[a-z0-9-]+)?", service_name):
         _run_command(["systemctl", "disable", "--now", service_name], timeout=60)
         service_path = Path("/etc/systemd/system") / f"{service_name}.service"
         service_path.unlink(missing_ok=True)
@@ -376,9 +391,10 @@ def delete_tenant_instance(tenant):
         deployment.remove_proxy(tenant, _run_command)
     except ValueError as exc:
         raise TenantProvisionError(str(exc)) from exc
-    _remove_file_with_sqlite_sidecars(tenant.database_path, log_lines)
-    _remove_file_with_sqlite_sidecars(tenant.env_path, log_lines)
-    _remove_file_with_sqlite_sidecars(tenant.wg_config_path, log_lines)
+    _drop_postgres_tenant(tenant)
+    log_lines.append(f'Removed PostgreSQL tenant database: {tenant.database_name}')
+    _remove_tenant_file(tenant.env_path, log_lines)
+    _remove_tenant_file(tenant.wg_config_path, log_lines)
     _remove_tenant_directory_if_safe(tenant, log_lines)
 
     name = tenant.name
@@ -414,8 +430,16 @@ def prepare_tenant_defaults(tenant):
     tenant.panel_scheme = tenant.panel_scheme or "http"
     tenant.panel_host = tenant.panel_host or _tenant_panel_host()
     tenant.codebase_path = tenant.codebase_path or str(_tenant_codebase_path())
-    tenant.database_path = tenant.database_path or str(base / "db.sqlite3")
+    tenant.database_path = ''
     tenant.env_path = tenant.env_path or str(base / ".env")
+    tenant.database_engine = 'postgresql'
+    if not tenant.database_name:
+        tenant.database_engine = 'postgresql'
+        tenant.database_name = ('optiverse_tenant_' + _safe_slug(tenant).replace('-', '_'))[:63]
+        tenant.database_user = tenant.database_name
+        tenant.database_password = secrets.token_urlsafe(36)
+        tenant.database_host = os.environ.get('CONTROL_TENANT_DB_HOST', '127.0.0.1')
+        tenant.database_port = int(os.environ.get('CONTROL_TENANT_DB_PORT', '5432'))
     expected_service_name = f"optiverse-{slug}"
     if not tenant.service_name or str(tenant.service_name).startswith("optiverse-tenant-"):
         tenant.service_name = expected_service_name
@@ -428,10 +452,59 @@ def prepare_tenant_defaults(tenant):
     tenant.save(update_fields=[
         "panel_port", "panel_scheme", "panel_host", "codebase_path", "database_path",
         "env_path", "service_name", "isp_name", "owner_name", "agent_token",
+        "database_engine", "database_name", "database_user", "database_password", "database_host", "database_port",
         "wg_client_private_key", "wg_client_public_key", "wg_client_address",
         "updated_at",
     ])
     return tenant
+
+
+def _postgres_admin_query(statement):
+    if os.name == 'nt':
+        import psycopg
+        password = os.environ.get('CONTROL_PG_ADMIN_PASSWORD', '')
+        if not password:
+            raise TenantProvisionError('Set CONTROL_PG_ADMIN_PASSWORD for local tenant provisioning.')
+        try:
+            with psycopg.connect(dbname='postgres', host='127.0.0.1',
+                    port=int(os.environ.get('CONTROL_TENANT_DB_PORT', '5432')),
+                    user=os.environ.get('CONTROL_PG_ADMIN_USER', 'postgres'), password=password,
+                    autocommit=True, connect_timeout=10) as connection:
+                cursor = connection.execute(statement)
+                row = cursor.fetchone() if cursor.description else None
+                return row[0] if row else None
+        except psycopg.Error as exc:
+            raise TenantProvisionError('PostgreSQL administration failed; check local administrator settings.') from exc
+    result = subprocess.run(['runuser', '-u', 'postgres', '--', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-At', '-d', 'postgres'],
+        input=statement.as_string(), text=True, capture_output=True, timeout=60)
+    if result.returncode:
+        raise TenantProvisionError('PostgreSQL administration failed; check the control service permissions and PostgreSQL logs.')
+    return result.stdout.strip()
+
+
+def _ensure_postgres_tenant(tenant):
+    """Local trusted control service creates a dedicated tenant role/database."""
+    from psycopg import sql
+    if not re.fullmatch(r'optiverse_tenant_[a-z0-9_]+', tenant.database_name) or tenant.database_user != tenant.database_name:
+        raise TenantProvisionError('Tenant database/user names must use the managed optiverse_tenant_ prefix.')
+    if tenant.database_host not in {'127.0.0.1', 'localhost'}:
+        raise TenantProvisionError('Automatic database provisioning requires a local PostgreSQL server.')
+    query = _postgres_admin_query
+    if not query(sql.SQL('SELECT 1 FROM pg_roles WHERE rolname={}').format(sql.Literal(tenant.database_user))):
+        query(sql.SQL('CREATE ROLE {} LOGIN PASSWORD {}').format(sql.Identifier(tenant.database_user), sql.Literal(tenant.database_password)))
+    if not query(sql.SQL('SELECT 1 FROM pg_database WHERE datname={}').format(sql.Literal(tenant.database_name))):
+        query(sql.SQL('CREATE DATABASE {} OWNER {} TEMPLATE template0').format(sql.Identifier(tenant.database_name), sql.Identifier(tenant.database_user)))
+
+
+def _drop_postgres_tenant(tenant):
+    from psycopg import sql
+    if (not re.fullmatch(r'optiverse_tenant_[a-z0-9_]+', tenant.database_name)
+            or tenant.database_user != tenant.database_name
+            or tenant.database_host not in {'127.0.0.1', 'localhost'}):
+        raise TenantProvisionError('Refusing to remove an unmanaged or remote PostgreSQL database.')
+    # Separate statements: DROP DATABASE cannot run inside a transaction block.
+    _postgres_admin_query(sql.SQL('DROP DATABASE IF EXISTS {} WITH (FORCE)').format(sql.Identifier(tenant.database_name)))
+    _postgres_admin_query(sql.SQL('DROP ROLE IF EXISTS {}').format(sql.Identifier(tenant.database_user)))
 
 
 def provision_tenant_instance(tenant):
@@ -442,7 +515,7 @@ def provision_tenant_instance(tenant):
         raise TenantProvisionError(str(exc)) from exc
     if tenant.vpn_enabled:
         deployment.write_vpn_files(tenant)
-    Path(tenant.database_path).parent.mkdir(parents=True, exist_ok=True)
+    _ensure_postgres_tenant(tenant)
     _write_tenant_env_file(tenant)
     _run_tenant_manage(tenant, ["migrate", "--noinput"], timeout=600)
     username = tenant.panel_admin_username or "admin"
@@ -467,31 +540,18 @@ def provision_tenant_instance(tenant):
 
 
 def _connect_tenant_db(tenant, *, read_only=True):
-    db_path = Path(str(tenant.database_path or "").strip())
-    if not db_path.exists():
-        raise TenantSnapshotError(f"Tenant database not found: {db_path}")
-    if read_only:
-        conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True, timeout=5)
-    else:
-        conn = sqlite3.connect(str(db_path), timeout=20)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        return tenant_database.connect(tenant, read_only)
+    except (FileNotFoundError, *tenant_database.DATABASE_ERRORS) as exc:
+        raise TenantSnapshotError(str(exc)) from exc
 
 
-def _quote_sqlite_identifier(value):
+def _quote_identifier(value):
     return '"' + str(value).replace('"', '""') + '"'
 
 
 def _tenant_fk_references(cursor, target_table):
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    references = []
-    for table_row in cursor.fetchall():
-        table_name = table_row["name"]
-        cursor.execute(f"PRAGMA foreign_key_list({_quote_sqlite_identifier(table_name)})")
-        for fk in cursor.fetchall():
-            if fk["table"] == target_table:
-                references.append((table_name, fk["from"]))
-    return references
+    return tenant_database.references(cursor, target_table)
 
 
 TENANT_OLT_BILLING_COLUMNS = {
@@ -509,8 +569,7 @@ TENANT_OLT_PRICING_LABELS = {
 
 
 def _tenant_olt_columns(cursor):
-    cursor.execute("PRAGMA table_info(oltmanager_olt)")
-    return {str(row["name"]) for row in cursor.fetchall()}
+    return tenant_database.columns(cursor, 'oltmanager_olt')
 
 
 def _ensure_tenant_olt_billing_columns(cursor):
@@ -523,17 +582,7 @@ def _ensure_tenant_olt_billing_columns(cursor):
         )
 
 
-def _sqlite_datetime(value):
-    if not value:
-        return None
-    if isinstance(value, str):
-        return value
-    if timezone.is_aware(value):
-        value = timezone.localtime(value)
-    return value.replace(microsecond=0).isoformat(sep=" ")
-
-
-def _parse_sqlite_datetime(value):
+def _parse_database_datetime(value):
     text = str(value or "").strip()
     if not text:
         return None
@@ -548,7 +597,7 @@ def _parse_sqlite_datetime(value):
 
 def _billing_status_from_row(row):
     mode = str(row.get("pricing_mode") or "standard").strip().lower() or "standard"
-    expires_at = _parse_sqlite_datetime(row.get("pricing_expires_at"))
+    expires_at = _parse_database_datetime(row.get("pricing_expires_at"))
     manually_locked = bool(int(row.get("pricing_locked") or 0))
     expired = bool(expires_at and expires_at <= timezone.now())
     if manually_locked:
@@ -573,12 +622,12 @@ def _clear_fk_references(cursor, target_table, target_id, *, set_null_tables=Non
     for table_name, column_name in _tenant_fk_references(cursor, target_table):
         if not column_name:
             continue
-        table_sql = _quote_sqlite_identifier(table_name)
-        column_sql = _quote_sqlite_identifier(column_name)
+        table_sql = _quote_identifier(table_name)
+        column_sql = _quote_identifier(column_name)
         if table_name in set_null_tables:
-            cursor.execute(f"UPDATE {table_sql} SET {column_sql}=NULL WHERE {column_sql}=?", [target_id])
+            cursor.execute(f"UPDATE {table_sql} SET {column_sql}=NULL WHERE {column_sql}=%s", [target_id])
         else:
-            cursor.execute(f"DELETE FROM {table_sql} WHERE {column_sql}=?", [target_id])
+            cursor.execute(f"DELETE FROM {table_sql} WHERE {column_sql}=%s", [target_id])
 
 
 def get_tenant_olts(tenant):
@@ -604,7 +653,7 @@ def get_tenant_olts(tenant):
             FROM oltmanager_olt o
             LEFT JOIN oltmanager_configuredonu c ON c.olt_id = o.id
             GROUP BY o.id
-            ORDER BY o.name COLLATE NOCASE
+            ORDER BY LOWER(o.name)
             """.format(billing_select=billing_select)
         )
         rows = []
@@ -634,7 +683,7 @@ def get_tenant_olt_onus(tenant, tenant_olt_id, search_query=""):
             if has_billing_columns
             else ", 'standard' AS pricing_mode, NULL AS pricing_expires_at, 0 AS pricing_locked, '' AS pricing_locked_reason"
         )
-        cursor.execute(f"SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status{billing_select} FROM oltmanager_olt WHERE id=?", [int(tenant_olt_id)])
+        cursor.execute(f"SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status{billing_select} FROM oltmanager_olt WHERE id=%s", [int(tenant_olt_id)])
         olt = cursor.fetchone()
         if not olt:
             raise TenantSnapshotError("OLT not found in tenant database.")
@@ -645,10 +694,10 @@ def get_tenant_olt_onus(tenant, tenant_olt_id, search_query=""):
             like_text = f"%{search_text.lower()}%"
             where_extra = """
               AND (
-                LOWER(COALESCE(sn, '')) LIKE ?
-                OR LOWER(COALESCE(description, '')) LIKE ?
-                OR LOWER(COALESCE(attached_vlans_cache, '')) LIKE ?
-                OR (CAST(slot AS TEXT) || '/' || CAST(port AS TEXT) || '/' || CAST(ont_id AS TEXT)) LIKE ?
+                LOWER(COALESCE(sn, '')) LIKE %s
+                OR LOWER(COALESCE(description, '')) LIKE %s
+                OR LOWER(COALESCE(attached_vlans_cache, '')) LIKE %s
+                OR (CAST(slot AS TEXT) || '/' || CAST(port AS TEXT) || '/' || CAST(ont_id AS TEXT)) LIKE %s
               )
             """
             params.extend([like_text, like_text, like_text, f"%{search_text}%"])
@@ -656,7 +705,7 @@ def get_tenant_olt_onus(tenant, tenant_olt_id, search_query=""):
             f"""
             SELECT id, slot, port, ont_id, sn, description, derived_status, attached_vlans_cache, onu_rx, olt_rx, ont_distance_m
             FROM oltmanager_configuredonu
-            WHERE olt_id=?
+            WHERE olt_id=%s
             {where_extra}
             ORDER BY slot, port, ont_id
             """,
@@ -677,7 +726,7 @@ def update_tenant_olt_pricing(tenant, tenant_olt_id, *, pricing_mode=None, expir
         if not _table_exists(cursor, "oltmanager_olt"):
             raise TenantSnapshotError("Tenant database is not initialized yet. Run tenant provisioning/migrations again.")
         _ensure_tenant_olt_billing_columns(cursor)
-        cursor.execute("SELECT id, name FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        cursor.execute("SELECT id, name FROM oltmanager_olt WHERE id=%s", [tenant_olt_id])
         row = cursor.fetchone()
         if not row:
             raise TenantSnapshotError("OLT not found in tenant database.")
@@ -692,18 +741,18 @@ def update_tenant_olt_pricing(tenant, tenant_olt_id, *, pricing_mode=None, expir
                 expires_at = timezone.now() + timedelta(days=3)
             elif mode == "standard":
                 expires_at = timezone.now() + timedelta(days=30)
-            update_parts.extend(["pricing_mode=?", "pricing_expires_at=?"])
-            params.extend([mode, _sqlite_datetime(expires_at)])
+            update_parts.extend(["pricing_mode=%s", "pricing_expires_at=%s"])
+            params.extend([mode, expires_at])
         if locked is not None:
-            update_parts.extend(["pricing_locked=?", "pricing_locked_reason=?"])
-            params.extend([1 if locked else 0, str(reason or "")[:255]])
+            update_parts.extend(["pricing_locked=%s", "pricing_locked_reason=%s"])
+            params.extend([bool(locked), str(reason or "")[:255]])
         if not update_parts:
             return "No pricing changes submitted."
         params.append(tenant_olt_id)
-        cursor.execute(f"UPDATE oltmanager_olt SET {', '.join(update_parts)} WHERE id=?", params)
+        cursor.execute(f"UPDATE oltmanager_olt SET {', '.join(update_parts)} WHERE id=%s", params)
         conn.commit()
         name = str(row["name"] or "")
-    except sqlite3.Error as exc:
+    except tenant_database.DATABASE_ERRORS as exc:
         conn.rollback()
         raise TenantSnapshotError(f"Could not update OLT pricing in tenant database: {exc}") from exc
     finally:
@@ -717,8 +766,7 @@ def delete_tenant_olt(tenant, tenant_olt_id):
     conn = _connect_tenant_db(tenant, read_only=False)
     try:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("SELECT name FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        cursor.execute("SELECT name FROM oltmanager_olt WHERE id=%s", [tenant_olt_id])
         row = cursor.fetchone()
         if not row:
             raise TenantSnapshotError("OLT not found in tenant database.")
@@ -729,10 +777,10 @@ def delete_tenant_olt(tenant, tenant_olt_id):
             tenant_olt_id,
             set_null_tables={"oltmanager_alertevent"},
         )
-        cursor.execute("DELETE FROM oltmanager_olt WHERE id=?", [tenant_olt_id])
+        cursor.execute("DELETE FROM oltmanager_olt WHERE id=%s", [tenant_olt_id])
         deleted = cursor.rowcount
         conn.commit()
-    except sqlite3.Error as exc:
+    except tenant_database.DATABASE_ERRORS as exc:
         conn.rollback()
         raise TenantSnapshotError(f"Could not delete OLT from tenant database: {exc}") from exc
     finally:
@@ -746,20 +794,19 @@ def delete_tenant_onu(tenant, onu_id):
     conn = _connect_tenant_db(tenant, read_only=False)
     try:
         cursor = conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
         _clear_fk_references(cursor, "oltmanager_configuredonu", onu_id)
         cursor.execute(
-            "SELECT slot, port, ont_id, sn FROM oltmanager_configuredonu WHERE id=?",
+            "SELECT slot, port, ont_id, sn FROM oltmanager_configuredonu WHERE id=%s",
             [onu_id],
         )
         row = cursor.fetchone()
         if not row:
             raise TenantSnapshotError("ONU not found in tenant database.")
         label = f"{row['slot']}/{row['port']}/{row['ont_id']} {row['sn'] or ''}".strip()
-        cursor.execute("DELETE FROM oltmanager_configuredonu WHERE id=?", [onu_id])
+        cursor.execute("DELETE FROM oltmanager_configuredonu WHERE id=%s", [onu_id])
         deleted = cursor.rowcount
         conn.commit()
-    except sqlite3.Error as exc:
+    except tenant_database.DATABASE_ERRORS as exc:
         conn.rollback()
         raise TenantSnapshotError(f"Could not delete ONU from tenant database: {exc}") from exc
     finally:
@@ -769,17 +816,11 @@ def delete_tenant_onu(tenant, onu_id):
 
 
 def refresh_tenant_database_snapshot(tenant, *, record_snapshot=True):
-    """Read a tenant SQLite DB and copy lightweight resource counts only.
+    """Read a tenant PostgreSQL database and copy lightweight resource counts only.
 
     This function is intentionally DB-only. It does not import tenant app code and
     does not run SNMP, Telnet, HTTP polling, migrations, or background jobs.
     """
-    db_path = Path(str(tenant.database_path or "").strip())
-    if not db_path:
-        raise TenantSnapshotError("Tenant database path is empty.")
-    if not db_path.exists():
-        raise TenantSnapshotError(f"Tenant database not found: {db_path}")
-
     conn = _connect_tenant_db(tenant, read_only=True)
 
     try:
@@ -793,7 +834,7 @@ def refresh_tenant_database_snapshot(tenant, *, record_snapshot=True):
             """
             SELECT id, name, ip_address, hardware_version, sw_version, snmp_last_status
             FROM oltmanager_olt
-            ORDER BY name COLLATE NOCASE
+            ORDER BY LOWER(name)
             """
         )
         olt_rows = [dict(row) for row in cursor.fetchall()]
@@ -841,7 +882,7 @@ def refresh_tenant_database_snapshot(tenant, *, record_snapshot=True):
 
     TenantOLTSnapshot.objects.filter(tenant=tenant).exclude(tenant_olt_id__in=seen).delete()
 
-    db_size_mb = Decimal(str(round(db_path.stat().st_size / (1024 * 1024), 2)))
+    db_size_mb = Decimal(str(round(tenant_database.size_mb(tenant), 2)))
     snapshot = None
     if record_snapshot:
         snapshot = TenantSnapshot.objects.create(

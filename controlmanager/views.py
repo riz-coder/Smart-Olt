@@ -124,7 +124,7 @@ def audit(request, action, tenant=None, details=""):
 @login_required
 @owner_required
 def dashboard(request):
-    for tenant in Tenant.objects.only("id", "database_path"):
+    for tenant in Tenant.objects.only("id", "database_path", "database_engine", "database_name", "database_user", "database_password", "database_host", "database_port"):
         try:
             refresh_tenant_database_snapshot(tenant, record_snapshot=False)
         except TenantSnapshotError:

@@ -13,7 +13,7 @@ class OperationProgressTests(SimpleTestCase):
         code = '''
 import json, sys
 from django.conf import settings
-settings.configure(DATABASES={'default': {'NAME': sys.argv[1]}})
+settings.configure(OPTIVERSE_RUNTIME_DIR=sys.argv[1], DATABASES={'default': {'NAME': 'test'}})
 from oltmanager.operation_progress import SharedTasks
 tasks = SharedTasks('mapping')
 if sys.argv[2] == 'save':
@@ -30,7 +30,7 @@ print(json.dumps(dict(tasks.get('test') or {})))
 
     def test_nested_updates_survive_process_exit(self):
         with tempfile.TemporaryDirectory() as directory:
-            database = Path(directory) / 'db.sqlite3'
+            database = Path(directory) / 'runtime'
             saved = self.run_process(database, 'save')
             self.assertEqual(saved, self.run_process(database, 'read'))
             self.assertTrue(saved['done'])
@@ -39,12 +39,12 @@ print(json.dumps(dict(tasks.get('test') or {})))
 
     def test_tenant_isolation(self):
         with tempfile.TemporaryDirectory() as directory:
-            self.run_process(Path(directory) / 'one' / 'db.sqlite3', 'save')
-            self.assertEqual(self.run_process(Path(directory) / 'two' / 'db.sqlite3', 'read'), {})
+            self.run_process(Path(directory) / 'one' / 'runtime', 'save')
+            self.assertEqual(self.run_process(Path(directory) / 'two' / 'runtime', 'read'), {})
 
     def test_orphan_stops_without_claiming_success(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = self.run_process(Path(directory) / 'db.sqlite3', 'orphan')
+            result = self.run_process(Path(directory) / 'runtime', 'orphan')
             self.assertTrue(result['done'])
             self.assertFalse(result['ok'])
             self.assertTrue(result['result_unknown'])

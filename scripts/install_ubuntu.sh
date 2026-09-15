@@ -16,7 +16,7 @@ cd "$APP_DIR"
 if command -v apt-get >/dev/null 2>&1; then
   echo "Installing system packages..."
   sudo apt-get update
-  sudo apt-get install -y python3 python3-venv python3-dev build-essential libxml2-dev libxslt1-dev zlib1g-dev nginx
+  sudo apt-get install -y python3 python3-venv python3-dev build-essential libxml2-dev libxslt1-dev zlib1g-dev nginx postgresql postgresql-client
 fi
 
 if [ ! -d "$VENV_DIR" ]; then
@@ -40,7 +40,10 @@ print(get_random_secret_key())
 PY
 )"
   sed -i "s#DJANGO_SECRET_KEY=.*#DJANGO_SECRET_KEY=$SECRET#" "$ENV_FILE"
-  sed -i "s#SQLITE_DB_PATH=.*#SQLITE_DB_PATH=$APP_DIR/db.sqlite3#" "$ENV_FILE"
+  DB_SECRET="$($PY -c 'import secrets; print(secrets.token_urlsafe(40))')"
+  sed -i "s#DB_PASSWORD=.*#DB_PASSWORD=$DB_SECRET#" "$ENV_FILE"
+  sed -i "s#OPTIVERSE_RUNTIME_DIR=.*#OPTIVERSE_RUNTIME_DIR=$APP_DIR#" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
 fi
 
 set -a
@@ -49,6 +52,8 @@ source "$ENV_FILE"
 set +a
 
 mkdir -p "$APP_DIR/logs" "$APP_DIR/staticfiles" "$APP_DIR/media"
+
+sudo "$PY" scripts/provision_postgres.py --env "$ENV_FILE"
 
 echo "Running migrations..."
 "$PY" manage.py migrate --noinput

@@ -13,12 +13,12 @@
 <section class="panel">
     <h2>Tenant Access</h2>
     <div class="table-wrap"><table>
-        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>DB Path</th><th>System Service</th></tr></thead>
+        <thead><tr><th>Panel URL</th><th>Username</th><th>Initial Password</th><th>Database</th><th>System Service</th></tr></thead>
         <tbody><tr>
             <td>{% if tenant.panel_url %}<a href="{{ tenant.panel_url }}" target="_blank">{{ tenant.panel_url }}</a>{% else %}-{% endif %}</td>
             <td>{{ tenant.panel_admin_username|default:"-" }}</td>
             <td>{{ tenant.panel_admin_initial_password|default:"-" }}</td>
-            <td>{{ tenant.database_path|default:"-" }}</td>
+            <td>PostgreSQL: {{ tenant.database_name|default:"-" }}</td>
             <td>{{ tenant.service_name|default:"-" }}</td>
         </tr></tbody>
     </table></div>

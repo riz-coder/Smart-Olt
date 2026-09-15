@@ -8734,7 +8734,7 @@ def health_report(request):
 
     # Worst-signal candidates: keep this DB-side as much as possible. Scanning
     # every online ONU and sorting in Python made /report/ slow on larger
-    # tenants, especially while the background worker is updating SQLite.
+    # tenants, especially while the background worker is updating the database.
     worst_signals = []
     worst_signal_candidates = (
         ConfiguredONU.objects

@@ -10,7 +10,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.apps import AppConfig
 from django.conf import settings
 from django.db import close_old_connections
-from django.db.backends.signals import connection_created
 from django.utils import timezone
 
 logger = logging.getLogger("oltmanager.sync")
@@ -147,15 +146,6 @@ def _pop_onu_status_sync_priority(pending_ids):
                 return _ONU_STATUS_PRIORITY_IDS.pop(index)
         _ONU_STATUS_PRIORITY_IDS[:] = [int(value) for value in _ONU_STATUS_PRIORITY_IDS if int(value) in pending]
     return None
-
-
-def _configure_sqlite_connection(sender, connection, **kwargs):
-    if connection.vendor != "sqlite":
-        return
-    with connection.cursor() as cursor:
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
 
 
 def _run_sample_retention_cleanup_if_due():
@@ -1106,11 +1096,6 @@ class OltmanagerConfig(AppConfig):
     name = 'oltmanager'
 
     def ready(self):
-
-        connection_created.connect(
-            _configure_sqlite_connection,
-            dispatch_uid="oltmanager.configure_sqlite_connection",
-        )
 
         embedded_sync_disabled = os.environ.get("OLT_DISABLE_EMBEDDED_SYNC", "").strip().lower() in {"1", "true", "yes"}
         if embedded_sync_disabled:

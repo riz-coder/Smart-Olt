@@ -11,7 +11,7 @@ class SharedAuthorizeProgressTests(unittest.TestCase):
         code = '''
 import json, sys
 from django.conf import settings
-settings.configure(DATABASES={'default': {'NAME': sys.argv[1]}})
+settings.configure(OPTIVERSE_RUNTIME_DIR=sys.argv[1], DATABASES={'default': {'NAME': 'test'}})
 from oltmanager.authorize_progress import save_authorize_progress, get_authorize_progress
 if sys.argv[2] == 'save':
     save_authorize_progress('test-task', {'done': True, 'ok': True, 'step': 4})
@@ -23,14 +23,14 @@ print(json.dumps(get_authorize_progress('test-task')))
 
     def test_result_survives_writer_exit_and_is_visible_to_another_process(self):
         with tempfile.TemporaryDirectory() as directory:
-            database = Path(directory) / 'db.sqlite3'
+            database = Path(directory) / 'runtime'
             written = self.run_process(database, 'save')
             self.assertEqual(self.run_process(database, 'read'), written)
             self.assertTrue(written['done'])
 
     def test_separate_tenant_cannot_read_same_task_id(self):
         with tempfile.TemporaryDirectory() as directory:
-            first = Path(directory) / 'first' / 'db.sqlite3'
-            second = Path(directory) / 'second' / 'db.sqlite3'
+            first = Path(directory) / 'first' / 'runtime'
+            second = Path(directory) / 'second' / 'runtime'
             self.run_process(first, 'save')
             self.assertEqual(self.run_process(second, 'read'), {})

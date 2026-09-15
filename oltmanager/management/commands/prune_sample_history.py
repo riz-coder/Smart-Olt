@@ -5,7 +5,7 @@ from django.utils import timezone
 
 
 class Command(BaseCommand):
-    help = "Prune old high-volume sample history rows in bounded SQLite-friendly chunks."
+    help = "Prune old high-volume sample history rows in bounded chunks."
 
     def add_arguments(self, parser):
         parser.add_argument(

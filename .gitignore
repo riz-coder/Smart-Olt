@@ -16,15 +16,14 @@ ENV/
 .env
 .env.*
 !.env.example
+!.env.control.example
 *.pem
 *.key
 
-# Local SQLite runtime data
-*.sqlite3
-*.sqlite3-journal
-db.sqlite3
-db.sqlite3-shm
-db.sqlite3-wal
+# Local database backups and runtime data
+*.db
+*.dump
+runtime/
 
 # Runtime artifacts
 *.log

@@ -5081,9 +5081,9 @@ def _telnet_host_key(olt=None, host="", port=None):
 
 
 def _telnet_lock_dir():
-    db_path = str(os.environ.get("SQLITE_DB_PATH") or "").strip()
-    if db_path:
-        base = os.path.dirname(db_path)
+    runtime = os.environ.get('OPTIVERSE_RUNTIME_DIR', '').strip()
+    if runtime:
+        base = runtime
     else:
         base = str(getattr(settings, "BASE_DIR", "") or ".")
     path = os.path.join(base, "locks")
@@ -16632,7 +16632,7 @@ def _delete_old_rows_in_chunks(model, cutoff, *, batch_size=5000, max_batches=4)
 
 
 def prune_sample_history():
-    """Trim old high-volume samples in small batches to keep SQLite responsive."""
+    """Trim old high-volume samples in small batches to keep the database responsive."""
     from .models import (
         DashboardStatusSample,
         ONUOpticalSample,

@@ -83,13 +83,8 @@ TEMPLATES = [
     },
 ]
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("CONTROL_SQLITE_DB_PATH", str(BASE_DIR / "controlplane.sqlite3")),
-        "OPTIONS": {"timeout": int(os.environ.get("CONTROL_SQLITE_TIMEOUT_SECONDS", "30"))},
-    }
-}
+from oltportal.database import database_config
+DATABASES = {'default': database_config('CONTROL_')}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
