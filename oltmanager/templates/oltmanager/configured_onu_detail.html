@@ -1494,6 +1494,38 @@
         stroke-linejoin: round;
         stroke-linecap: round;
     }
+    .signal-range-btn[data-traffic-range="live"] {
+        background: rgba(16, 185, 129, 0.14);
+        border-color: rgba(52, 211, 153, 0.65);
+        color: #6ee7b7;
+    }
+    .signal-range-btn[data-traffic-range="live"].active {
+        background: linear-gradient(135deg, #059669, #10b981);
+        border-color: #34d399;
+        color: #fff;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14), 0 0 18px rgba(16, 185, 129, 0.30);
+    }
+    html[data-theme="light"] .signal-range-btn[data-traffic-range="live"].active {
+        background: linear-gradient(135deg, #059669, #10b981);
+        border-color: #059669;
+        color: #fff;
+    }
+    .signal-range-btn[data-traffic-range="live"].active::after {
+        content: "";
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-left: 7px;
+        border: 2px solid rgba(255,255,255,.42);
+        border-top-color: #fff;
+        border-radius: 50%;
+        vertical-align: -1px;
+        animation: traffic-live-spin .7s linear infinite;
+    }
+    .signal-range-btn.traffic-live-hidden { display: none; }
+    @keyframes traffic-live-spin { to { transform: rotate(360deg); } }
+    .traffic-chart-area-up { fill: rgba(61, 220, 151, 0.12); }
+    .traffic-chart-area-down { fill: rgba(56, 189, 248, 0.12); }
     .traffic-chart-dot-up {
         fill: #3ddc97;
         stroke: #d8fff0;
@@ -2474,9 +2506,9 @@
                     <div class="signal-history-head">
                         <h2 class="signal-history-title">ONU Traffic</h2>
                         <div class="signal-history-controls">
-                            <button type="button" class="signal-range-btn active" data-traffic-range="1h">Hour</button>
+                            <button type="button" class="signal-range-btn" data-traffic-range="live">Live</button>
                             <button type="button" class="signal-range-btn" data-traffic-range="1d">Day</button>
-                            <button type="button" class="signal-range-btn" data-traffic-range="1w">Week</button>
+                            <button type="button" class="signal-range-btn active" data-traffic-range="1w">Week</button>
                             <button type="button" class="signal-range-btn" data-traffic-range="1m">Month</button>
                             <button type="button" class="signal-range-btn" data-traffic-range="1y">Year</button>
                         </div>
@@ -2642,10 +2674,15 @@
     const unreachablePop = document.getElementById('oltUnreachablePop');
     const unreachableCloseBtn = document.getElementById('oltUnreachableCloseBtn');
     let currentSignalRange = '1h';
-    let currentTrafficRange = '1h';
+    let currentTrafficRange = '1w';
     let signalGraphHistory = [];
     let signalRefreshPending = false;
     let trafficRefreshPending = false;
+    let trafficRequestController = null;
+    let trafficRequestToken = 0;
+    let lastTrafficHistoryRange = '1w';
+    let savedTrafficHistory = [];
+    let liveTrafficStartedAt = null;
     const payload = {
         detail: true,
         onus: [{
@@ -3408,6 +3445,7 @@
             down_bps: Number(item.down_bps || 0),
         };
     }).filter(Boolean);
+    let trafficHoverPoints = [];
 
     const formatBps = (value) => {
         const number = Number(value || 0);
@@ -3423,6 +3461,7 @@
         const visible = trafficHistory
             .filter((point) => point && point.time instanceof Date && !Number.isNaN(point.time.getTime()))
             .sort((a, b) => a.time - b.time);
+        trafficHoverPoints = visible;
         const values = visible.flatMap((point) => [point.up_bps, point.down_bps]).filter((value) => Number.isFinite(value));
         if (!visible.length || !values.length) {
             trafficChartNode.innerHTML = '';
@@ -3436,7 +3475,14 @@
         const maxValue = Math.max(1, ...values);
         const yForValue = (value) => top + plotHeight - ((Number(value || 0) / maxValue) * plotHeight);
         const xForIndex = (index) => visible.length <= 1 ? left + (plotWidth / 2) : left + ((plotWidth * index) / (visible.length - 1));
-        const buildPoints = (field) => visible.map((point, index) => `${xForIndex(index).toFixed(1)},${yForValue(point[field]).toFixed(1)}`).join(' ');
+        const buildPoints = (field) => {
+            if (visible.length === 1) {
+                const y = yForValue(visible[0][field]).toFixed(1);
+                return `${left},${y} ${(width - right).toFixed(1)},${y}`;
+            }
+            return visible.map((point, index) => `${xForIndex(index).toFixed(1)},${yForValue(point[field]).toFixed(1)}`).join(' ');
+        };
+        const buildAreaPoints = (field) => `${left},${(top + plotHeight).toFixed(1)} ${buildPoints(field)} ${(width - right).toFixed(1)},${(top + plotHeight).toFixed(1)}`;
         let grid = '';
         for (let i = 0; i < 4; i += 1) {
             const ratio = i / 3;
@@ -3461,14 +3507,17 @@
         }).join('');
         trafficChartNode.innerHTML = `
             ${grid}
+            <polygon class="traffic-chart-area-up" points="${buildAreaPoints('up_bps')}"></polygon>
+            <polygon class="traffic-chart-area-down" points="${buildAreaPoints('down_bps')}"></polygon>
             <polyline class="traffic-chart-path-up" points="${buildPoints('up_bps')}"></polyline>
             <polyline class="traffic-chart-path-down" points="${buildPoints('down_bps')}"></polyline>
             ${dots}
             ${labels}
+            <g data-onu-traffic-hover-guide hidden></g>
         `;
         const latest = visible[visible.length - 1];
         const avg = (field) => visible.reduce((total, point) => total + Number(point[field] || 0), 0) / visible.length;
-        const useAverage = currentTrafficRange !== '1h';
+        const useAverage = currentTrafficRange !== 'live';
         if (trafficCurrentUpNode) trafficCurrentUpNode.textContent = formatBps(useAverage ? avg('up_bps') : latest.up_bps);
         if (trafficCurrentDownNode) trafficCurrentDownNode.textContent = formatBps(useAverage ? avg('down_bps') : latest.down_bps);
         if (trafficMaximumUpNode) trafficMaximumUpNode.textContent = formatBps(Math.max(...visible.map((point) => Number(point.up_bps || 0))));
@@ -3477,19 +3526,30 @@
 
     if (trafficChartNode) {
         trafficChartNode.addEventListener('mousemove', (event) => {
-            if (!trafficTooltipNode) return;
-            const dot = event.target.closest ? event.target.closest('.traffic-chart-dot-up, .traffic-chart-dot-down') : null;
-            if (!dot) {
-                trafficTooltipNode.hidden = true;
-                return;
+            if (!trafficTooltipNode || !trafficHoverPoints.length) return;
+            const box = trafficChartNode.getBoundingClientRect();
+            const plotStart = (62 / 760) * box.width;
+            const plotWidth = ((760 - 62 - 12) / 760) * box.width;
+            const relativeX = Math.max(0, Math.min(plotWidth, event.clientX - box.left - plotStart));
+            const index = trafficHoverPoints.length === 1 ? 0 : Math.round((relativeX / plotWidth) * (trafficHoverPoints.length - 1));
+            const point = trafficHoverPoints[index];
+            if (!point) return;
+            const maxValue = Math.max(1, ...trafficHoverPoints.flatMap((row) => [Number(row.up_bps || 0), Number(row.down_bps || 0)]));
+            const x = trafficHoverPoints.length === 1 ? 405 : 62 + (((760 - 62 - 12) * index) / (trafficHoverPoints.length - 1));
+            const yFor = (value) => 12 + 124 - ((Number(value || 0) / maxValue) * 124);
+            const guide = trafficChartNode.querySelector('[data-onu-traffic-hover-guide]');
+            if (guide) {
+                guide.hidden = false;
+                guide.innerHTML = `<line x1="${x}" y1="12" x2="${x}" y2="136" stroke="rgba(255,255,255,.42)" stroke-width="1" stroke-dasharray="4 4"></line><circle cx="${x}" cy="${yFor(point.up_bps)}" r="5" fill="#3ddc97" stroke="#fff" stroke-width="1.5"></circle><circle cx="${x}" cy="${yFor(point.down_bps)}" r="5" fill="#38bdf8" stroke="#fff" stroke-width="1.5"></circle>`;
             }
             const wrapRect = trafficChartNode.parentElement.getBoundingClientRect();
-            trafficTooltipNode.innerHTML = `<strong>ONU Traffic</strong>${dot.dataset.pointTime || ''}<br>${dot.dataset.pointValue || '--'}`;
-            trafficTooltipNode.style.left = `${event.clientX - wrapRect.left}px`;
-            trafficTooltipNode.style.top = `${event.clientY - wrapRect.top}px`;
+            trafficTooltipNode.innerHTML = `<strong>${point.time.toLocaleString()}</strong><br><span style="color:#3ddc97">Upload:</span> ${formatBps(point.up_bps)}<br><span style="color:#38bdf8">Download:</span> ${formatBps(point.down_bps)}`;
+            trafficTooltipNode.style.left = `${Math.min(event.clientX - wrapRect.left, wrapRect.width - 115)}px`;
+            trafficTooltipNode.style.top = `${Math.max(42, event.clientY - wrapRect.top)}px`;
             trafficTooltipNode.hidden = false;
         });
         trafficChartNode.addEventListener('mouseleave', () => {
+            trafficChartNode.querySelector('[data-onu-traffic-hover-guide]')?.setAttribute('hidden', '');
             if (trafficTooltipNode) trafficTooltipNode.hidden = true;
         });
     }
@@ -3498,32 +3558,54 @@
     const setTrafficRange = (rangeKey) => {
         currentTrafficRange = rangeKey;
         trafficRangeButtons.forEach((button) => {
-            button.classList.toggle('active', button.getAttribute('data-traffic-range') === rangeKey);
+            const buttonRange = button.getAttribute('data-traffic-range');
+            button.classList.toggle('active', buttonRange === rangeKey);
+            button.classList.toggle('traffic-live-hidden', rangeKey === 'live' && buttonRange !== 'live');
         });
     };
 
-    const loadTrafficGraph = async (rangeKey, { sample = false } = {}) => {
+    const loadTrafficGraph = async (rangeKey, { sample = false, fresh = false } = {}) => {
         if (!trafficGraphUrl || oltUnreachable) return;
+        if (trafficRequestController) trafficRequestController.abort();
+        trafficRequestController = new AbortController();
+        const requestToken = ++trafficRequestToken;
         setTrafficRange(rangeKey);
+        if (fresh) {
+            trafficHistory = [];
+            if (trafficChartEmptyNode) trafficChartEmptyNode.textContent = 'Starting live traffic...';
+            if (trafficHistoryNoteNode) trafficHistoryNoteNode.textContent = 'Live view';
+            renderTrafficChart();
+        }
         try {
-            const response = await fetch(`${trafficGraphUrl}?range=${encodeURIComponent(rangeKey)}&sample=${sample ? '1' : '0'}&_=${Date.now()}`, { cache: 'no-store' });
+            const response = await fetch(`${trafficGraphUrl}?range=${encodeURIComponent(rangeKey)}&sample=${sample ? '1' : '0'}&_=${Date.now()}`, {
+                cache: 'no-store',
+                signal: trafficRequestController.signal,
+            });
             if (!response.ok) return;
             const data = await response.json();
+            if (requestToken !== trafficRequestToken || currentTrafficRange !== rangeKey) return;
             trafficHistory = (data.points || []).map((item) => {
                 const pointTime = new Date(item.sampled_at);
                 if (Number.isNaN(pointTime.getTime())) return null;
                 return { time: pointTime, label: item.label || formatTime(pointTime), up_bps: Number(item.up_bps || 0), down_bps: Number(item.down_bps || 0) };
-            }).filter(Boolean);
-            if (trafficHistoryNoteNode) trafficHistoryNoteNode.textContent = `${data.range_label || 'Hour'} view`;
+            }).filter((point) => point && (rangeKey !== 'live' || !liveTrafficStartedAt || point.time >= liveTrafficStartedAt));
+            if (!trafficHistory.length && trafficChartEmptyNode && data.sample?.status) {
+                trafficChartEmptyNode.textContent = data.sample.status;
+            } else if (trafficChartEmptyNode) {
+                trafficChartEmptyNode.textContent = 'Waiting for traffic samples...';
+            }
+            if (trafficHistoryNoteNode) trafficHistoryNoteNode.textContent = `${data.range_label || 'Week'} view`;
             renderTrafficChart();
-        } catch (error) {}
+        } catch (error) {
+            if (error.name !== 'AbortError') console.debug('Traffic graph refresh failed.', error);
+        }
     };
 
     const refreshTraffic = async () => {
         if (trafficRefreshPending || document.hidden) return;
         trafficRefreshPending = true;
         try {
-            await loadTrafficGraph(currentTrafficRange, { sample: currentTrafficRange === '1h' });
+            await loadTrafficGraph(currentTrafficRange, { sample: currentTrafficRange === 'live' });
         } finally {
             trafficRefreshPending = false;
         }
@@ -3531,7 +3613,29 @@
 
     trafficRangeButtons.forEach((button) => {
         button.addEventListener('click', () => {
-            loadTrafficGraph(button.getAttribute('data-traffic-range') || '1h', { sample: true });
+            const rangeKey = button.getAttribute('data-traffic-range') || '1w';
+            if (rangeKey === 'live' && currentTrafficRange === 'live') {
+                ++trafficRequestToken;
+                if (trafficRequestController) trafficRequestController.abort();
+                trafficRefreshPending = false;
+                liveTrafficStartedAt = null;
+                setTrafficRange(lastTrafficHistoryRange);
+                trafficHistory = savedTrafficHistory.slice();
+                const restoredLabel = ({ '1d': 'Day', '1w': 'Week', '1m': 'Month', '1y': 'Year' })[lastTrafficHistoryRange] || 'Week';
+                if (trafficHistoryNoteNode) trafficHistoryNoteNode.textContent = `${restoredLabel} view`;
+                if (trafficChartEmptyNode) trafficChartEmptyNode.textContent = 'Waiting for traffic samples...';
+                renderTrafficChart();
+                return;
+            }
+            if (rangeKey === 'live') {
+                if (currentTrafficRange !== 'live') lastTrafficHistoryRange = currentTrafficRange;
+                savedTrafficHistory = trafficHistory.slice();
+                liveTrafficStartedAt = new Date(Date.now() - 1000);
+                loadTrafficGraph('live', { sample: true, fresh: true });
+                return;
+            }
+            lastTrafficHistoryRange = rangeKey;
+            loadTrafficGraph(rangeKey);
         });
     });
 
@@ -3658,12 +3762,12 @@
         }, 60000);
         window.setTimeout(refreshTraffic, 900);
         window.setInterval(() => {
-            if (!document.hidden) refreshTraffic();
+            if (!document.hidden && currentTrafficRange === 'live') refreshTraffic();
         }, 30000);
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 refreshSignal();
-                refreshTraffic();
+                if (currentTrafficRange === 'live') refreshTraffic();
             }
         });
     }

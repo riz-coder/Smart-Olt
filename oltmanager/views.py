@@ -3198,6 +3198,7 @@ def _apply_dashboard_down_olt_override(counts, down_olt_ids, selected_olt_id=Non
 def _dashboard_graph_config(range_key="24h"):
     range_key = str(range_key or "24h").lower()
     now = timezone.now()
+    local_now = timezone.localtime(now, ZoneInfo("Asia/Karachi"))
     if range_key == "live":
         return {
             "key": "live",
@@ -3211,7 +3212,7 @@ def _dashboard_graph_config(range_key="24h"):
             "key": "1h",
             "label": "Hourly",
             "since": now - timezone.timedelta(hours=1),
-            "bucket_minutes": 10,
+            "bucket_minutes": 2,
             "label_format": "%H:%M",
         }
     if range_key == "7d":
@@ -3219,22 +3220,32 @@ def _dashboard_graph_config(range_key="24h"):
             "key": "7d",
             "label": "Weekly",
             "since": now - timezone.timedelta(days=7),
-            "bucket_days": 1,
-            "label_format": "%d %b",
+            "bucket_hours": 3,
+            "label_format": "%d %b %H:%M",
         }
     if range_key == "4w":
         return {
             "key": "4w",
             "label": "Monthly",
-            "since": now - timezone.timedelta(days=28),
-            "bucket_days": 7,
+            "since": local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+            "bucket_days": 1,
             "label_format": "%d %b",
         }
     if range_key == "12m":
+        month_index = (local_now.year * 12 + local_now.month - 1) - 11
+        first_month = local_now.replace(
+            year=month_index // 12,
+            month=(month_index % 12) + 1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
         return {
             "key": "12m",
             "label": "Yearly",
-            "since": now - timezone.timedelta(days=365),
+            "since": first_month,
             "bucket_months": 1,
             "label_format": "%b %Y",
         }
@@ -3242,9 +3253,24 @@ def _dashboard_graph_config(range_key="24h"):
         "key": "24h",
         "label": "Daily",
         "since": now - timezone.timedelta(hours=24),
-        "bucket_hours": 4,
+        "bucket_minutes": 30,
         "label_format": "%d %b %H:%M",
     }
+
+
+def _traffic_counter_delta(current_value, previous_value):
+    """Return a trustworthy counter delta and reject resets as traffic spikes."""
+    current_int = int(current_value or 0)
+    previous_int = int(previous_value or 0)
+    delta = current_int - previous_int
+    if delta >= 0:
+        return delta
+    max_32 = 4_294_967_295
+    # A real 32-bit rollover happens near the upper boundary and resumes near
+    # zero. Treat every other backwards movement as a device/counter reset.
+    if previous_int >= int(max_32 * 0.90) and current_int <= int(max_32 * 0.10):
+        return (max_32 - previous_int) + current_int + 1
+    return None
 
 
 def _bucket_dashboard_datetime(local_dt, config):
@@ -3672,17 +3698,6 @@ def _build_olt_pon_port_traffic_graph(olt_id, range_key="24h", slot=None, port=N
             },
         }
 
-    def _counter_delta(current_value, previous_value):
-        current_int = int(current_value or 0)
-        previous_int = int(previous_value or 0)
-        delta = current_int - previous_int
-        if delta >= 0:
-            return delta
-        max_32 = 4294967295
-        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
-            return (max_32 - previous_int) + current_int + 1
-        return None
-
     grouped = {}
     previous = None
     for row in rows:
@@ -3697,10 +3712,10 @@ def _build_olt_pon_port_traffic_graph(olt_id, range_key="24h", slot=None, port=N
         if elapsed <= 0:
             previous = row
             continue
-        delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
-        delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
-        delta_in_packets = _counter_delta(row.get("in_packets"), previous.get("in_packets"))
-        delta_out_packets = _counter_delta(row.get("out_packets"), previous.get("out_packets"))
+        delta_in_octets = _traffic_counter_delta(row.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _traffic_counter_delta(row.get("out_octets"), previous.get("out_octets"))
+        delta_in_packets = _traffic_counter_delta(row.get("in_packets"), previous.get("in_packets"))
+        delta_out_packets = _traffic_counter_delta(row.get("out_packets"), previous.get("out_packets"))
         previous = row
         if None in {delta_in_octets, delta_out_octets, delta_in_packets, delta_out_packets}:
             continue
@@ -3722,6 +3737,8 @@ def _build_olt_pon_port_traffic_graph(olt_id, range_key="24h", slot=None, port=N
         )
         upload_mbps = ((delta_out_octets * 8) / elapsed) / 1_000_000
         download_mbps = ((delta_in_octets * 8) / elapsed) / 1_000_000
+        if upload_mbps > 100_000 or download_mbps > 100_000:
+            continue
         upload_pps = (delta_out_packets / elapsed) if delta_out_packets > 0 else 0.0
         download_pps = (delta_in_packets / elapsed) if delta_in_packets > 0 else 0.0
         upload_avg_size = (delta_out_octets / delta_out_packets) if delta_out_packets > 0 else 0.0
@@ -3926,17 +3943,6 @@ def _build_olt_uplink_traffic_graph(olt_id, range_key="24h", port_name=""):
             },
         }
 
-    def _counter_delta(current_value, previous_value):
-        current_int = int(current_value or 0)
-        previous_int = int(previous_value or 0)
-        delta = current_int - previous_int
-        if delta >= 0:
-            return delta
-        max_32 = 4294967295
-        if 0 <= previous_int <= max_32 and 0 <= current_int <= max_32:
-            return (max_32 - previous_int) + current_int + 1
-        return None
-
     grouped = {}
     previous = None
     for row in rows:
@@ -3951,8 +3957,8 @@ def _build_olt_uplink_traffic_graph(olt_id, range_key="24h", port_name=""):
         if elapsed <= 0:
             previous = row
             continue
-        delta_in_octets = _counter_delta(row.get("in_octets"), previous.get("in_octets"))
-        delta_out_octets = _counter_delta(row.get("out_octets"), previous.get("out_octets"))
+        delta_in_octets = _traffic_counter_delta(row.get("in_octets"), previous.get("in_octets"))
+        delta_out_octets = _traffic_counter_delta(row.get("out_octets"), previous.get("out_octets"))
         previous = row
         if delta_in_octets is None or delta_out_octets is None:
             continue
@@ -3965,9 +3971,13 @@ def _build_olt_uplink_traffic_graph(olt_id, range_key="24h", port_name=""):
             "upload_mbps": 0.0,
             "download_mbps": 0.0,
         })
+        upload_mbps = ((delta_out_octets * 8) / elapsed) / 1_000_000
+        download_mbps = ((delta_in_octets * 8) / elapsed) / 1_000_000
+        if upload_mbps > 100_000 or download_mbps > 100_000:
+            continue
         bucket_row["count"] += 1
-        bucket_row["upload_mbps"] += ((delta_out_octets * 8) / elapsed) / 1_000_000
-        bucket_row["download_mbps"] += ((delta_in_octets * 8) / elapsed) / 1_000_000
+        bucket_row["upload_mbps"] += upload_mbps
+        bucket_row["download_mbps"] += download_mbps
 
     points = []
     for bucket_key in sorted(grouped.keys()):
@@ -4476,7 +4486,7 @@ def _schedule_onu_traffic_samples(olt_id, onu_keys, min_interval_seconds=ONU_TRA
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _get_onu_traffic_history(olt, slot, port, ont_id, hours=1):
+def _get_onu_traffic_history(olt, slot, port, ont_id, hours=1, range_key="1h"):
     since = timezone.now() - timezone.timedelta(hours=hours)
     up_cap_bps = _onu_traffic_cap_bps(olt, slot, port, ont_id, "up")
     down_cap_bps = _onu_traffic_cap_bps(olt, slot, port, ont_id, "down")
@@ -4491,31 +4501,59 @@ def _get_onu_traffic_history(olt, slot, port, ont_id, hours=1):
         .order_by("sampled_at")
         .values("sampled_at", "up_bps", "down_bps", "up_bytes", "down_bytes")
     )
-    history = []
+    key = str(range_key or "1h").strip().lower()
+    bucket_seconds = {
+        "1h": 30,
+        "1d": 600,
+        "1w": 3600,
+        "1m": 21600,
+    }.get(key, 30)
+    label_format = "%H:%M" if key in {"live", "1h", "1d"} else "%d %b %H:%M" if key in {"1w", "1m"} else "%b %Y"
+    grouped = {}
     for row in rows:
         local_dt = timezone.localtime(row["sampled_at"], ZoneInfo("Asia/Karachi"))
-        history.append(
-            {
-                "sampled_at": local_dt.isoformat(),
-                "label": local_dt.strftime("%H:%M"),
-                "up_bps": round(_sanitize_onu_traffic_bps(row.get("up_bps"), up_cap_bps), 2),
-                "down_bps": round(_sanitize_onu_traffic_bps(row.get("down_bps"), down_cap_bps), 2),
-                "up_bytes": int(row.get("up_bytes") or 0),
-                "down_bytes": int(row.get("down_bytes") or 0),
-            }
-        )
+        if key == "1y":
+            bucket = local_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            epoch = int(local_dt.timestamp())
+            bucket = datetime.datetime.fromtimestamp(
+                epoch - (epoch % bucket_seconds),
+                tz=local_dt.tzinfo,
+            )
+        item = grouped.setdefault(bucket.isoformat(), {
+            "sampled_at": bucket.isoformat(),
+            "label": bucket.strftime(label_format),
+            "count": 0,
+            "up_bps": 0.0,
+            "down_bps": 0.0,
+            "up_bytes": 0,
+            "down_bytes": 0,
+        })
+        item["count"] += 1
+        item["up_bps"] += _sanitize_onu_traffic_bps(row.get("up_bps"), up_cap_bps)
+        item["down_bps"] += _sanitize_onu_traffic_bps(row.get("down_bps"), down_cap_bps)
+        item["up_bytes"] = int(row.get("up_bytes") or 0)
+        item["down_bytes"] = int(row.get("down_bytes") or 0)
+    history = []
+    for bucket_key in sorted(grouped):
+        item = grouped[bucket_key]
+        count = max(1, int(item.pop("count", 1)))
+        item["up_bps"] = round(item["up_bps"] / count, 2)
+        item["down_bps"] = round(item["down_bps"] / count, 2)
+        history.append(item)
     return history
 
 
 def _onu_traffic_graph_hours(range_key):
-    key = str(range_key or "1h").strip().lower()
+    key = str(range_key or "1w").strip().lower()
     return {
+        "live": 1,
         "1h": 1,
         "1d": 24,
         "1w": 24 * 7,
         "1m": 24 * 30,
         "1y": 24 * 365,
-    }.get(key, 1)
+    }.get(key, 24 * 7)
 
 
 def _onu_type_has_catv_port(onu_type_value):
@@ -4554,6 +4592,7 @@ def _get_catv_supported_onu_type_values():
 def _onu_signal_graph_config(range_key):
     key = str(range_key or "1h").strip().lower()
     configs = {
+        "live": {"key": "live", "label": "Live", "hours": 1, "bucket_seconds": 30, "tick_format": "%H:%M"},
         "1h": {"key": "1h", "label": "Hour", "hours": 1, "bucket_seconds": 300, "tick_format": "%H:%M"},
         "1d": {"key": "1d", "label": "Day", "hours": 24, "bucket_seconds": 3600, "tick_format": "%H:%M"},
         "1w": {"key": "1w", "label": "Week", "hours": 24 * 7, "bucket_seconds": 86400, "tick_format": "%d %b"},
@@ -4690,36 +4729,52 @@ def _empty_onu_stability_summary(report_date=None):
     }
 
 
+def _count_onu_status_transitions(statuses):
+    """Count each real status change recorded by the ONU status sync."""
+    transitions = 0
+    previous = None
+    for item in statuses:
+        current = str(item or "").strip().lower()
+        if not current:
+            continue
+        if previous is not None and current != previous:
+            transitions += 1
+        previous = current
+    return transitions
+
+
 def _calculate_onu_stability_summary(olt, slot, port, ont_id, report_date):
     start_at = timezone.make_aware(
         timezone.datetime.combine(report_date, timezone.datetime.min.time()),
         timezone.get_current_timezone(),
     )
     end_at = start_at + timezone.timedelta(days=1)
+    status_identity = {
+        "olt": olt,
+        "slot": slot,
+        "port": port,
+        "ont_id": ont_id,
+    }
     status_rows = list(
         ONUStatusSample.objects.filter(
-            olt=olt,
-            slot=slot,
-            port=port,
-            ont_id=ont_id,
+            **status_identity,
             sampled_at__gte=start_at,
             sampled_at__lt=end_at,
         )
         .order_by("sampled_at")
         .values_list("status", flat=True)
     )
+    previous_status = (
+        ONUStatusSample.objects.filter(**status_identity, sampled_at__lt=start_at)
+        .order_by("-sampled_at")
+        .values_list("status", flat=True)
+        .first()
+    )
     total_status = len(status_rows)
     online_count = sum(1 for item in status_rows if str(item or "").strip().lower() == "online")
     online_ratio = (online_count / total_status) if total_status else None
-    transitions = 0
-    previous = None
-    for item in status_rows:
-        current = str(item or "").strip().lower()
-        if not current:
-            continue
-        if previous and current != previous:
-            transitions += 1
-        previous = current
+    transition_rows = ([previous_status] if previous_status else []) + status_rows
+    transitions = _count_onu_status_transitions(transition_rows)
 
     onu_values = [
         _parse_dbm_value(row["olt_rx"])
@@ -4777,12 +4832,14 @@ def _build_onu_stability_summary(olt, slot, port, ont_id, record=None):
         return _empty_onu_stability_summary(report_date)
     cached_date = getattr(record, "stability_report_date", None)
     cached_payload = getattr(record, "stability_report_cache", None) or {}
-    if cached_date == report_date and cached_payload:
-        return cached_payload
+    # Today's status sync keeps adding samples throughout the day. Reusing the
+    # first daily cache would leave the flap count frozen (commonly at zero).
+    # Recalculate from the indexed per-ONU samples and only write when changed.
     payload = _calculate_onu_stability_summary(olt, slot, port, ont_id, report_date)
-    record.stability_report_date = report_date
-    record.stability_report_cache = payload
-    record.save(update_fields=["stability_report_date", "stability_report_cache"])
+    if cached_date != report_date or cached_payload != payload:
+        record.stability_report_date = report_date
+        record.stability_report_cache = payload
+        record.save(update_fields=["stability_report_date", "stability_report_cache"])
     return payload
 
 
@@ -6443,18 +6500,33 @@ def configured_onu_signal_graph_data(request, olt_pk, slot, port, ont_id):
 @login_required
 def configured_onu_traffic_graph_data(request, olt_pk, slot, port, ont_id):
     olt = get_object_or_404(OLT, pk=olt_pk)
-    range_key = str(request.GET.get("range") or "1h").strip().lower()
-    sample = None
-    if str(request.GET.get("sample") or "").strip() == "1":
-        sample = _record_onu_traffic_sample(olt, int(slot), int(port), int(ont_id))
+    range_key = str(request.GET.get("range") or "1w").strip().lower()
     config = _onu_signal_graph_config(range_key)
+    sample = None
+    if config["key"] == "live" and str(request.GET.get("sample") or "").strip() == "1":
+        # Never hold the history response behind a slow live SNMP request.
+        # The graph can render its existing samples immediately while a fresh
+        # Live-view point is collected in the background.
+        _schedule_onu_traffic_samples(
+            olt.pk,
+            [(int(slot), int(port), int(ont_id))],
+            min_interval_seconds=ONU_TRAFFIC_SAMPLE_SECONDS,
+        )
+        sample = {"ok": True, "status": "Live traffic sample requested in background."}
     return JsonResponse(
         {
             "ok": True,
             "range_key": config["key"],
             "range_label": config["label"],
             "sample": sample or {},
-            "points": _get_onu_traffic_history(olt, int(slot), int(port), int(ont_id), hours=_onu_traffic_graph_hours(config["key"])),
+            "points": _get_onu_traffic_history(
+                olt,
+                int(slot),
+                int(port),
+                int(ont_id),
+                hours=_onu_traffic_graph_hours(config["key"]),
+                range_key=config["key"],
+            ),
         }
     )
 
@@ -6980,7 +7052,7 @@ def configured_onu_detail(request, olt_pk, slot, port, ont_id):
 
     signal_visible = any(str(selected_onu.get(key, "")).strip() not in {"", "--"} for key in ("onu_rx", "olt_rx"))
     signal_history = _get_onu_signal_history(olt, slot, port, ont_id, hours=1)
-    traffic_history = _get_onu_traffic_history(olt, slot, port, ont_id, hours=1)
+    traffic_history = _get_onu_traffic_history(olt, slot, port, ont_id, hours=24 * 7, range_key="1w")
     stability_summary = _build_onu_stability_summary(olt, slot, port, ont_id, record=record)
     selected_onu_type_entry = _onu_type_entry_for_record(record) if record is not None else None
     authorize_debug = None
@@ -9663,9 +9735,9 @@ def olt_view(request, pk):
         default_choice = pon_traffic_port_choices[0] if pon_traffic_port_choices else None
         selected_pon_traffic_slot = default_choice["slot"] if default_choice else None
         selected_pon_traffic_port = default_choice["port"] if default_choice else None
-        pon_traffic_graph = _build_olt_pon_port_traffic_graph(olt.pk, '1h', selected_pon_traffic_slot, selected_pon_traffic_port) if default_choice else {
-            "range_key": "1h",
-            "range_label": "Hourly",
+        pon_traffic_graph = _build_olt_pon_port_traffic_graph(olt.pk, '7d', selected_pon_traffic_slot, selected_pon_traffic_port) if default_choice else {
+            "range_key": "7d",
+            "range_label": "Weekly",
             "points": [],
             "latest": {"upload_mbps": 0, "download_mbps": 0, "upload_pps": 0, "download_pps": 0, "upload_avg_size": 0, "download_avg_size": 0, "upload_max_mbps": 0, "download_max_mbps": 0},
         }
@@ -9684,12 +9756,12 @@ def olt_view(request, pk):
         default_uplink_choice = uplink_traffic_port_choices[0]["value"] if uplink_traffic_port_choices else ""
         uplink_traffic_graph = (
             _get_cached_port_traffic_payload(
-                ("uplink", olt.pk, "1h", default_uplink_choice),
-                lambda: _build_olt_uplink_traffic_graph(olt.pk, '1h', default_uplink_choice),
+                ("uplink", olt.pk, "7d", default_uplink_choice),
+                lambda: _build_olt_uplink_traffic_graph(olt.pk, '7d', default_uplink_choice),
             )
             if default_uplink_choice else {
-                "range_key": "1h",
-                "range_label": "Hourly",
+                "range_key": "7d",
+                "range_label": "Weekly",
                 "points": [],
                 "latest": {"upload_mbps": 0, "download_mbps": 0, "upload_max_mbps": 0, "download_max_mbps": 0},
             }
@@ -10314,7 +10386,7 @@ def olt_uplink_sfp_ddm_data(request, pk):
 @login_required
 def olt_pon_traffic_graph_data(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
-    range_key = (request.GET.get("range") or "1h").strip().lower()
+    range_key = (request.GET.get("range") or "7d").strip().lower()
     port_value = (request.GET.get("pon_port") or "").strip()
     slot = None
     port = None
@@ -10346,29 +10418,13 @@ def olt_pon_traffic_graph_data(request, pk):
         cache_key,
         lambda: _build_olt_pon_port_traffic_graph(olt.pk, range_key, slot, port),
     )
-    if slot is not None and port is not None and not (payload.get("points") or []):
-        try:
-            had_history = PONPortTrafficSample.objects.filter(olt_id=olt.pk, slot=slot, port=port).exists()
-            record_pon_port_traffic_sample_for_olt(olt, force=True)
-            if not had_history:
-                time.sleep(0.8)
-                record_pon_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
-        except OperationalError:
-            pass
-        else:
-            with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
-                _PORT_TRAFFIC_GRAPH_CACHE.pop(cache_key, None)
-            payload = _get_cached_port_traffic_payload(
-                cache_key,
-                lambda: _build_olt_pon_port_traffic_graph(olt.pk, range_key, slot, port),
-            )
     return JsonResponse({"ok": True, **payload})
 
 
 @login_required
 def olt_uplink_traffic_graph_data(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
-    range_key = (request.GET.get("range") or "1h").strip().lower()
+    range_key = (request.GET.get("range") or "7d").strip().lower()
     port_name = (request.GET.get("uplink_port") or "").strip()
     if not port_name:
         first_choice = next(
@@ -10394,22 +10450,6 @@ def olt_uplink_traffic_graph_data(request, pk):
         cache_key,
         lambda: _build_olt_uplink_traffic_graph(olt.pk, range_key, port_name),
     )
-    if port_name and not (payload.get("points") or []):
-        try:
-            had_history = UplinkPortTrafficSample.objects.filter(olt_id=olt.pk, port_name=port_name).exists()
-            record_uplink_port_traffic_sample_for_olt(olt, force=True)
-            if not had_history:
-                time.sleep(0.8)
-                record_uplink_port_traffic_sample_for_olt(olt, force=True, min_interval_seconds=0)
-        except OperationalError:
-            pass
-        else:
-            with _PORT_TRAFFIC_GRAPH_CACHE_LOCK:
-                _PORT_TRAFFIC_GRAPH_CACHE.pop(cache_key, None)
-            payload = _get_cached_port_traffic_payload(
-                cache_key,
-                lambda: _build_olt_uplink_traffic_graph(olt.pk, range_key, port_name),
-            )
     return JsonResponse({"ok": True, **payload})
 
 

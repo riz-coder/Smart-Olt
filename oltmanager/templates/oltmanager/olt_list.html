@@ -844,6 +844,36 @@
         height: 230px;
         display: block;
     }
+    .status-graph-btn[data-traffic-range-btn="live"] {
+        background: rgba(16, 185, 129, 0.14);
+        border-color: rgba(52, 211, 153, 0.65);
+        color: #6ee7b7;
+    }
+    .status-graph-btn[data-traffic-range-btn="live"].active {
+        background: linear-gradient(135deg, #059669, #10b981);
+        border-color: #34d399;
+        color: #fff;
+        box-shadow: 0 0 0 3px rgba(16,185,129,.14), 0 0 18px rgba(16,185,129,.30);
+    }
+    html[data-theme="light"] .status-graph-btn[data-traffic-range-btn="live"].active {
+        background: linear-gradient(135deg, #059669, #10b981);
+        border-color: #059669;
+        color: #fff;
+    }
+    .status-graph-btn[data-traffic-range-btn="live"].active::after {
+        content: "";
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-left: 7px;
+        border: 2px solid rgba(255,255,255,.42);
+        border-top-color: #fff;
+        border-radius: 50%;
+        vertical-align: -1px;
+        animation: traffic-live-spin .7s linear infinite;
+    }
+    .status-graph-btn.traffic-live-hidden { display: none; }
+    @keyframes traffic-live-spin { to { transform: rotate(360deg); } }
     .authorization-horizontal {
         --auth-gpon: #35d07f;
         --auth-gpon-soft: rgba(53, 208, 127, 0.18);
@@ -1883,10 +1913,9 @@
                 </div>
                 <div class="dashboard-port-traffic-controls">
                     <div class="status-graph-controls" data-traffic-range-buttons>
-                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="live">Live</button>
-                        <button type="button" class="status-graph-btn" data-traffic-range-btn="1h">Hour</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="live">Live</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="24h">Day</button>
-                        <button type="button" class="status-graph-btn" data-traffic-range-btn="7d">Week</button>
+                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="7d">Week</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="4w">Month</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="12m">Year</button>
                     </div>
@@ -1899,10 +1928,11 @@
             </div>
             <div class="dashboard-port-traffic-canvas">
                 <div class="status-graph-meta">
-                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_pon_traffic_graph.range_label|default:"Hourly" }} view</span>
+                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_pon_traffic_graph.range_label|default:"Weekly" }} view</span>
                     <div class="status-graph-latest" data-traffic-latest></div>
                 </div>
                 <div data-traffic-inner></div>
+                <div class="status-graph-tooltip" data-traffic-tooltip></div>
                 <div class="status-graph-legend">
                     <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>Download</span>
                     <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span>Upload</span>
@@ -1921,10 +1951,9 @@
                 </div>
                 <div class="dashboard-port-traffic-controls">
                     <div class="status-graph-controls" data-traffic-range-buttons>
-                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="live">Live</button>
-                        <button type="button" class="status-graph-btn" data-traffic-range-btn="1h">Hour</button>
+                        <button type="button" class="status-graph-btn" data-traffic-range-btn="live">Live</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="24h">Day</button>
-                        <button type="button" class="status-graph-btn" data-traffic-range-btn="7d">Week</button>
+                        <button type="button" class="status-graph-btn active" data-traffic-range-btn="7d">Week</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="4w">Month</button>
                         <button type="button" class="status-graph-btn" data-traffic-range-btn="12m">Year</button>
                     </div>
@@ -1937,10 +1966,11 @@
             </div>
             <div class="dashboard-port-traffic-canvas">
                 <div class="status-graph-meta">
-                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_uplink_traffic_graph.range_label|default:"Hourly" }} view</span>
+                    <span class="status-graph-range" data-traffic-range-label>{{ dashboard_uplink_traffic_graph.range_label|default:"Weekly" }} view</span>
                     <div class="status-graph-latest" data-traffic-latest></div>
                 </div>
                 <div data-traffic-inner></div>
+                <div class="status-graph-tooltip" data-traffic-tooltip></div>
                 <div class="status-graph-legend">
                     <span class="legend-item"><span class="legend-dot" style="background:#60a5fa;"></span>Download</span>
                     <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span>Upload</span>
@@ -2583,35 +2613,63 @@
         const titleNode = panel.querySelector('[data-traffic-port-title]');
         const rangeButtons = Array.from(panel.querySelectorAll('[data-traffic-range-btn]'));
         const portSelect = panel.querySelector('[data-traffic-port-select]');
+        const tooltipNode = panel.querySelector('[data-traffic-tooltip]');
         const initialNode = document.getElementById(initialId);
         if (!url || !inner || !rangeNode || !latestNode || !titleNode || !portSelect || !rangeButtons.length) return;
 
-        let activeRange = '1h';
+        let activeRange = '7d';
         let liveInterval = null;
         let requestToken = 0;
         let trafficBusy = false;
+        let hoverPoints = [];
+        let hoverSeries = [];
+        let trafficRequestController = null;
+        let lastHistoricalRange = '7d';
+        let liveStartedAt = null;
         const payloadCache = new Map();
+
+        const setRangeUi = () => {
+            rangeButtons.forEach((button) => {
+                const range = button.dataset.trafficRangeBtn;
+                button.classList.toggle('active', range === activeRange);
+                button.classList.toggle('traffic-live-hidden', activeRange === 'live' && range !== 'live');
+            });
+        };
 
         const updateTitle = () => {
             const option = portSelect.options[portSelect.selectedIndex];
             titleNode.textContent = option ? option.text : 'No port selected';
         };
 
+        const formatTrafficMbps = (value) => {
+            const mbps = Math.max(0, Number(value || 0));
+            if (mbps >= 1000) return `${(mbps / 1000).toFixed(2)} Gbps`;
+            return `${mbps.toFixed(2)} Mbps`;
+        };
+
         const setLatest = (row) => {
             const safe = row || {};
             latestNode.innerHTML = `
-                <span><strong>&darr; IN:</strong> ${(Number(safe.download_mbps || 0)).toFixed(2)} Mbps</span>
-                <span><strong>&uarr; OUT:</strong> ${(Number(safe.upload_mbps || 0)).toFixed(2)} Mbps</span>
-                <span><strong>IN Max:</strong> ${(Number(safe.download_max_mbps || 0)).toFixed(2)} Mbps</span>
-                <span><strong>OUT Max:</strong> ${(Number(safe.upload_max_mbps || 0)).toFixed(2)} Mbps</span>
+                <span><strong>&darr; IN:</strong> ${formatTrafficMbps(safe.download_mbps)}</span>
+                <span><strong>&uarr; OUT:</strong> ${formatTrafficMbps(safe.upload_mbps)}</span>
+                <span><strong>IN Max:</strong> ${formatTrafficMbps(safe.download_max_mbps)}</span>
+                <span><strong>OUT Max:</strong> ${formatTrafficMbps(safe.upload_max_mbps)}</span>
             `;
         };
 
         const renderGraph = (payload) => {
             activeRange = payload?.range_key || activeRange;
-            const points = Array.isArray(payload?.points) ? payload.points : [];
-            const series = Array.isArray(payload?.series) ? payload.series : [];
-            rangeNode.textContent = `${payload?.range_label || 'Hourly'} view`;
+            let points = Array.isArray(payload?.points) ? payload.points : [];
+            let series = Array.isArray(payload?.series) ? payload.series : [];
+            if (activeRange === 'live' && liveStartedAt) {
+                const isFreshPoint = (point) => {
+                    const timestamp = new Date(point?.x || point?.sampled_at || 0).getTime();
+                    return Number.isFinite(timestamp) && timestamp >= liveStartedAt;
+                };
+                points = points.filter(isFreshPoint);
+                series = series.map((entry) => ({ ...entry, points: (entry.points || []).filter(isFreshPoint) }));
+            }
+            rangeNode.textContent = `${payload?.range_label || 'Weekly'} view`;
             setLatest(payload?.latest || {});
             if (!points.length && !series.length) {
                 inner.innerHTML = '<div class="status-graph-empty">No traffic history captured yet.</div>';
@@ -2631,6 +2689,8 @@
                 { key: 'selected-out', label: `${titleNode.textContent} (OUT)`, color: '#60a5fa', direction: 'upload_mbps', points },
             ];
             const basePoints = series.length ? (activeSeriesList[0]?.points || []) : points;
+            hoverPoints = basePoints;
+            hoverSeries = activeSeriesList;
             const maxValue = Math.max(
                 1,
                 ...activeSeriesList.flatMap((entry) =>
@@ -2639,12 +2699,14 @@
                     )
                 )
             );
+            const displayDivisor = maxValue >= 1000 ? 1000 : 1;
+            const displayUnit = maxValue >= 1000 ? 'Gbps' : 'Mbps';
             const singlePoint = basePoints.length === 1;
             const xStep = basePoints.length > 1 ? plotWidth / (basePoints.length - 1) : 0;
             const yFor = (value) => topPad + plotHeight - ((Number(value || 0) / maxValue) * plotHeight);
             const xFor = (index) => singlePoint ? (leftPad + (plotWidth / 2)) : (leftPad + (xStep * index));
             const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                const value = (maxValue * (1 - ratio)).toFixed(1);
+                const value = ((maxValue * (1 - ratio)) / displayDivisor).toFixed(displayDivisor === 1 ? 1 : 2);
                 const y = topPad + (plotHeight * ratio);
                 return { value, y };
             });
@@ -2657,27 +2719,62 @@
             const yTickMarkup = yTicks.map((tick) => `
                 <g>
                     <line class="status-graph-grid" x1="${leftPad}" y1="${tick.y}" x2="${width - rightPad}" y2="${tick.y}"></line>
-                    <text class="status-graph-axis" x="${leftPad - 14}" y="${tick.y + 4}" text-anchor="end">${tick.value} Mbps</text>
+                    <text class="status-graph-axis" x="${leftPad - 14}" y="${tick.y + 4}" text-anchor="end">${tick.value} ${displayUnit}</text>
                 </g>
             `).join('');
             const seriesMarkup = activeSeriesList.map((entry) => {
                 const pts = entry.points || [];
                 const pointList = pts.map((point, index) => `${xFor(index)},${yFor(point[entry.direction || 'download_mbps'])}`).join(' ');
-                const circles = pts.map((point, index) => `<circle cx="${xFor(index)}" cy="${yFor(point[entry.direction || 'download_mbps'])}" r="3.5" fill="${entry.color}"></circle>`).join('');
-                return `<polyline points="${pointList}" fill="none" stroke="${entry.color}" stroke-width="2.2"></polyline>${circles}`;
+                if (!pointList) return '';
+                const areaPoints = `${leftPad},${topPad + plotHeight} ${pointList} ${xFor(Math.max(0, pts.length - 1))},${topPad + plotHeight}`;
+                return `<polygon points="${areaPoints}" fill="${entry.color}" opacity="0.10"></polygon><polyline points="${pointList}" fill="none" stroke="${entry.color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"></polyline>`;
             }).join('');
             inner.innerHTML = `
                 <svg class="status-graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-                    <text class="status-graph-axis" x="28" y="${topPad + (plotHeight / 2)}" text-anchor="middle" transform="rotate(-90 28 ${topPad + (plotHeight / 2)})">Mbps</text>
+                    <text class="status-graph-axis" x="28" y="${topPad + (plotHeight / 2)}" text-anchor="middle" transform="rotate(-90 28 ${topPad + (plotHeight / 2)})">${displayUnit}</text>
                     ${yTickMarkup}
                     ${seriesMarkup}
                     ${xTickMarkup}
+                    <g data-traffic-hover-guide hidden></g>
                 </svg>
             `;
             const legend = activeSeriesList.map((entry) => `<span class="legend-item"><span class="legend-dot" style="background:${entry.color};"></span>${entry.label}</span>`).join('');
             const legendNode = panel.querySelector('.status-graph-legend');
             if (legendNode) legendNode.innerHTML = legend;
         };
+
+        inner.addEventListener('mousemove', (event) => {
+            const svg = inner.querySelector('svg');
+            const guide = inner.querySelector('[data-traffic-hover-guide]');
+            if (!svg || !guide || !tooltipNode || !hoverPoints.length) return;
+            const box = svg.getBoundingClientRect();
+            const plotStart = (106 / 960) * box.width;
+            const plotWidth = ((960 - 106 - 18) / 960) * box.width;
+            const relativeX = Math.max(0, Math.min(plotWidth, event.clientX - box.left - plotStart));
+            const index = hoverPoints.length === 1 ? 0 : Math.round((relativeX / plotWidth) * (hoverPoints.length - 1));
+            const point = hoverPoints[index];
+            if (!point) return;
+            const x = hoverPoints.length === 1 ? 524 : 106 + (((960 - 106 - 18) * index) / (hoverPoints.length - 1));
+            const values = hoverSeries.slice(0, 8).map((entry) => {
+                const entryPoint = (entry.points || [])[index] || point;
+                return { label: entry.label, color: entry.color, value: Number(entryPoint[entry.direction || 'download_mbps'] || 0) };
+            });
+            const allValues = hoverSeries.flatMap((entry) => (entry.points || []).map((row) => Number(row[entry.direction || 'download_mbps'] || 0)));
+            const maxValue = Math.max(1, ...allValues);
+            guide.hidden = false;
+            guide.innerHTML = `<line x1="${x}" y1="14" x2="${x}" y2="206" stroke="rgba(255,255,255,.42)" stroke-width="1" stroke-dasharray="4 4"></line>${values.map((item) => `<circle cx="${x}" cy="${14 + 192 - ((item.value / maxValue) * 192)}" r="5" fill="${item.color}" stroke="#fff" stroke-width="1.5"></circle>`).join('')}`;
+            const pointDate = point.x ? new Date(point.x) : null;
+            const pointDateLabel = pointDate && !Number.isNaN(pointDate.getTime()) ? pointDate.toLocaleString() : (point.label || '');
+            tooltipNode.innerHTML = `<strong>${pointDateLabel}</strong>${values.map((item) => `<div class="status-graph-tooltip-line"><span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.color};margin-right:6px"></i>${item.label}</span><span>${formatTrafficMbps(item.value)}</span></div>`).join('')}`;
+            const canvas = tooltipNode.parentElement.getBoundingClientRect();
+            tooltipNode.style.left = `${Math.min(event.clientX - canvas.left + 14, canvas.width - 230)}px`;
+            tooltipNode.style.top = `${Math.max(46, event.clientY - canvas.top - 12)}px`;
+            tooltipNode.classList.add('visible');
+        });
+        inner.addEventListener('mouseleave', () => {
+            inner.querySelector('[data-traffic-hover-guide]')?.setAttribute('hidden', '');
+            tooltipNode?.classList.remove('visible');
+        });
 
         const cacheKeyFor = (rangeKey) => `${rangeKey}::${portSelect.value || ''}`;
 
@@ -2693,11 +2790,13 @@
             }
         };
 
-        const refresh = async (rangeKey = activeRange) => {
-            if (trafficBusy || document.hidden) return;
+        const refresh = async (rangeKey = activeRange, { fresh = false } = {}) => {
+            if (document.hidden) return;
+            if (trafficRequestController) trafficRequestController.abort();
+            trafficRequestController = new AbortController();
             trafficBusy = true;
             activeRange = rangeKey;
-            rangeButtons.forEach((button) => button.classList.toggle('active', button.dataset.trafficRangeBtn === activeRange));
+            setRangeUi();
             syncLivePolling();
             rangeNode.textContent = `${({
                 'live': 'Live',
@@ -2706,7 +2805,13 @@
                 '7d': 'Weekly',
                 '4w': 'Monthly',
                 '12m': 'Yearly',
-            }[activeRange] || 'Hourly')} view`;
+            }[activeRange] || 'Weekly')} view`;
+            if (fresh) {
+                hoverPoints = [];
+                hoverSeries = [];
+                setLatest({});
+                inner.innerHTML = '<div class="status-graph-empty">Starting fresh live traffic...</div>';
+            }
             const cacheKey = cacheKeyFor(rangeKey);
             if (activeRange !== 'live' && payloadCache.has(cacheKey)) {
                 renderGraph(payloadCache.get(cacheKey));
@@ -2718,6 +2823,7 @@
                 const response = await fetch(`${url}?${params.toString()}`, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
                     credentials: 'same-origin',
+                    signal: trafficRequestController.signal,
                 });
                 if (!response.ok) return;
                 const payload = await response.json();
@@ -2727,22 +2833,52 @@
                 if (activeRange !== 'live') {
                     payloadCache.set(cacheKey, payload);
                 }
-                rangeButtons.forEach((button) => button.classList.toggle('active', button.dataset.trafficRangeBtn === activeRange));
+                setRangeUi();
                 renderGraph(payload);
                 syncLivePolling();
             } catch (error) {
-                // Keep rendered graph on transient failure.
+                if (error.name !== 'AbortError') console.debug('Port traffic refresh failed.', error);
             } finally {
-                trafficBusy = false;
+                if (currentToken === requestToken) trafficBusy = false;
             }
         };
 
         rangeButtons.forEach((button) => {
-            button.addEventListener('click', () => refresh(button.dataset.trafficRangeBtn || '1h'));
+            button.addEventListener('click', () => {
+                const rangeKey = button.dataset.trafficRangeBtn || '7d';
+                if (rangeKey === 'live' && activeRange === 'live') {
+                    ++requestToken;
+                    if (trafficRequestController) trafficRequestController.abort();
+                    trafficBusy = false;
+                    liveStartedAt = null;
+                    activeRange = lastHistoricalRange;
+                    setRangeUi();
+                    syncLivePolling();
+                    const restoredPayload = payloadCache.get(cacheKeyFor(lastHistoricalRange));
+                    if (restoredPayload) {
+                        renderGraph(restoredPayload);
+                    } else {
+                        setLatest({});
+                        rangeNode.textContent = 'Weekly view';
+                        inner.innerHTML = '<div class="status-graph-empty">No cached weekly traffic is available.</div>';
+                    }
+                    return;
+                }
+                if (rangeKey === 'live') {
+                    if (activeRange !== 'live') lastHistoricalRange = activeRange;
+                    const liveStart = new Date();
+                    liveStart.setSeconds(0, 0);
+                    liveStartedAt = liveStart.getTime();
+                    refresh('live', { fresh: true });
+                    return;
+                }
+                lastHistoricalRange = rangeKey;
+                refresh(rangeKey);
+            });
         });
         portSelect.addEventListener('change', () => {
             updateTitle();
-            refresh(activeRange);
+            refresh(activeRange, { fresh: activeRange === 'live' });
         });
 
         updateTitle();
@@ -2764,14 +2900,9 @@
             refresh(activeRange);
         }
         syncLivePolling();
-        window.setInterval(() => {
-            if (!document.hidden && activeRange !== 'live') {
-                refresh(activeRange);
-            }
-        }, 120000);
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                refresh(activeRange);
+            if (!document.hidden && activeRange === 'live') {
+                refresh('live');
                 syncLivePolling();
             }
         });
