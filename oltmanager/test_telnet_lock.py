@@ -86,3 +86,14 @@ class TelnetHostLockTests(SimpleTestCase):
         commands = [call.args[1] for call in run.call_args_list]
         self.assertNotIn('display vlan 100', commands)
         self.assertNotIn('display vlan 200', commands)
+
+    def test_card_fetch_releases_registered_telnet_session(self):
+        session = Mock()
+        with patch.object(utils, 'open_telnet_authenticated_session', return_value=(session, 'ok')), \
+                patch.object(utils, '_prepare_telnet_cli_session'), \
+                patch.object(utils, '_run_telnet_command', return_value='board output'), \
+                patch.object(utils, '_parse_board_table', return_value=[]), \
+                patch.object(utils, '_close_telnet_session') as close_session:
+            cards, _status = utils.fetch_olt_cards(self.olt)
+        self.assertEqual(cards, [])
+        close_session.assert_called_once_with(session)
