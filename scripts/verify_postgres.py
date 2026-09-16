@@ -13,7 +13,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--settings', default='oltportal.settings')
     parser.add_argument('--port', type=int, default=8000)
-    parser.add_argument('--paths', nargs='+', default=['/', '/configured/', '/configured/status-sync/progress/', '/unconfigured/'])
+    parser.add_argument('--paths', nargs='+', default=['/', '/configured/', '/configured/status-sync/progress/', '/unconfigured/', '/report/'])
     args = parser.parse_args()
     os.environ['DJANGO_SETTINGS_MODULE'] = args.settings
     os.environ['OLT_DISABLE_EMBEDDED_SYNC'] = '1'

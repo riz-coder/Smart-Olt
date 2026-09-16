@@ -5081,12 +5081,16 @@ def _telnet_host_key(olt=None, host="", port=None):
 
 
 def _telnet_lock_dir():
-    runtime = os.environ.get('OPTIVERSE_RUNTIME_DIR', '').strip()
-    if runtime:
-        base = runtime
+    configured = os.environ.get("OPTIVERSE_TELNET_LOCK_DIR", "").strip()
+    if configured:
+        path = configured
+    elif os.name == "nt":
+        path = os.path.join(str(getattr(settings, "BASE_DIR", "") or "."), "runtime", "device-locks")
     else:
-        base = str(getattr(settings, "BASE_DIR", "") or ".")
-    path = os.path.join(base, "locks")
+        # This path is intentionally shared by every tenant process. A lock
+        # below a tenant runtime directory cannot protect the same physical OLT
+        # when it is registered in more than one tenant.
+        path = "/opt/optiverse/runtime/device-locks"
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -5199,9 +5203,9 @@ def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
             elif age_seconds >= TELNET_SESSION_RECOVERY_GRACE_SECONDS:
                 is_stale = True
             if is_stale:
-                stale_sessions.append(tn)
+                stale_sessions.append((tn, session.get("file_lock")))
                 _TELNET_SESSIONS.pop(session_id, None)
-    for session_tn in stale_sessions:
+    for session_tn, file_lock in stale_sessions:
         try:
             session_tn.write(b"\r\n")
             session_tn.write(b"quit\r\n")
@@ -5214,6 +5218,7 @@ def _close_competing_telnet_sessions(olt, keep_tn=None, force=False):
                 session_tn.close()
             except OSError:
                 pass
+            _release_telnet_host_file_lock(file_lock)
 
 
 def _close_telnet_session(tn):
@@ -5316,6 +5321,9 @@ def open_telnet_authenticated_session(olt):
     telnet_port = int(getattr(olt, "tcp_port", 23) or 23)
     last_status = "Telnet timeout while opening session."
     recovered_sessions = False
+    # Reap stale in-process sessions before waiting on their file lock. The
+    # reverse order turns an abandoned session into repeated 45-second waits.
+    _close_competing_telnet_sessions(olt)
     file_lock, lock_status = _acquire_telnet_host_file_lock(olt)
     if lock_status:
         return None, lock_status
@@ -16213,12 +16221,18 @@ def fetch_pon_ports_snapshot(olt):
 
         _apply_snmp_pon_states_to_groups(groups, snmp_pon.get("ports") or {})
         ont_counts, ont_rows = _get_ont_counts_from_db(olt)
-        if not ont_counts:
+        onboarding_active = str(getattr(olt, "onboarding_status", "") or "").lower() in {"queued", "running"}
+        if not ont_counts and not onboarding_active:
             ont_output = _run_telnet_command(tn, "display ont info 0 all", enter_until_prompt=True)
             ont_counts, ont_rows = _parse_ont_counts_by_port(ont_output)
         if ont_counts:
             _apply_ont_counts_to_groups(groups, ont_counts)
             ont_status = f" | ONTs loaded: {ont_rows}"
+        elif onboarding_active:
+            # ONU import immediately follows this inventory step. Running the
+            # full all-ONT command here duplicates the heaviest device query and
+            # can exhaust/close the OLT CLI session on large chassis.
+            ont_status = " | ONT counts deferred to ONU import"
         else:
             ont_status = " | ONT parse skipped"
         _apply_average_signals_to_groups(groups, _get_ont_signal_averages_from_db(olt))

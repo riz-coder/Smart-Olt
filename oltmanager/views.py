@@ -29,9 +29,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db import DatabaseError, OperationalError, close_old_connections
+from django.db import DatabaseError, OperationalError, close_old_connections, connection
 from django.db.models import Case, Count, FloatField, IntegerField, Max, Q, Value, When
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Lower, Replace, Trim
 from django.http import HttpResponse, JsonResponse
 from django.core.exceptions import PermissionDenied
 from django.template.loader import render_to_string
@@ -1588,7 +1588,7 @@ def _public_onboarding_message(message):
     if any(secret in text.lower() for secret in ("device command", "monitoring", "device login", "protocol")):
         text = text.replace("device command", "device data")
     return text
-def _run_olt_onboarding_worker(olt_id, snmp_mode):
+def _run_olt_onboarding_worker_locked(olt_id, snmp_mode):
     try:
         _clear_olt_onboarding_abort(olt_id)
         olt = OLT.objects.filter(pk=olt_id).first()
@@ -1909,6 +1909,30 @@ def _run_olt_onboarding_worker(olt_id, snmp_mode):
         with _OLT_ONBOARDING_LOCK:
             _OLT_ONBOARDING_RUNNING.discard(int(olt_id))
             _OLT_ONBOARDING_ABORT_REQUESTED.discard(int(olt_id))
+
+
+def _run_olt_onboarding_worker(olt_id, snmp_mode):
+    """Run once per tenant/OLT even when multiple web processes request retry."""
+    olt_id = int(olt_id or 0)
+    cursor = connection.cursor()
+    acquired = False
+    try:
+        # Session advisory locks are released automatically if this worker dies.
+        # Namespace 0x4F4C54 is ASCII "OLT" and avoids collisions with other jobs.
+        cursor.execute("SELECT pg_try_advisory_lock(%s, %s)", [0x4F4C54, olt_id])
+        acquired = bool(cursor.fetchone()[0])
+        if not acquired:
+            with _OLT_ONBOARDING_LOCK:
+                _OLT_ONBOARDING_RUNNING.discard(olt_id)
+            return
+        return _run_olt_onboarding_worker_locked(olt_id, snmp_mode)
+    finally:
+        if acquired:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s, %s)", [0x4F4C54, olt_id])
+            except Exception:
+                close_old_connections()
+        cursor.close()
 
 
 def _schedule_olt_onboarding(olt_id, snmp_mode):
@@ -8661,13 +8685,30 @@ def _report_parse_dbm(value):
     text = str(value or "").strip()
     if not text or text in {"--", "-"}:
         return None
-    match = re.search(r"(-?\d+(?:\.\d+)?)", text)
+    match = re.fullmatch(r"([+-]?(?:[0-9]{1,3}(?:\.[0-9]{1,6})?|\.[0-9]{1,6}))(?:\s*dBm)?", text, re.IGNORECASE)
     if not match:
         return None
     try:
         return float(match.group(1))
     except (TypeError, ValueError):
         return None
+
+
+def _report_signal_candidates(olt_ids):
+    """Guard the PostgreSQL cast inside CASE, including mixed legacy readings."""
+    return (
+        ConfiguredONU.objects
+        .filter(olt_id__in=olt_ids, derived_status__iexact="online", signal_bucket__in=["bad", "warn"])
+        .annotate(rx_text=Lower(Trim("onu_rx")))
+        .annotate(onu_rx_dbm=Case(
+            When(rx_text__regex=r"^[+-]?([0-9]{1,3}([.][0-9]{1,6})?|[.][0-9]{1,6})([[:space:]]*dbm)?$",
+                 then=Cast(Trim(Replace("rx_text", Value("dbm"), Value(""))), FloatField())),
+            default=Value(None), output_field=FloatField(),
+        ))
+        .filter(onu_rx_dbm__isnull=False)
+        .order_by("onu_rx_dbm", "pk")
+        .values("olt_id", "slot", "port", "ont_id", "onu_rx", "description", "onu_rx_dbm")[:300]
+    )
 
 
 @login_required
@@ -8677,7 +8718,7 @@ def health_report(request):
     from .models import AlertEvent
 
     now = timezone.now()
-    cache_key = "health-report-context:v2"
+    cache_key = "health-report-context:v3"
     cached_context = cache.get(cache_key)
     if cached_context is not None:
         return render(request, "oltmanager/health_report.html", cached_context)
@@ -8736,19 +8777,7 @@ def health_report(request):
     # every online ONU and sorting in Python made /report/ slow on larger
     # tenants, especially while the background worker is updating the database.
     worst_signals = []
-    worst_signal_candidates = (
-        ConfiguredONU.objects
-        .filter(
-            olt_id__in=olt_ids,
-            derived_status__iexact="online",
-            signal_bucket__in=["bad", "warn"],
-        )
-        .exclude(onu_rx="")
-        .exclude(onu_rx__in=["-", "--"])
-        .annotate(onu_rx_dbm=Cast("onu_rx", FloatField()))
-        .order_by("onu_rx_dbm")
-        .values("olt_id", "slot", "port", "ont_id", "onu_rx", "description")
-    )[:300]
+    worst_signal_candidates = _report_signal_candidates(olt_ids)
     for onu in worst_signal_candidates:
         dbm = _report_parse_dbm(onu.get("onu_rx"))
         if dbm is not None:
