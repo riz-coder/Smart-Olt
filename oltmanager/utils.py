@@ -11701,7 +11701,7 @@ def authorize_autofind_onu(
     return result
 
 
-def fetch_vlan_snapshot(olt):
+def fetch_vlan_snapshot(olt, *, fetch_missing_descriptions=True):
     result = {
         "status": "VLAN data unavailable",
         "rows": [],
@@ -11732,7 +11732,7 @@ def fetch_vlan_snapshot(olt):
             if retry_rows:
                 output = retry_output
                 rows = retry_rows
-        if len(desc_map) < len(rows):
+        if fetch_missing_descriptions and len(desc_map) < len(rows):
             for row in rows:
                 vlan_id = int(row.get("vlan_id") or 0)
                 if not vlan_id or desc_map.get(vlan_id):

@@ -405,10 +405,10 @@ def _is_retryable_telnet_status_text(status):
     return any(token in text for token in retry_tokens)
 
 
-def _fetch_vlan_snapshot_with_retry(olt, attempts=3, delay=0.8):
+def _fetch_vlan_snapshot_with_retry(olt, attempts=3, delay=0.8, *, fetch_missing_descriptions=True):
     latest = {"status": "VLAN data unavailable", "rows": []}
     for attempt in range(attempts):
-        latest = fetch_vlan_snapshot(olt)
+        latest = fetch_vlan_snapshot(olt, fetch_missing_descriptions=fetch_missing_descriptions)
         if (latest.get("rows") or []) or not _is_retryable_telnet_status_text(latest.get("status")):
             return latest
         if attempt < attempts - 1:
@@ -1786,7 +1786,7 @@ def _run_olt_onboarding_worker_locked(olt_id, snmp_mode):
             "Fetching VLANs",
             84,
             90,
-            lambda: _fetch_vlan_snapshot_with_retry(olt),
+            lambda: _fetch_vlan_snapshot_with_retry(olt, fetch_missing_descriptions=False),
             validate=lambda value: _onboarding_require_count("VLANs", _onboarding_count_rows(value)),
             success_message=lambda value: f"{_onboarding_count_rows(value)} VLANs fetched.",
             allow_failure=True,

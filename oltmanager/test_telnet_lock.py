@@ -66,3 +66,23 @@ class TelnetHostLockTests(SimpleTestCase):
         self.assertTrue(groups)
         self.assertIn('deferred to ONU import', status)
         command.assert_not_called()
+
+    def test_fast_vlan_snapshot_does_not_query_every_missing_description(self):
+        session = Mock()
+        outputs = {
+            'display vlan all': 'all-vlans',
+            'display vlan description': 'descriptions',
+            'display ip interface brief': '',
+        }
+        rows = [{'vlan_id': 100}, {'vlan_id': 200}]
+        with patch.object(utils, 'open_telnet_authenticated_session', return_value=(session, 'ok')), \
+                patch.object(utils, '_prepare_telnet_cli_session'), \
+                patch.object(utils, '_run_telnet_command', side_effect=lambda tn, command, **kwargs: outputs.get(command, '')) as run, \
+                patch.object(utils, '_parse_vlan_table', return_value=rows), \
+                patch.object(utils, '_parse_vlan_description_table', return_value={}), \
+                patch.object(utils, '_close_telnet_session'):
+            result = utils.fetch_vlan_snapshot(self.olt, fetch_missing_descriptions=False)
+        self.assertEqual(len(result['rows']), 2)
+        commands = [call.args[1] for call in run.call_args_list]
+        self.assertNotIn('display vlan 100', commands)
+        self.assertNotIn('display vlan 200', commands)
