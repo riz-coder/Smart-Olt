@@ -119,7 +119,7 @@
 </section>
 <section class="panel">
     <h2>Delete Tenant Registry</h2>
-    <p class="subtle">This removes only the control-plane tenant row. Tenant DB/service files are not deleted.</p>
+    <p class="subtle">This permanently removes the tenant database, PostgreSQL role, web and sync services, VPN/proxy configuration, runtime files, and control-plane record.</p>
     <form method="post" action="{% url 'control_tenant_delete' tenant.pk %}" onsubmit="return confirm('Delete {{ tenant.name }} completely? This will stop/remove its system service and delete tenant database/files.');">{% csrf_token %}<button class="btn btn-red" type="submit">Delete Tenant</button></form>
 </section>
 {% endblock %}

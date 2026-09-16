@@ -367,6 +367,29 @@ def _remove_tenant_directory_if_safe(tenant, log_lines):
             log_lines.append(f"Could not remove tenant directory {slug_dir}: {exc}")
 
 
+def _tenant_related_service_names(tenant):
+    """Return every systemd unit owned by a tenant deployment."""
+    primary = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").strip().removesuffix(".service")
+    if not re.fullmatch(r"optiverse(?:-[a-z0-9-]+)?", primary):
+        raise TenantProvisionError("Invalid tenant system service name.")
+    return primary, f"{primary}-sync"
+
+
+def _remove_tenant_systemd_services(tenant, log_lines):
+    if not _systemd_available():
+        return
+    systemd_dir = Path("/etc/systemd/system")
+    for service_name in _tenant_related_service_names(tenant):
+        _run_command(["systemctl", "disable", "--now", service_name], timeout=60)
+        (systemd_dir / f"{service_name}.service").unlink(missing_ok=True)
+        drop_in_dir = systemd_dir / f"{service_name}.service.d"
+        if drop_in_dir.is_dir():
+            shutil.rmtree(drop_in_dir)
+        log_lines.append(f"Removed tenant service: {service_name}.service")
+    _run_command(["systemctl", "daemon-reload"], timeout=30)
+    _run_command(["systemctl", "reset-failed"], timeout=30)
+
+
 def delete_tenant_instance(tenant):
     """Delete tenant runtime, local files and registry record.
 
@@ -374,13 +397,7 @@ def delete_tenant_instance(tenant):
     removed recursively. Shared codebase folders are never recursively removed.
     """
     log_lines = []
-    service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").strip()
-    if _systemd_available() and re.fullmatch(r"optiverse(?:-[a-z0-9-]+)?", service_name):
-        _run_command(["systemctl", "disable", "--now", service_name], timeout=60)
-        service_path = Path("/etc/systemd/system") / f"{service_name}.service"
-        service_path.unlink(missing_ok=True)
-        _run_command(["systemctl", "daemon-reload"], timeout=30)
-        log_lines.append(f"Removed tenant service: {service_name}.service")
+    _remove_tenant_systemd_services(tenant, log_lines)
     if _systemd_available():
         interface = _tenant_vpn_interface_name(tenant)
         _run_command(["systemctl", "disable", "--now", f"wg-quick@{interface}"], timeout=60)

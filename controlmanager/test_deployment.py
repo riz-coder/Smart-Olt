@@ -8,7 +8,7 @@ from django.test import TestCase
 from . import deployment
 from .forms import TenantCreateForm
 from .models import Tenant
-from .services import _wireguard_keypair, _write_tenant_env_file
+from .services import _tenant_related_service_names, _wireguard_keypair, _write_tenant_env_file
 
 
 class TenantDeploymentTests(TestCase):
@@ -119,6 +119,14 @@ class TenantDeploymentTests(TestCase):
             form = TenantCreateForm(data={'name': 'nexus', 'owner_email': 'a@example.com',
                 'panel_admin_username': 'admin', 'panel_admin_initial_password': 'test-password'})
             self.assertTrue(form.is_valid(), form.errors)
+
+    def test_tenant_delete_targets_web_and_sync_services(self):
+        tenant = self.tenant()
+        tenant.service_name = 'optiverse-nexus.service'
+        self.assertEqual(
+            _tenant_related_service_names(tenant),
+            ('optiverse-nexus', 'optiverse-nexus-sync'),
+        )
 
     def test_proxy_rollback_on_validation_failure(self):
         with patch.dict(os.environ, CONTROL_BASE_DOMAIN='example.com'):
