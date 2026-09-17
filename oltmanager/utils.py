@@ -7295,7 +7295,17 @@ def fetch_ont_optical_subset(olt, onu_keys):
         _close_telnet_session(tn)
 
 
-def fetch_configured_onus_snapshot(olt):
+def _inventory_slot_is_complete(actual_count, expected_count):
+    """Accept a nearly complete slot dump without repeating the whole CLI command."""
+    actual = max(0, int(actual_count or 0))
+    expected = max(0, int(expected_count or 0))
+    if not expected:
+        return actual > 0
+    tolerance = max(2, int(expected * 0.05))
+    return actual >= max(0, expected - tolerance)
+
+
+def fetch_configured_onus_snapshot(olt, *, include_optical=True):
     result = {
         "status": "ONU inventory unavailable",
         "rows": [],
@@ -7385,11 +7395,9 @@ def fetch_configured_onus_snapshot(olt):
                     if len(parsed_rows) > len(best_rows):
                         best_rows = parsed_rows
                         best_desc = parsed_desc
-                    if expected_slot_total and len(best_rows) >= expected_slot_total:
+                    if _inventory_slot_is_complete(len(best_rows), expected_slot_total):
                         break
-                if expected_slot_total and len(best_rows) >= expected_slot_total:
-                    break
-                if best_rows and not expected_slot_total:
+                if _inventory_slot_is_complete(len(best_rows), expected_slot_total):
                     break
             rows.extend(best_rows)
             desc_map.update(best_desc)
@@ -7412,13 +7420,15 @@ def fetch_configured_onus_snapshot(olt):
                     f"Slots: {', '.join(slot_status) if slot_status else 'none'}"
                 )
                 return result
-        slot_ports = sorted(
-            {
-                (int(row.get("slot", 0) or 0), int(row.get("port", 0) or 0))
-                for row in rows
-            }
-        )
-        optical_map, _ = _fetch_ont_optical_map_in_context(tn, slot_ports, olt=olt)
+        optical_map = {}
+        if include_optical:
+            slot_ports = sorted(
+                {
+                    (int(row.get("slot", 0) or 0), int(row.get("port", 0) or 0))
+                    for row in rows
+                }
+            )
+            optical_map, _ = _fetch_ont_optical_map_in_context(tn, slot_ports, olt=olt)
         for row in rows:
             row["description"] = desc_map.get((row["slot"], row["port"], row["ont_id"]), "").strip()
             power = optical_map.get((row["slot"], row["port"], row["ont_id"])) or {}
@@ -7428,10 +7438,11 @@ def fetch_configured_onus_snapshot(olt):
             signal_source = row["olt_rx"] if row["olt_rx"] != "--" else row["onu_rx"]
             row["signal_bucket"] = _signal_bucket_from_dbm_text(signal_source)
         result["rows"] = rows
+        signal_note = f"Signals mapped: {len(optical_map)}" if include_optical else "Signals preserved (hourly signal worker)"
         result["status"] = (
             f"Configured ONUs fetched from board detail: {len(rows)} | "
             f"Slots: {', '.join(slot_status) if slot_status else 'none'} | "
-            f"Descriptions mapped: {len(desc_map)} | Signals mapped: {len(optical_map)}"
+            f"Descriptions mapped: {len(desc_map)} | {signal_note}"
         )
         return result
     except (socket.timeout, TimeoutError):
@@ -7539,12 +7550,12 @@ def detect_new_onus_from_snmp(olt):
     }
 
 
-def sync_configured_onus_inventory(olt):
+def sync_configured_onus_inventory(olt, *, include_optical=False):
     from django.db import transaction
 
     from .models import ConfiguredONU
 
-    fetched = fetch_configured_onus_snapshot(olt)
+    fetched = fetch_configured_onus_snapshot(olt, include_optical=include_optical)
     rows = fetched.get("rows") or []
     status = fetched.get("status") or ""
     if fetched.get("incomplete"):

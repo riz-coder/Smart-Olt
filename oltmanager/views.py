@@ -9486,7 +9486,10 @@ def olt_sync_config(request, pk):
         or "application/json" in request.headers.get("accept", "")
     )
     try:
-        result = sync_configured_onus_inventory(olt)
+        # Config Sync updates inventory/configuration. Optical samples belong to
+        # the dedicated hourly signal worker; fetching them here makes large OLTs
+        # wait several extra minutes and duplicates the same polling work.
+        result = sync_configured_onus_inventory(olt, include_optical=False)
         new_onu_rows = result.get("new_onus") or []
         detail_fill = {}
         vlan_fill = {}
