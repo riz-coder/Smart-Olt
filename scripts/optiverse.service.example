@@ -11,6 +11,7 @@ WorkingDirectory=/opt/optiverse/Smart-Olt
 EnvironmentFile=/opt/optiverse/Smart-Olt/.env
 Environment=OLT_DISABLE_EMBEDDED_SYNC=1
 Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+Nice=-5
 ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/gunicorn oltportal.wsgi:application --bind 127.0.0.1:8000 --workers 3 --threads 4 --worker-class gthread --timeout 180 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5

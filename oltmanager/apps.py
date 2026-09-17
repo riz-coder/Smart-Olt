@@ -370,6 +370,13 @@ def _onu_inventory_sync_loop():
         record_uplink_port_traffic_samples,
     )
 
+    # The dedicated ONU-status loop already performs the full bulk status walk.
+    # Running the same walk again from inventory doubles CPU/SNMP/DB work on
+    # production tenants. Inventory still owns autofind, offline self-heal and
+    # traffic sampling; it only performs status reconciliation as a fallback
+    # when the dedicated status thread was explicitly disabled.
+    dedicated_status_enabled = _background_sync_thread_enabled("onu_status")
+
     def _sync_single_olt_cycle(olt_id):
         from .models import OLT
         from .utils import (
@@ -391,10 +398,11 @@ def _onu_inventory_sync_loop():
 
             # Self-heal: if the OLT is reachable, bulk-correct any ONU left stuck
             # in the "snmp_down" state from an earlier outage (survives restarts).
-            try:
-                reconcile_onu_status_via_snmp(olt)
-            except Exception:
-                close_old_connections()
+            if not dedicated_status_enabled:
+                try:
+                    reconcile_onu_status_via_snmp(olt)
+                except Exception:
+                    close_old_connections()
 
             try:
                 sync_olt_autofind_count(olt)

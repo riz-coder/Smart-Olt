@@ -15,6 +15,7 @@ def database_config(prefix=''):
         return {'ENGINE': 'django.db.backends.postgresql', 'NAME': value('DB_NAME'),
                 'USER': value('DB_USER'), 'PASSWORD': value('DB_PASSWORD'),
                 'HOST': value('DB_HOST', '127.0.0.1'), 'PORT': value('DB_PORT', '5432'),
-                'CONN_MAX_AGE': 0,
+                'CONN_MAX_AGE': max(0, int(value('DB_CONN_MAX_AGE', '60') or 60)),
+                'CONN_HEALTH_CHECKS': True,
                 'OPTIONS': {'connect_timeout': 10, 'sslmode': value('DB_SSLMODE', 'prefer')}}
     raise ImproperlyConfigured('Only PostgreSQL is supported. Unsupported DB_ENGINE: ' + engine)

@@ -11,6 +11,8 @@ WorkingDirectory=/opt/optiverse/Smart-Olt
 EnvironmentFile=/opt/optiverse/Smart-Olt/.env
 Environment=OLT_DISABLE_EMBEDDED_SYNC=0
 Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+Nice=10
+IOSchedulingClass=idle
 ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/python manage.py run_background_sync
 Restart=always
 RestartSec=5

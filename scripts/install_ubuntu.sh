@@ -121,6 +121,7 @@ WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
 Environment=OLT_DISABLE_EMBEDDED_SYNC=1
 Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+Nice=-5
 ExecStart=$VENV_DIR/bin/gunicorn oltportal.wsgi:application --bind $HOST:$PORT --workers $WEB_WORKERS --threads $WEB_THREADS --worker-class gthread --timeout $WEB_TIMEOUT --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
@@ -148,6 +149,8 @@ WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
 Environment=OLT_DISABLE_EMBEDDED_SYNC=0
 Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+Nice=10
+IOSchedulingClass=idle
 ExecStart=$VENV_DIR/bin/python manage.py run_background_sync
 Restart=always
 RestartSec=5
@@ -176,6 +179,7 @@ WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env.control
 Environment=OLT_DISABLE_EMBEDDED_SYNC=1
 Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+Nice=-5
 ExecStart=$VENV_DIR/bin/gunicorn controlplane.wsgi:application --bind $CONTROL_HOST:$CONTROL_PORT --workers $CONTROL_WORKERS --threads $CONTROL_THREADS --worker-class gthread --timeout 120 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5

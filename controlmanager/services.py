@@ -277,6 +277,7 @@ WorkingDirectory={codebase}
 EnvironmentFile={tenant.env_path}
 Environment=OLT_DISABLE_EMBEDDED_SYNC=1
 Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+Nice=-5
 ExecStart={codebase}/.venv/bin/gunicorn oltportal.wsgi:application --bind {_tenant_bind_host()}:{tenant.panel_port} --workers 2 --threads 4 --worker-class gthread --timeout 180 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
@@ -301,6 +302,8 @@ WorkingDirectory={codebase}
 EnvironmentFile={tenant.env_path}
 Environment=OLT_DISABLE_EMBEDDED_SYNC=0
 Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+Nice=10
+IOSchedulingClass=idle
 ExecStart={codebase}/.venv/bin/python manage.py run_background_sync
 Restart=always
 RestartSec=5
