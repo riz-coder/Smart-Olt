@@ -16976,6 +16976,11 @@ def send_telnet_input(tn, data):
         return
     _touch_telnet_session(tn)
     payload = data if isinstance(data, bytes) else str(data).encode("ascii", errors="ignore")
+    # xterm.js emits DEL (0x7f) for Backspace, while Huawei/ZTE interactive
+    # CLIs expect the terminal erase character Ctrl-H (0x08). Normalise it at
+    # the shared Telnet boundary so WebSocket and HTTP fallback sessions behave
+    # identically without changing any other control/escape sequences.
+    payload = payload.replace(b"\x7f", b"\x08")
     tn.write(payload)
 
 
