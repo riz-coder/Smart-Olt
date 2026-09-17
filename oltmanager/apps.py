@@ -409,10 +409,11 @@ def _onu_inventory_sync_loop():
             except Exception:
                 close_old_connections()
 
-            try:
-                reconcile_offline_onus_with_signal(olt=olt, limit=120)
-            except Exception:
-                close_old_connections()
+            if not dedicated_status_enabled:
+                try:
+                    reconcile_offline_onus_with_signal(olt=olt, limit=120)
+                except Exception:
+                    close_old_connections()
         finally:
             close_old_connections()
 
