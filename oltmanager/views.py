@@ -2923,6 +2923,19 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             if cached_at and (now - cached_at).total_seconds() < DASHBOARD_ALERT_WIDGET_CACHE_SECONDS:
                 return cached.get("data") or {"degrade": [], "fiber": []}
 
+    # Some legacy alert rows do not have a direct OLT foreign key and used to
+    # issue one fallback OLT query per row. Preload the tiny OLT table once so a
+    # cold dashboard does not produce an N+1 query burst.
+    olt_name_by_id = {
+        int(olt_id): str(name or "")
+        for olt_id, name in OLT.objects.values_list("id", "name")
+    }
+    olt_id_by_name = {
+        name.strip().lower(): olt_id
+        for olt_id, name in olt_name_by_id.items()
+        if name.strip()
+    }
+
     qs = AlertEvent.objects.filter(
         is_active=True, alert_type__in=["signal_degrade", "fiber_cut"]
     ).select_related("olt")
@@ -2973,7 +2986,7 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
             if name:
                 return name
         if fallback_olt_id:
-            name = OLT.objects.filter(pk=fallback_olt_id).values_list("name", flat=True).first()
+            name = olt_name_by_id.get(int(fallback_olt_id))
             if name:
                 return str(name)
             return f"OLT #{fallback_olt_id}"
@@ -2983,13 +2996,13 @@ def _collect_dashboard_alert_widgets(selected_olt=None, limit=60):
         if alert is not None and getattr(alert, "olt_id", None):
             return getattr(alert, "olt_id", None)
         key_olt_id = _alert_olt_id_from_key(alert) if alert is not None else None
-        if key_olt_id and OLT.objects.filter(pk=key_olt_id).exists():
+        if key_olt_id and int(key_olt_id) in olt_name_by_id:
             return key_olt_id
         if selected_olt is not None and getattr(selected_olt, "pk", None):
             return selected_olt.pk
         olt_name = str(olt_name or "").strip()
         if olt_name and not re.match(r"(?i)^unknown\s+olt$|^olt\s+#\d+$", olt_name):
-            by_name = OLT.objects.filter(name__iexact=olt_name).values_list("pk", flat=True).first()
+            by_name = olt_id_by_name.get(olt_name.lower())
             if by_name:
                 return by_name
         return key_olt_id
