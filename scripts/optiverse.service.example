@@ -7,15 +7,17 @@ Wants=network-online.target
 Type=simple
 User=optiverse
 Group=optiverse
-WorkingDirectory=/opt/optiverse/oltportal
-EnvironmentFile=/opt/optiverse/oltportal/.env
-ExecStart=/opt/optiverse/oltportal/.venv/bin/daphne -b 127.0.0.1 -p 8000 oltportal.asgi:application
+WorkingDirectory=/opt/optiverse/Smart-Olt
+EnvironmentFile=/opt/optiverse/Smart-Olt/.env
+Environment=OLT_DISABLE_EMBEDDED_SYNC=1
+Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/gunicorn oltportal.wsgi:application --bind 127.0.0.1:8000 --workers 3 --threads 4 --worker-class gthread --timeout 180 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-KillSignal=SIGINT
-StandardOutput=append:/opt/optiverse/oltportal/logs/optiverse.out.log
-StandardError=append:/opt/optiverse/oltportal/logs/optiverse.err.log
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

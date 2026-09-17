@@ -185,7 +185,7 @@ DB_HOST={tenant.database_host}
 DB_PORT={tenant.database_port}
 ONU_STATUS_SYNC_PROGRESS_FILE={tenant_dir / "onu_status_sync_progress.json"}
 OLT_ENABLE_EMBEDDED_SYNC=true
-OLT_BACKGROUND_SYNC_THREADS={os.environ.get("CONTROL_TENANT_BACKGROUND_SYNC_THREADS", "snmp_monitor,onu_status,signal_sample")}
+OLT_BACKGROUND_SYNC_THREADS={os.environ.get("CONTROL_TENANT_BACKGROUND_SYNC_THREADS", "snmp_monitor,onu_status,signal_sample,inventory")}
 SNMP_MONITOR_MAX_WORKERS={os.environ.get("CONTROL_TENANT_SNMP_MONITOR_MAX_WORKERS", "1")}
 ONU_STATUS_SYNC_MAX_WORKERS={os.environ.get("CONTROL_TENANT_ONU_STATUS_SYNC_MAX_WORKERS", "1")}
 ONU_SIGNAL_SAMPLE_MAX_WORKERS={os.environ.get("CONTROL_TENANT_ONU_SIGNAL_SAMPLE_MAX_WORKERS", "1")}
@@ -263,9 +263,10 @@ def _write_systemd_service(tenant):
     service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").removesuffix('.service')
     if not re.fullmatch(r'optiverse(?:-[a-z0-9-]+)?', service_name):
         raise TenantProvisionError('Invalid tenant system service name.')
+    sync_service_name = f"{service_name}-sync"
     service_text = f"""[Unit]
 Description=OptiVerse Tenant Portal - {tenant.name}
-After=network-online.target
+After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
@@ -274,11 +275,37 @@ User=root
 Group=root
 WorkingDirectory={codebase}
 EnvironmentFile={tenant.env_path}
-ExecStart={codebase}/.venv/bin/python -m daphne -b {_tenant_bind_host()} -p {tenant.panel_port} oltportal.asgi:application
+Environment=OLT_DISABLE_EMBEDDED_SYNC=1
+Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+ExecStart={codebase}/.venv/bin/gunicorn oltportal.wsgi:application --bind {_tenant_bind_host()}:{tenant.panel_port} --workers 2 --threads 4 --worker-class gthread --timeout 180 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-KillSignal=SIGINT
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+"""
+    sync_service_text = f"""[Unit]
+Description=OptiVerse Tenant Background Sync - {tenant.name}
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory={codebase}
+EnvironmentFile={tenant.env_path}
+Environment=OLT_DISABLE_EMBEDDED_SYNC=0
+Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+ExecStart={codebase}/.venv/bin/python manage.py run_background_sync
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
 StandardOutput=journal
 StandardError=journal
 
@@ -286,10 +313,12 @@ StandardError=journal
 WantedBy=multi-user.target
 """
     path = Path("/etc/systemd/system") / f"{service_name}.service"
+    sync_path = Path("/etc/systemd/system") / f"{sync_service_name}.service"
     path.write_text(service_text, encoding="utf-8")
+    sync_path.write_text(sync_service_text, encoding="utf-8")
     subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, text=True)
-    subprocess.run(["systemctl", "enable", "--now", service_name], check=True, capture_output=True, text=True)
-    subprocess.run(["systemctl", "restart", service_name], check=True, capture_output=True, text=True)
+    subprocess.run(["systemctl", "enable", "--now", service_name, sync_service_name], check=True, capture_output=True, text=True)
+    subprocess.run(["systemctl", "restart", service_name, sync_service_name], check=True, capture_output=True, text=True)
     _apply_tenant_vpn(tenant)
     tenant.service_name = service_name
     tenant.save(update_fields=["service_name", "updated_at"])
@@ -298,7 +327,7 @@ WantedBy=multi-user.target
         deployment.publish_proxy(tenant, _run_command)
     except ValueError as exc:
         raise TenantProvisionError(str(exc)) from exc
-    return f"{service_name}.service started (web + background sync)"
+    return f"{service_name}.service and {sync_service_name}.service started"
 
 
 def _tenant_vpn_interface_name(tenant):

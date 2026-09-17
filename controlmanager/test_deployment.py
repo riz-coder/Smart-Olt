@@ -46,6 +46,10 @@ class TenantDeploymentTests(TestCase):
                 content = Path(tenant.env_path).read_text()
                 self.assertIn('DJANGO_CSRF_TRUSTED_ORIGINS=https://nexus.example.com', content)
                 self.assertIn('DJANGO_SESSION_COOKIE_SECURE=True', content)
+                self.assertIn(
+                    'OLT_BACKGROUND_SYNC_THREADS=snmp_monitor,onu_status,signal_sample,inventory',
+                    content,
+                )
 
     def test_overlapping_lans_have_distinct_tunnels_keys_ports_and_networks(self):
         first = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')

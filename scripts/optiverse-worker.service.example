@@ -1,0 +1,23 @@
+[Unit]
+Description=OptiVerse Background Synchronization Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=optiverse
+Group=optiverse
+WorkingDirectory=/opt/optiverse/Smart-Olt
+EnvironmentFile=/opt/optiverse/Smart-Olt/.env
+Environment=OLT_DISABLE_EMBEDDED_SYNC=0
+Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/python manage.py run_background_sync
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -9,11 +9,13 @@ User=root
 Group=root
 WorkingDirectory=/opt/optiverse/Smart-Olt
 EnvironmentFile=/opt/optiverse/Smart-Olt/.env.control
-ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/python -m daphne -b 0.0.0.0 -p 9000 controlplane.asgi:application
+Environment=OLT_DISABLE_EMBEDDED_SYNC=1
+Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+ExecStart=/opt/optiverse/Smart-Olt/.venv/bin/gunicorn controlplane.wsgi:application --bind 127.0.0.1:9000 --workers 2 --threads 4 --worker-class gthread --timeout 120 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-KillSignal=SIGINT
+KillSignal=SIGTERM
 StandardOutput=journal
 StandardError=journal
 

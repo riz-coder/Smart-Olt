@@ -7,6 +7,14 @@ SERVICE_USER="${OPTIVERSE_SERVICE_USER:-$(id -un)}"
 SERVICE_GROUP="${OPTIVERSE_SERVICE_GROUP:-$(id -gn)}"
 HOST="${OPTIVERSE_BIND_HOST:-127.0.0.1}"
 PORT="${OPTIVERSE_BIND_PORT:-8000}"
+WEB_WORKERS="${OPTIVERSE_WEB_WORKERS:-3}"
+WEB_THREADS="${OPTIVERSE_WEB_THREADS:-4}"
+WEB_TIMEOUT="${OPTIVERSE_WEB_TIMEOUT:-180}"
+CONTROL_SERVICE_NAME="${OPTIVERSE_CONTROL_SERVICE_NAME:-optiverse-control}"
+CONTROL_HOST="${OPTIVERSE_CONTROL_BIND_HOST:-127.0.0.1}"
+CONTROL_PORT="${OPTIVERSE_CONTROL_BIND_PORT:-9000}"
+CONTROL_WORKERS="${OPTIVERSE_CONTROL_WORKERS:-2}"
+CONTROL_THREADS="${OPTIVERSE_CONTROL_THREADS:-4}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="$APP_DIR/.venv"
 ENV_FILE="$APP_DIR/.env"
@@ -46,6 +54,18 @@ PY
   chmod 600 "$ENV_FILE"
 fi
 
+# Traffic polling belongs to the dedicated worker. Preserve any custom thread
+# selection while ensuring the inventory/traffic scheduler cannot be omitted.
+if grep -q '^OLT_BACKGROUND_SYNC_THREADS=' "$ENV_FILE"; then
+  SYNC_THREADS="$(sed -n 's/^OLT_BACKGROUND_SYNC_THREADS=//p' "$ENV_FILE" | tail -n 1)"
+  case ",$SYNC_THREADS," in
+    *,inventory,*) ;;
+    *) sed -i '/^OLT_BACKGROUND_SYNC_THREADS=/ s/$/,inventory/' "$ENV_FILE" ;;
+  esac
+else
+  printf '\nOLT_BACKGROUND_SYNC_THREADS=snmp_monitor,onu_status,signal_sample,inventory\n' >> "$ENV_FILE"
+fi
+
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
@@ -60,6 +80,13 @@ echo "Running migrations..."
 
 echo "Collecting static files..."
 "$PY" manage.py collectstatic --noinput
+
+if [ -f "$APP_DIR/.env.control" ]; then
+  echo "Provisioning and migrating the control-plane database..."
+  sudo "$PY" scripts/provision_postgres.py --env "$APP_DIR/.env.control" --prefix CONTROL_
+  "$PY" manage_control.py migrate --noinput
+  "$PY" manage_control.py collectstatic --noinput
+fi
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ]; then
   echo "Ensuring Django superuser exists..."
@@ -77,7 +104,7 @@ PY
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
-  echo "Installing systemd service $SERVICE_NAME..."
+  echo "Installing Gunicorn web service $SERVICE_NAME..."
   sudo tee "/etc/systemd/system/$SERVICE_NAME.service" >/dev/null <<EOF
 [Unit]
 Description=OptiVerse OLT Portal
@@ -90,22 +117,84 @@ User=$SERVICE_USER
 Group=$SERVICE_GROUP
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
-ExecStart=$VENV_DIR/bin/daphne -b $HOST -p $PORT oltportal.asgi:application
+Environment=OLT_DISABLE_EMBEDDED_SYNC=1
+Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+ExecStart=$VENV_DIR/bin/gunicorn oltportal.wsgi:application --bind $HOST:$PORT --workers $WEB_WORKERS --threads $WEB_THREADS --worker-class gthread --timeout $WEB_TIMEOUT --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-KillSignal=SIGINT
-StandardOutput=append:$APP_DIR/logs/$SERVICE_NAME.out.log
-StandardError=append:$APP_DIR/logs/$SERVICE_NAME.err.log
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+  echo "Installing isolated background synchronization service $SERVICE_NAME-worker..."
+  sudo tee "/etc/systemd/system/$SERVICE_NAME-worker.service" >/dev/null <<EOF
+[Unit]
+Description=OptiVerse Background Synchronization Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$ENV_FILE
+Environment=OLT_DISABLE_EMBEDDED_SYNC=0
+Environment=OLT_ENABLE_EMBEDDED_SYNC=true
+ExecStart=$VENV_DIR/bin/python manage.py run_background_sync
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  if [ -f "$APP_DIR/.env.control" ]; then
+    echo "Installing Gunicorn control-plane service $CONTROL_SERVICE_NAME..."
+    sudo tee "/etc/systemd/system/$CONTROL_SERVICE_NAME.service" >/dev/null <<EOF
+[Unit]
+Description=OptiVerse Master Control Plane
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env.control
+Environment=OLT_DISABLE_EMBEDDED_SYNC=1
+Environment=OLT_ENABLE_EMBEDDED_SYNC=false
+ExecStart=$VENV_DIR/bin/gunicorn controlplane.wsgi:application --bind $CONTROL_HOST:$CONTROL_PORT --workers $CONTROL_WORKERS --threads $CONTROL_THREADS --worker-class gthread --timeout 120 --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  fi
+
   sudo systemctl daemon-reload
-  sudo systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
-  sudo systemctl restart "$SERVICE_NAME"
-  echo "Service status: systemctl status $SERVICE_NAME"
-  echo "Autostart is disabled. To start manually later: sudo systemctl start $SERVICE_NAME"
+  sudo systemctl disable --now "$SERVICE_NAME-sync" >/dev/null 2>&1 || true
+  sudo systemctl enable --now "$SERVICE_NAME" "$SERVICE_NAME-worker"
+  if [ -f "$APP_DIR/.env.control" ]; then
+    sudo systemctl enable --now "$CONTROL_SERVICE_NAME"
+  fi
+  echo "Services installed and enabled for reboot."
+  echo "Check: systemctl status $SERVICE_NAME $SERVICE_NAME-worker $CONTROL_SERVICE_NAME"
 fi
 
 echo "Install complete. App runs on http://$HOST:$PORT behind Nginx/proxy."
