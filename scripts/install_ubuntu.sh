@@ -122,7 +122,7 @@ EnvironmentFile=$ENV_FILE
 Environment=OLT_DISABLE_EMBEDDED_SYNC=1
 Environment=OLT_ENABLE_EMBEDDED_SYNC=false
 Nice=-5
-ExecStart=$VENV_DIR/bin/gunicorn oltportal.wsgi:application --bind $HOST:$PORT --workers $WEB_WORKERS --threads $WEB_THREADS --worker-class gthread --timeout $WEB_TIMEOUT --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
+ExecStart=$VENV_DIR/bin/gunicorn oltportal.asgi:application --bind $HOST:$PORT --workers $WEB_WORKERS --worker-class uvicorn.workers.UvicornWorker --timeout $WEB_TIMEOUT --graceful-timeout 30 --keep-alive 5 --max-requests 2000 --max-requests-jitter 200 --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

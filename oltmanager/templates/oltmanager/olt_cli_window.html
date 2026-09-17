@@ -23,6 +23,12 @@
     <script src="{% static 'oltmanager/vendor/addon-fit.js' %}"></script>
     <script>
     (() => {
+        const terminalHost = document.getElementById('term');
+        if (typeof window.Terminal !== 'function' || !window.FitAddon) {
+            terminalHost.style.cssText = 'padding:18px;color:#ff8a8a;font:14px Consolas,monospace;white-space:pre-wrap';
+            terminalHost.textContent = 'CLI terminal assets could not be loaded. Run collectstatic and reload the page.';
+            return;
+        }
         const term = new Terminal({
             cursorBlink: true,
             fontFamily: 'Consolas, "Courier New", monospace',
@@ -35,7 +41,7 @@
         });
         const fitAddon = new FitAddon.FitAddon();
         term.loadAddon(fitAddon);
-        term.open(document.getElementById('term'));
+        term.open(terminalHost);
         const safeFit = () => { try { fitAddon.fit(); } catch (e) {} };
         safeFit();
         term.focus();
