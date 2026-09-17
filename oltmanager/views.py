@@ -6106,6 +6106,7 @@ def onu_trap_ingest(request):
     processed = 0
     updated = 0
     ignored = 0
+    imports_scheduled = 0
 
     for item in events:
         if not isinstance(item, dict):
@@ -6122,12 +6123,22 @@ def onu_trap_ingest(request):
             ignored += 1
             continue
         try:
+            frame = int(item.get("frame") or 0)
             slot = int(item.get("slot"))
             port = int(item.get("port"))
             ont_id = int(item.get("ont_id"))
         except (TypeError, ValueError):
             ignored += 1
             continue
+
+        # Traps can arrive before an externally configured ONU exists in the
+        # database. The exact-key importer validates the ONU on the OLT before
+        # creating anything; duplicate/concurrent trap keys are merged.
+        if not ConfiguredONU.objects.filter(olt=olt, frame=frame, slot=slot, port=port, ont_id=ont_id).exists():
+            from .apps import _schedule_immediate_inventory_sync
+
+            _schedule_immediate_inventory_sync(olt.pk, [(frame, slot, port, ont_id)])
+            imports_scheduled += 1
 
         alarm_code = str(item.get("alarm_code") or item.get("code") or item.get("alarmId") or item.get("alarm_id") or "").strip()
         alarm_name = str(item.get("alarm_name") or item.get("name") or item.get("alarmName") or item.get("alarm_name_text") or "").strip()
@@ -6193,6 +6204,7 @@ def onu_trap_ingest(request):
         "processed": processed,
         "updated": updated,
         "ignored": ignored,
+        "imports_scheduled": imports_scheduled,
     })
 
 
