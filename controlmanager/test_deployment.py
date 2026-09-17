@@ -3,7 +3,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 
 from . import deployment
 from .forms import TenantCreateForm
@@ -143,3 +145,28 @@ class TenantDeploymentTests(TestCase):
                     with self.assertRaises(ValueError):
                         deployment.publish_proxy(tenant, lambda *a, **k: (False, 'invalid'))
                     self.assertEqual(path.read_text(), 'old configuration')
+
+    @patch('controlmanager.views.get_tenant_olts')
+    @patch('controlmanager.views.refresh_tenant_database_snapshot')
+    def test_postgresql_tenant_detail_loads_olts_without_legacy_database_path(
+        self, refresh_snapshot, get_olts,
+    ):
+        tenant = self.tenant(
+            database_engine='postgresql',
+            database_name='optiverse_tenant_nexus',
+            database_user='optiverse_tenant_nexus',
+            database_password='test-only',
+            database_path='',
+        )
+        user = get_user_model().objects.create_superuser(
+            username='control-owner', email='owner@example.com', password='test-only-password',
+        )
+        self.client.force_login(user)
+        get_olts.return_value = [{'id': 7, 'name': 'OLT-7'}]
+
+        response = self.client.get(reverse('control_tenant_detail', args=[tenant.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        refresh_snapshot.assert_called_once_with(tenant, record_snapshot=False)
+        get_olts.assert_called_once_with(tenant)
+        self.assertEqual(response.context['tenant_olts'], [{'id': 7, 'name': 'OLT-7'}])

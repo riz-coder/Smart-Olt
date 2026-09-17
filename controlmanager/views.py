@@ -238,12 +238,11 @@ def tenant_detail(request, pk):
             return redirect("control_tenant_detail", pk=tenant.pk)
     tenant_olts = []
     tenant_olts_error = ""
-    if tenant.database_path:
-        try:
-            refresh_tenant_database_snapshot(tenant, record_snapshot=False)
-            tenant_olts = get_tenant_olts(tenant)
-        except TenantSnapshotError as exc:
-            tenant_olts_error = str(exc)
+    try:
+        refresh_tenant_database_snapshot(tenant, record_snapshot=False)
+        tenant_olts = get_tenant_olts(tenant)
+    except TenantSnapshotError as exc:
+        tenant_olts_error = str(exc)
     context = {
         "tenant": tenant,
         "connection_form": connection_form,
