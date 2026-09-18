@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import time
 import http.client
@@ -58,9 +59,22 @@ def _tenant_next_available_port(tenant):
         if port
     )
     port = max(_tenant_start_port(), int(tenant.panel_port or 0) or _tenant_start_port())
-    while port in used_ports:
+    while port in used_ports or not _tenant_port_is_available(port):
         port += 1
+        if port > 65535:
+            raise TenantProvisionError("No free tenant TCP port is available.")
     return port
+
+
+def _tenant_port_is_available(port):
+    """Check the real bind address so non-OptiVerse services are not overwritten."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((_tenant_bind_host(), int(port)))
+        return True
+    except (OSError, OverflowError, ValueError):
+        return False
 
 
 def _control_bool(name, default=False):
@@ -480,7 +494,10 @@ def prepare_tenant_defaults(tenant):
     slug = tenant.slug
     base = _tenant_base_dir() / slug
     port_conflicts = tenant.__class__.objects.exclude(pk=tenant.pk).filter(panel_port=tenant.panel_port).exists() if tenant.panel_port else False
-    if not tenant.panel_port or port_conflicts:
+    # Tenant.panel_port historically defaults to 8000, which is reserved for
+    # the base portal. New/legacy tenants must start at the configured tenant
+    # range, and allocation also skips ports occupied outside the control DB.
+    if not tenant.panel_port or int(tenant.panel_port) < _tenant_start_port() or port_conflicts:
         tenant.panel_port = _tenant_next_available_port(tenant)
     tenant.panel_scheme = tenant.panel_scheme or "http"
     tenant.panel_host = tenant.panel_host or _tenant_panel_host()

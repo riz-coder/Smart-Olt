@@ -10,7 +10,12 @@ from django.urls import reverse
 from . import deployment
 from .forms import TenantCreateForm
 from .models import Tenant
-from .services import _tenant_related_service_names, _wireguard_keypair, _write_tenant_env_file
+from .services import (
+    _tenant_related_service_names,
+    _wireguard_keypair,
+    _write_tenant_env_file,
+    prepare_tenant_defaults,
+)
 
 
 class TenantDeploymentTests(TestCase):
@@ -127,6 +132,25 @@ class TenantDeploymentTests(TestCase):
             form = TenantCreateForm(data={'name': 'nexus', 'owner_email': 'a@example.com',
                 'panel_admin_username': 'admin', 'panel_admin_initial_password': 'test-password'})
             self.assertTrue(form.is_valid(), form.errors)
+
+    @patch('controlmanager.services._tenant_port_is_available', return_value=True)
+    def test_new_tenant_never_keeps_reserved_base_port(self, port_available):
+        tenant = Tenant.objects.create(name='new-tenant')
+
+        prepare_tenant_defaults(tenant)
+
+        self.assertEqual(tenant.panel_port, 8001)
+        port_available.assert_called_with(8001)
+
+    @patch('controlmanager.services._tenant_port_is_available')
+    def test_new_tenant_skips_ports_already_occupied_on_linux(self, port_available):
+        port_available.side_effect = lambda port: port >= 8003
+        Tenant.objects.create(name='existing-tenant', panel_port=8001)
+        tenant = Tenant.objects.create(name='new-tenant')
+
+        prepare_tenant_defaults(tenant)
+
+        self.assertEqual(tenant.panel_port, 8003)
 
     def test_tenant_delete_targets_web_and_sync_services(self):
         tenant = self.tenant()
