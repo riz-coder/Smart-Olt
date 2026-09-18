@@ -84,7 +84,7 @@ NEW_ONU_CHECK_SECONDS = max(120, int(os.environ.get("NEW_ONU_CHECK_SECONDS", "18
 NEW_ONU_RECONCILE_SECONDS = max(600, int(os.environ.get("NEW_ONU_RECONCILE_SECONDS", "900") or 900))
 NEW_ONU_RECONCILE_MAX_WORKERS = max(
     1,
-    min(4, int(os.environ.get("NEW_ONU_RECONCILE_MAX_WORKERS", "4") or 4)),
+    min(4, int(os.environ.get("NEW_ONU_RECONCILE_MAX_WORKERS", "2") or 2)),
 )
 NEW_ONU_RECONCILE_STARTUP_DELAY_SECONDS = max(
     10,

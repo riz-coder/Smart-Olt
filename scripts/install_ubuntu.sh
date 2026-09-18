@@ -73,6 +73,11 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# Keep polling/import work from starving latency-sensitive Gunicorn workers.
+# systemd percentages are per CPU core, so 100% caps the entire background
+# service (including status-sync child processes) to one core in aggregate.
+WORKER_CPU_QUOTA="${OPTIVERSE_WORKER_CPU_QUOTA:-100%}"
+
 mkdir -p "$APP_DIR/logs" "$APP_DIR/staticfiles" "$APP_DIR/media"
 
 sudo "$PY" scripts/provision_postgres.py --env "$ENV_FILE"
@@ -151,6 +156,7 @@ Environment=OLT_DISABLE_EMBEDDED_SYNC=0
 Environment=OLT_ENABLE_EMBEDDED_SYNC=true
 Nice=10
 IOSchedulingClass=idle
+CPUQuota=$WORKER_CPU_QUOTA
 ExecStart=$VENV_DIR/bin/python manage.py run_background_sync
 Restart=always
 RestartSec=5
