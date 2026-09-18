@@ -86,6 +86,10 @@ NEW_ONU_RECONCILE_MAX_WORKERS = max(
     1,
     min(4, int(os.environ.get("NEW_ONU_RECONCILE_MAX_WORKERS", "4") or 4)),
 )
+NEW_ONU_RECONCILE_STARTUP_DELAY_SECONDS = max(
+    10,
+    int(os.environ.get("NEW_ONU_RECONCILE_STARTUP_DELAY_SECONDS", "30") or 30),
+)
 AUTO_IMMEDIATE_INVENTORY_SYNC = True
 SNMP_MONITOR_HEAVY_FAILURE_BACKOFF_SECONDS = max(
     60,
@@ -506,7 +510,9 @@ def _onu_cli_identity_reconciliation_loop():
         finally:
             close_old_connections()
 
-    _sleep_until_interval_boundary(NEW_ONU_RECONCILE_SECONDS)
+    # Run the first reconciliation shortly after worker startup instead of
+    # leaving a fresh deployment blind until the next 15-minute wall-clock edge.
+    time.sleep(NEW_ONU_RECONCILE_STARTUP_DELAY_SECONDS)
     while True:
         cycle_started_at = time.monotonic()
         try:
