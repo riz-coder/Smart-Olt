@@ -25,6 +25,7 @@
             --ink:#07111f;
         }
         * { box-sizing:border-box; }
+        html { -webkit-text-size-adjust:100%; }
         body {
             margin:0;
             min-height:100vh;
@@ -36,6 +37,7 @@
                 linear-gradient(135deg,#0b1220 0%,#101b2f 50%,#0a1020 100%);
         }
         a { color:#75b6ff; font-weight:800; text-decoration:none; }
+        img, svg { max-width:100%; }
         a:hover { color:#9eeaff; text-decoration:underline; text-underline-offset:3px; }
         .layout { display:grid; grid-template-columns:220px 1fr; min-height:100vh; }
         .side {
@@ -64,6 +66,31 @@
             background:linear-gradient(135deg,var(--cyan),var(--blue));
             box-shadow:0 0 22px rgba(36,198,220,.28);
         }
+        .side-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+        .menu-toggle {
+            display:none;
+            width:42px;
+            height:42px;
+            padding:0;
+            border:1px solid #355077;
+            border-radius:11px;
+            background:#14213a;
+            color:#dbeafe;
+            cursor:pointer;
+        }
+        .menu-toggle span, .menu-toggle:before, .menu-toggle:after {
+            display:block;
+            width:19px;
+            height:2px;
+            margin:4px auto;
+            border-radius:4px;
+            background:currentColor;
+            content:"";
+            transition:transform .18s ease, opacity .18s ease;
+        }
+        .side.menu-open .menu-toggle:before { transform:translateY(6px) rotate(45deg); }
+        .side.menu-open .menu-toggle span { opacity:0; }
+        .side.menu-open .menu-toggle:after { transform:translateY(-6px) rotate(-45deg); }
         .nav { display:grid; gap:7px; }
         .nav a, .logout button {
             display:block;
@@ -85,6 +112,7 @@
         .nav .soon { float:right; color:#ffcd77; font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
         .logout { margin-top:26px; }
         .main { padding:22px; }
+        .main, .panel, .topbar { min-width:0; }
         .topbar, .panel {
             border:1px solid var(--line);
             background:linear-gradient(145deg,rgba(18,27,46,.96),rgba(13,21,36,.94));
@@ -104,6 +132,7 @@
         h2 { font-size:18px; margin-bottom:4px; }
         h3 { font-size:15px; }
         .subtle { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
+        pre { max-width:100%; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
         .panel { padding:16px; margin-bottom:16px; }
         .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
         .stat {
@@ -257,26 +286,125 @@
         }
         @media (max-width:980px) {
             .layout { grid-template-columns:1fr; }
-            .side { position:relative; height:auto; }
-            .grid, .form-grid { grid-template-columns:1fr; }
+            .side {
+                position:sticky;
+                z-index:50;
+                top:0;
+                height:auto;
+                padding:12px 16px;
+                border-right:0;
+                border-bottom:1px solid var(--line);
+                box-shadow:0 12px 28px rgba(0,0,0,.30);
+            }
+            .brand { margin:0; font-size:19px; }
+            .brand:before { width:25px; height:25px; border-radius:8px; }
+            .menu-toggle { display:block; }
+            .side-menu {
+                display:grid;
+                grid-template-rows:0fr;
+                opacity:0;
+                transition:grid-template-rows .2s ease, opacity .2s ease;
+            }
+            .side-menu-inner { min-height:0; overflow:hidden; }
+            .side.menu-open .side-menu { grid-template-rows:1fr; opacity:1; }
+            .nav { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding-top:12px; }
+            .nav a, .logout button { min-height:42px; text-align:center; }
+            .logout { margin:6px 0 2px; }
+            .logout button { background:rgba(239,68,68,.08); border-color:rgba(239,68,68,.20); }
+            .main { padding:16px; }
+            .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .form-grid { grid-template-columns:1fr; }
             .topbar { align-items:flex-start; flex-direction:column; }
+            .topbar > .btn, .topbar > form { width:100%; }
+            .topbar > form .btn { width:100%; }
+        }
+        @media (max-width:700px) {
+            body { font-size:12px; }
+            .main { padding:10px; }
+            .topbar, .panel { border-radius:13px; }
+            .topbar { margin-bottom:10px; padding:14px; }
+            .panel { margin-bottom:10px; padding:12px; }
+            h1 { font-size:22px; overflow-wrap:anywhere; }
+            h2 { font-size:16px; }
+            .nav { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .grid { grid-template-columns:1fr; gap:9px; }
+            .stat { min-height:78px; padding:12px; }
+            .stat strong { font-size:21px; overflow-wrap:anywhere; }
+            .btn { min-height:42px; padding:10px 13px; }
+            .cp-input { min-height:44px; font-size:16px; }
+            .billing-row, .billing-row form { width:100%; }
+            .billing-row .cp-input, .billing-row .btn { width:100%; min-width:0; }
+            .table-wrap { overflow:visible; border:0; background:transparent; }
+            .table-wrap table { min-width:0; background:transparent; }
+            .table-wrap thead {
+                position:absolute;
+                width:1px;
+                height:1px;
+                overflow:hidden;
+                clip:rect(0 0 0 0);
+                clip-path:inset(50%);
+                white-space:nowrap;
+            }
+            .table-wrap tbody { display:grid; gap:10px; }
+            .table-wrap tr {
+                display:block;
+                overflow:hidden;
+                border:1px solid rgba(63,95,142,.55);
+                border-radius:12px;
+                background:#101a2d;
+                box-shadow:0 8px 24px rgba(0,0,0,.15);
+            }
+            .table-wrap td {
+                display:grid;
+                grid-template-columns:minmax(90px,34%) minmax(0,1fr);
+                gap:10px;
+                align-items:start;
+                min-height:42px;
+                padding:10px 11px;
+                overflow-wrap:anywhere;
+                border-bottom:1px solid rgba(63,95,142,.30);
+            }
+            .table-wrap td:before {
+                content:attr(data-label);
+                color:#93c5fd;
+                font-size:9px;
+                font-weight:800;
+                letter-spacing:.08em;
+                text-transform:uppercase;
+            }
+            .table-wrap td[data-empty-row="true"] { display:block; }
+            .table-wrap td[data-empty-row="true"]:before { content:none; }
+            .table-wrap td form, .table-wrap td .btn { max-width:100%; }
+            .messages li { padding:10px 11px; overflow-wrap:anywhere; }
+        }
+        @media (max-width:380px) {
+            .side { padding-inline:10px; }
+            .main { padding:7px; }
+            .table-wrap td { grid-template-columns:1fr; gap:4px; }
         }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
 <div class="layout">
-    <aside class="side">
-        <div class="brand">OptiVerse</div>
-        <nav class="nav">
-            <a href="{% url 'control_dashboard' %}">Overview</a>
-            <a href="{% url 'control_tenants' %}">Tenants</a>
-            <a href="{% url 'control_tenant_create' %}">Create Tenant</a>
-            <a href="{% url 'control_plans' %}">Pricing</a>
-        </nav>
-        {% if user.is_authenticated %}
-        <form class="logout" method="post" action="{% url 'control_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
-        {% endif %}
+    <aside class="side" id="controlSidebar">
+        <div class="side-header">
+            <div class="brand">OptiVerse</div>
+            <button class="menu-toggle" id="controlMenuToggle" type="button" aria-expanded="false" aria-controls="controlMenu" aria-label="Open navigation"><span></span></button>
+        </div>
+        <div class="side-menu" id="controlMenu">
+            <div class="side-menu-inner">
+                <nav class="nav">
+                    <a href="{% url 'control_dashboard' %}">Overview</a>
+                    <a href="{% url 'control_tenants' %}">Tenants</a>
+                    <a href="{% url 'control_tenant_create' %}">Create Tenant</a>
+                    <a href="{% url 'control_plans' %}">Pricing</a>
+                </nav>
+                {% if user.is_authenticated %}
+                <form class="logout" method="post" action="{% url 'control_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
+                {% endif %}
+            </div>
+        </div>
     </aside>
     <main class="main">
         <header class="topbar">
@@ -289,5 +417,36 @@
         {% block content %}{% endblock %}
     </main>
 </div>
+<script>
+(() => {
+    const sidebar = document.getElementById('controlSidebar');
+    const toggle = document.getElementById('controlMenuToggle');
+    if (sidebar && toggle) {
+        const closeMenu = () => {
+            sidebar.classList.remove('menu-open');
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.setAttribute('aria-label', 'Open navigation');
+        };
+        toggle.addEventListener('click', () => {
+            const open = sidebar.classList.toggle('menu-open');
+            toggle.setAttribute('aria-expanded', String(open));
+            toggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+        });
+        sidebar.querySelectorAll('.nav a').forEach(link => link.addEventListener('click', closeMenu));
+        document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMenu(); });
+    }
+
+    document.querySelectorAll('.table-wrap table').forEach(table => {
+        const labels = Array.from(table.querySelectorAll('thead th')).map(cell => cell.textContent.trim());
+        table.querySelectorAll('tbody tr').forEach(row => {
+            const cells = Array.from(row.children).filter(cell => cell.tagName === 'TD');
+            cells.forEach((cell, index) => {
+                if (cell.colSpan > 1) cell.dataset.emptyRow = 'true';
+                else if (!cell.dataset.label) cell.dataset.label = labels[index] || '';
+            });
+        });
+    });
+})();
+</script>
 </body>
 </html>
