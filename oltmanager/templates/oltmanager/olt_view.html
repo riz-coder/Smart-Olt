@@ -2158,7 +2158,7 @@
                     <div class="advanced-tools-grid">
                         <div class="advanced-tool-card">
                             <h4>Config Sync</h4>
-                            <p class="sync-config-warning">Syncs ONU inventory and configuration only. Optical signals continue through the dedicated hourly signal worker.</p>
+                            <p class="sync-config-warning">Uses fast SNMP inventory with targeted CLI for new ONUs and a reliable CLI fallback when SNMP data is incomplete.</p>
                             <p class="subtle">Run configured ONU inventory sync manually for this OLT.</p>
                             {% if user.is_staff or user.is_superuser %}
                             <form class="inline js-op-form sync-config-form" id="syncConfigForm" method="post" action="{% url 'olt_sync_config' olt.pk %}">

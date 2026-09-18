@@ -274,12 +274,13 @@ def tenant_vpn_download(request, pk):
 @owner_required
 def tenant_vpn_status(request, pk):
     import time
-    from .services import _run_command
+    from .services import _run_command, _tenant_vpn_interface_name
     tenant = get_object_or_404(Tenant, pk=pk)
     if not tenant.vpn_enabled:
         return JsonResponse({'status': 'VPN disabled (local access)'})
+    interface = _tenant_vpn_interface_name(tenant)
     try:
-        ok, output = _run_command(['wg', 'show', 'wg0', 'latest-handshakes'], timeout=10)
+        ok, output = _run_command(['wg', 'show', interface, 'latest-handshakes'], timeout=10)
     except Exception:
         ok, output = False, ''
     latest = 0
@@ -292,7 +293,7 @@ def tenant_vpn_status(request, pk):
     status = 'Connected' if latest and time.time() - latest < 180 else 'Waiting for client handshake'
     if not ok:
         status = 'VPN interface is not ready. Check provisioning status.'
-    response = JsonResponse({'status': status, 'last_handshake': latest or None,
+    response = JsonResponse({'status': status, 'interface': interface, 'last_handshake': latest or None,
                              'note': 'Handshake confirms the tunnel; OLT reachability also needs client routes/firewall.'})
     response['Cache-Control'] = 'no-store'
     return response

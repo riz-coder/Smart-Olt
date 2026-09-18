@@ -105,6 +105,7 @@ from .utils import (
     save_uplink_snapshot,
     save_vlan_snapshot,
     sync_configured_onus_inventory,
+    sync_configured_onus_inventory_hybrid,
     derive_inventory_onu_status,
     ensure_dashboard_status_samples_for_scope,
     map_onu_alarm_to_status,
@@ -9498,23 +9499,24 @@ def olt_sync_config(request, pk):
         or "application/json" in request.headers.get("accept", "")
     )
     try:
-        # Config Sync updates inventory/configuration. Optical samples belong to
-        # the dedicated hourly signal worker; fetching them here makes large OLTs
-        # wait several extra minutes and duplicates the same polling work.
-        result = sync_configured_onus_inventory(olt, include_optical=False)
+        # Fast path: SNMP compares the complete ONU key inventory, then CLI is
+        # used only for newly detected ONUs. An empty/<60% SNMP result falls back
+        # to the reliable full CLI inventory without deleting existing records.
+        result = sync_configured_onus_inventory_hybrid(olt)
         new_onu_rows = result.get("new_onus") or []
         detail_fill = {}
         vlan_fill = {}
         if not result.get("incomplete") and new_onu_rows:
             detail_fill = sync_onu_detail_fields_for_olt(olt, target_keys=new_onu_rows)
+            new_onu_rows = _sync_config_new_onu_report_rows(olt, new_onu_rows)
+        if not result.get("incomplete"):
+            # One bulk CLI service-port dump keeps VLAN/profile configuration in
+            # sync for existing ONUs too; it avoids thousands of per-ONU reads.
             vlan_fill = sync_onu_attached_vlans_for_olt(
                 olt,
-                fallback_missing=True,
-                only_missing=True,
-                imported_only=True,
-                target_keys=new_onu_rows,
+                fallback_missing=False,
+                target_keys=None,
             )
-            new_onu_rows = _sync_config_new_onu_report_rows(olt, new_onu_rows)
         duration_seconds = round(time.time() - started_at, 1)
         if result.get("incomplete"):
             message = (

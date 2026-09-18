@@ -37,6 +37,7 @@ media/
 .DS_Store
 Thumbs.db
 .vscode/*.log
+~$*.docx
 
 onu_status_sync_progress.json
 authorize_progress/

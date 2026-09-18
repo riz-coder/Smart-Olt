@@ -136,6 +136,23 @@ class TenantDeploymentTests(TestCase):
             ('optiverse-nexus', 'optiverse-nexus-sync'),
         )
 
+    @patch('controlmanager.services._run_command')
+    def test_vpn_status_checks_the_tenant_specific_interface(self, run_command):
+        tenant = self.tenant(vpn_enabled=True)
+        user = get_user_model().objects.create_superuser(
+            username='control-owner', email='owner@example.com', password='test-only-password',
+        )
+        self.client.force_login(user)
+        run_command.return_value = (True, 'peer-public-key\t0')
+
+        response = self.client.get(reverse('control_tenant_vpn_status', args=[tenant.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['interface'], f'optiverse-{tenant.pk}')
+        run_command.assert_called_once_with(
+            ['wg', 'show', f'optiverse-{tenant.pk}', 'latest-handshakes'], timeout=10,
+        )
+
     def test_proxy_rollback_on_validation_failure(self):
         with patch.dict(os.environ, CONTROL_BASE_DOMAIN='example.com'):
             tenant = self.tenant()
