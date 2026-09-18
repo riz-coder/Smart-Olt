@@ -7534,12 +7534,14 @@ def detect_new_onus_from_snmp(olt):
     if not snmp_items:
         return {"new_keys": [], "snmp_count": 0, "status": status_map.get("status") or "No SNMP data"}
 
-    snmp_keys = set(snmp_items.keys())
+    snmp_keys = {
+        (0, int(key[0]), int(key[1]), int(key[2]))
+        for key in snmp_items.keys()
+        if len(key) == 3
+    }
     db_keys = set(
-        map(
-            tuple,
-            ConfiguredONU.objects.filter(olt=olt).values_list("slot", "port", "ont_id"),
-        )
+        ConfiguredONU.objects.filter(olt=olt)
+        .values_list("frame", "slot", "port", "ont_id")
     )
     new_keys = snmp_keys - db_keys
     return {
@@ -7548,6 +7550,70 @@ def detect_new_onus_from_snmp(olt):
         "db_count": len(db_keys),
         "status": f"SNMP: {len(snmp_keys)} ONUs | DB: {len(db_keys)} | New: {len(new_keys)}",
     }
+
+
+def _snmp_inventory_is_usable(snmp_count, db_count):
+    """Require a credible SNMP inventory before bypassing full CLI discovery."""
+    snmp_count = max(0, int(snmp_count or 0))
+    db_count = max(0, int(db_count or 0))
+    if snmp_count <= 0:
+        return False
+    if db_count <= 0:
+        return True
+    return snmp_count >= max(1, int(db_count * 0.60))
+
+
+def sync_configured_onus_inventory_hybrid(olt):
+    """Fast SNMP inventory with exact-key CLI import and safe full-CLI fallback.
+
+    Existing records are never deleted merely because an SNMP walk is short.
+    A walk below 60% of the current DB inventory is treated as unreliable.
+    """
+    from .models import ConfiguredONU
+
+    detection = detect_new_onus_from_snmp(olt)
+    snmp_count = int(detection.get("snmp_count") or 0)
+    db_count = int(detection.get("db_count") or ConfiguredONU.objects.filter(olt=olt).count())
+    if not _snmp_inventory_is_usable(snmp_count, db_count):
+        fallback = sync_configured_onus_inventory(olt, include_optical=False)
+        fallback["method"] = "cli_fallback"
+        fallback["status"] = (
+            f"SNMP inventory was incomplete ({snmp_count}/{db_count}); "
+            f"reliable CLI fallback used. {fallback.get('status') or ''}"
+        ).strip()
+        return fallback
+
+    new_keys = detection.get("new_keys") or []
+    if not new_keys:
+        return {
+            "method": "snmp",
+            "status": f"SNMP inventory verified: {snmp_count} ONU(s), no new ONU detected.",
+            "count": snmp_count,
+            "new_count": 0,
+            "new_onus": [],
+        }
+
+    targeted = sync_detected_onu_keys_inventory(olt, new_keys)
+    missing_keys = set(new_keys) - set(
+        ConfiguredONU.objects.filter(olt=olt).values_list("frame", "slot", "port", "ont_id")
+    )
+    if missing_keys or int(targeted.get("count") or 0) < len(new_keys):
+        fallback = sync_configured_onus_inventory(olt, include_optical=False)
+        fallback["method"] = "cli_fallback"
+        fallback["status"] = (
+            f"SNMP detected {len(new_keys)} new ONU(s), but targeted CLI left "
+            f"{len(missing_keys)} unresolved; reliable full CLI fallback used. "
+            f"{fallback.get('status') or ''}"
+        ).strip()
+        return fallback
+
+    targeted["method"] = "snmp_targeted_cli"
+    targeted["count"] = snmp_count
+    targeted["status"] = (
+        f"SNMP inventory verified {snmp_count} ONU(s); targeted CLI imported "
+        f"{int(targeted.get('new_count') or 0)} new ONU(s). {targeted.get('status') or ''}"
+    ).strip()
+    return targeted
 
 
 def sync_configured_onus_inventory(olt, *, include_optical=False):
@@ -11920,6 +11986,70 @@ def _parse_ont_runtime_snapshot(output):
         "mapping_mode": (mapping_mode_match.group(1).strip() if mapping_mode_match else ""),
         "ont_distance_m": (distance_match.group(1).strip() if distance_match else ""),
         "output": text.strip(),
+    }
+
+
+def detect_new_onus_from_cli_identity(olt, *, max_seconds=240):
+    """Lightweight CLI identity reconciliation without optical/config reads."""
+    from .models import ConfiguredONU
+
+    slots = set()
+    for group in list(getattr(olt, "pon_ports_cache", []) or []):
+        try:
+            if (group or {}).get("ports"):
+                slots.add(int((group or {}).get("slot") or 0))
+        except (TypeError, ValueError):
+            continue
+    for card in list(getattr(olt, "olt_cards_cache", []) or []):
+        board_type = str(
+            (card or {}).get("real_type")
+            or (card or {}).get("model_type")
+            or (card or {}).get("type")
+            or ""
+        ).upper()
+        if not _is_pon_board_model(board_type):
+            continue
+        try:
+            slots.add(int((card or {}).get("slot") or 0))
+        except (TypeError, ValueError):
+            continue
+
+    if not slots:
+        slots.update(
+            int(value)
+            for value in ConfiguredONU.objects.filter(olt=olt)
+            .values_list("slot", flat=True).distinct()
+        )
+    if not slots:
+        return {"new_keys": [], "cli_count": 0, "db_count": 0, "incomplete": True,
+                "status": "CLI identity reconciliation skipped: no PON slots are known."}
+
+    fetched = fetch_configured_onu_status_rows(olt, sorted(slots), max_seconds=max_seconds)
+    cli_keys = {
+        (
+            int(row.get("frame", 0) or 0),
+            int(row.get("slot", 0) or 0),
+            int(row.get("port", 0) or 0),
+            int(row.get("ont_id", 0) or 0),
+        )
+        for row in (fetched.get("rows") or [])
+    }
+    db_keys = set(
+        ConfiguredONU.objects.filter(olt=olt)
+        .values_list("frame", "slot", "port", "ont_id")
+    )
+    minimum = max(1, int(len(db_keys) * 0.60)) if db_keys else 1
+    incomplete = len(cli_keys) < minimum
+    new_keys = sorted(cli_keys - db_keys) if not incomplete else []
+    return {
+        "new_keys": new_keys,
+        "cli_count": len(cli_keys),
+        "db_count": len(db_keys),
+        "incomplete": incomplete,
+        "status": (
+            f"CLI identity inventory: {len(cli_keys)} ONU(s) | DB: {len(db_keys)} | "
+            f"New: {len(new_keys)} | {fetched.get('status') or ''}"
+        ),
     }
 
 

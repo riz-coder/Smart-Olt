@@ -25,6 +25,8 @@ _ONU_STATUS_PRIORITY_LOCK = threading.Lock()
 _ONU_STATUS_PRIORITY_IDS = []
 _ONU_SIGNAL_SAMPLE_THREAD = None
 _ONU_SIGNAL_SAMPLE_GUARD = threading.Lock()
+_ONU_CLI_DISCOVERY_THREAD = None
+_ONU_CLI_DISCOVERY_GUARD = threading.Lock()
 _OLT_HEAVY_SYNC_LANE = threading.Lock()
 ONU_INVENTORY_SYNC_SECONDS = 600
 SNMP_MONITOR_SECONDS = 10
@@ -80,7 +82,10 @@ RECONCILE_THROTTLE_SECONDS = 30
 _LAST_NEW_ONU_CHECK_AT = {}
 NEW_ONU_CHECK_SECONDS = max(120, int(os.environ.get("NEW_ONU_CHECK_SECONDS", "180") or 180))
 NEW_ONU_RECONCILE_SECONDS = max(600, int(os.environ.get("NEW_ONU_RECONCILE_SECONDS", "900") or 900))
-_LAST_NEW_ONU_RECONCILE_AT = {}
+NEW_ONU_RECONCILE_MAX_WORKERS = max(
+    1,
+    min(4, int(os.environ.get("NEW_ONU_RECONCILE_MAX_WORKERS", "4") or 4)),
+)
 AUTO_IMMEDIATE_INVENTORY_SYNC = True
 SNMP_MONITOR_HEAVY_FAILURE_BACKOFF_SECONDS = max(
     60,
@@ -477,6 +482,59 @@ def _onu_inventory_sync_loop():
         _sleep_until_next_sync_boundary()
 
 
+def _onu_cli_identity_reconciliation_loop():
+    """Run bounded CLI identity scans; import only newly found ONUs."""
+    from .models import OLT
+    from .utils import detect_new_onus_from_cli_identity, olt_background_enabled_q
+
+    def _reconcile_single_olt(olt_id):
+        close_old_connections()
+        try:
+            olt = OLT.objects.filter(pk=olt_id).filter(olt_background_enabled_q()).first()
+            if not olt:
+                return
+            result = detect_new_onus_from_cli_identity(olt, max_seconds=240)
+            if result.get("incomplete"):
+                logger.warning("OLT %s CLI identity reconciliation incomplete: %s", olt.name, result.get("status", ""))
+                return
+            new_keys = result.get("new_keys") or []
+            logger.info("OLT %s CLI identity reconciliation completed: %s", olt.name, result.get("status", ""))
+            if new_keys:
+                _schedule_immediate_inventory_sync(olt_id, new_keys)
+        except Exception:
+            logger.exception("OLT %s CLI identity reconciliation failed.", olt_id)
+        finally:
+            close_old_connections()
+
+    _sleep_until_interval_boundary(NEW_ONU_RECONCILE_SECONDS)
+    while True:
+        cycle_started_at = time.monotonic()
+        try:
+            close_old_connections()
+            olt_ids = list(
+                OLT.objects.filter(olt_background_enabled_q())
+                .exclude(onboarding_status__in=["queued", "running", "aborting"])
+                .order_by("id").values_list("id", flat=True)
+            )
+            if olt_ids:
+                worker_count = min(NEW_ONU_RECONCILE_MAX_WORKERS, len(olt_ids))
+                logger.info(
+                    "CLI ONU identity reconciliation cycle started: olts=%s workers=%s",
+                    len(olt_ids), worker_count,
+                )
+                with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="onu-cli-discovery") as executor:
+                    futures = [executor.submit(_reconcile_single_olt, olt_id) for olt_id in olt_ids]
+                    for future in as_completed(futures):
+                        future.result()
+                logger.info("CLI ONU identity reconciliation cycle completed: olts=%s", len(olt_ids))
+        except Exception:
+            logger.exception("CLI ONU identity reconciliation cycle failed.")
+        finally:
+            close_old_connections()
+        elapsed = time.monotonic() - cycle_started_at
+        time.sleep(max(30.0, float(NEW_ONU_RECONCILE_SECONDS) - elapsed))
+
+
 def _snmp_monitor_loop():
     global _SNMP_LAST_ALERT_CHECK_AT
     from .models import OLT
@@ -692,19 +750,13 @@ def _snmp_monitor_loop():
                                 # import. The worker verifies exact keys, applies controlled
                                 # retries, and uses one full inventory only as final fallback.
                                 last_new_check = _LAST_NEW_ONU_CHECK_AT.get(olt_id, 0.0)
-                                last_reconciliation = _LAST_NEW_ONU_RECONCILE_AT.get(olt_id, 0.0)
                                 new_onu_key = ("new_onu", int(olt_id))
                                 if (
                                     AUTO_IMMEDIATE_INVENTORY_SYNC
-                                    and (
-                                        (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS
-                                        or (now_ts - last_reconciliation) >= NEW_ONU_RECONCILE_SECONDS
-                                    )
+                                    and (now_ts - last_new_check) >= NEW_ONU_CHECK_SECONDS
                                     and _heavy_allowed(new_onu_key, now_ts)
                                 ):
                                     _LAST_NEW_ONU_CHECK_AT[olt_id] = now_ts
-                                    if (now_ts - last_reconciliation) >= NEW_ONU_RECONCILE_SECONDS:
-                                        _LAST_NEW_ONU_RECONCILE_AT[olt_id] = now_ts
                                     try:
                                         from .utils import detect_new_onus_from_snmp
                                         detection = detect_new_onus_from_snmp(olt)
@@ -1145,7 +1197,7 @@ def ensure_background_sync_threads():
     thread crash, this lets the management command re-check and recover the
     actual polling threads instead of silently sleeping forever.
     """
-    global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD
+    global _ONU_INVENTORY_SYNC_THREAD, _SNMP_MONITOR_THREAD, _ONU_STATUS_SYNC_THREAD, _ONU_SIGNAL_SAMPLE_THREAD, _ONU_CLI_DISCOVERY_THREAD
 
     started = []
 
@@ -1158,6 +1210,16 @@ def ensure_background_sync_threads():
             )
             _ONU_INVENTORY_SYNC_THREAD.start()
             started.append("onu-inventory-sync")
+
+    with _ONU_CLI_DISCOVERY_GUARD:
+        if _background_sync_thread_enabled("inventory") and not (_ONU_CLI_DISCOVERY_THREAD and _ONU_CLI_DISCOVERY_THREAD.is_alive()):
+            _ONU_CLI_DISCOVERY_THREAD = threading.Thread(
+                target=_onu_cli_identity_reconciliation_loop,
+                name="onu-cli-identity-reconciliation",
+                daemon=True,
+            )
+            _ONU_CLI_DISCOVERY_THREAD.start()
+            started.append("onu-cli-identity-reconciliation")
 
     with _SNMP_MONITOR_GUARD:
         if _background_sync_thread_enabled("snmp_monitor") and not (_SNMP_MONITOR_THREAD and _SNMP_MONITOR_THREAD.is_alive()):
