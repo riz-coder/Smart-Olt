@@ -265,6 +265,9 @@ def _write_systemd_service(tenant):
     service_name = str(tenant.service_name or f"optiverse-{_safe_slug(tenant)}").removesuffix('.service')
     if not re.fullmatch(r'optiverse(?:-[a-z0-9-]+)?', service_name):
         raise TenantProvisionError('Invalid tenant system service name.')
+    worker_cpu_quota = os.environ.get('CONTROL_TENANT_WORKER_CPU_QUOTA', '100%').strip()
+    if not re.fullmatch(r'[1-9][0-9]{0,3}%', worker_cpu_quota):
+        raise TenantProvisionError('CONTROL_TENANT_WORKER_CPU_QUOTA must be a percentage such as 100%.')
     sync_service_name = f"{service_name}-sync"
     service_text = f"""[Unit]
 Description=OptiVerse Tenant Portal - {tenant.name}
@@ -306,6 +309,7 @@ Environment=OLT_DISABLE_EMBEDDED_SYNC=0
 Environment=OLT_ENABLE_EMBEDDED_SYNC=true
 Nice=10
 IOSchedulingClass=idle
+CPUQuota={worker_cpu_quota}
 ExecStart={codebase}/.venv/bin/python manage.py run_background_sync
 Restart=always
 RestartSec=5

@@ -38,7 +38,9 @@ class TenantDeploymentTests(TestCase):
             tenant = self.tenant()
             deployment.prepare_deployment(tenant, _wireguard_keypair)
             self.assertEqual(tenant.panel_url, 'https://nexus.example.com')
-            self.assertIn('reverse_proxy 127.0.0.1:8001', deployment.proxy_text(tenant))
+            proxy = deployment.proxy_text(tenant)
+            self.assertIn('server_name nexus.example.com;', proxy)
+            self.assertIn('proxy_pass http://127.0.0.1:8001;', proxy)
             with tempfile.TemporaryDirectory() as directory:
                 tenant.env_path = str(Path(directory) / '.env')
                 tenant.database_name = 'optiverse_test'
@@ -139,12 +141,27 @@ class TenantDeploymentTests(TestCase):
             tenant = self.tenant()
             deployment.prepare_deployment(tenant, _wireguard_keypair)
             with tempfile.TemporaryDirectory() as directory:
-                with patch.dict(os.environ, CONTROL_CADDY_SITES_DIR=directory):
-                    path = Path(directory) / f'tenant-{tenant.pk}.caddy'
+                with patch.dict(os.environ, {
+                    'CONTROL_NGINX_SITES_AVAILABLE': directory,
+                    'CONTROL_NGINX_SITES_ENABLED': directory,
+                    'CONTROL_ACME_WEBROOT': str(Path(directory) / 'acme'),
+                }):
+                    path = Path(directory) / f'optiverse-tenant-{tenant.pk}'
                     path.write_text('old configuration')
                     with self.assertRaises(ValueError):
                         deployment.publish_proxy(tenant, lambda *a, **k: (False, 'invalid'))
                     self.assertEqual(path.read_text(), 'old configuration')
+
+    def test_nexecode_control_and_tenant_hostnames_are_independent(self):
+        with patch.dict(os.environ, {
+            'CONTROL_BASE_DOMAIN': 'nexecode.com',
+            'CONTROL_PUBLIC_HOSTNAME': 'optiverse.nexecode.com',
+        }):
+            tenant = self.tenant('connect')
+            deployment.prepare_deployment(tenant, _wireguard_keypair)
+            self.assertEqual(deployment.public_control_hostname(), 'optiverse.nexecode.com')
+            self.assertEqual(tenant.public_hostname, 'connect.nexecode.com')
+            self.assertEqual(tenant.panel_url, 'https://connect.nexecode.com')
 
     @patch('controlmanager.views.get_tenant_olts')
     @patch('controlmanager.views.refresh_tenant_database_snapshot')

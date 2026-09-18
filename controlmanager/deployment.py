@@ -2,7 +2,6 @@
 import ipaddress
 import os
 import re
-import json
 from pathlib import Path
 
 
@@ -29,6 +28,21 @@ def base_domain():
         else:
             raise ValueError('CONTROL_BASE_DOMAIN must be a domain, not an IP address.')
     return value
+
+
+def public_control_hostname():
+    value = os.environ.get('CONTROL_PUBLIC_HOSTNAME', '').strip().lower().rstrip('.')
+    if not value:
+        return ''
+    if len(value) > 253 or any(
+            not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', part)
+            for part in value.split('.')):
+        raise ValueError('CONTROL_PUBLIC_HOSTNAME must contain only a hostname, without a protocol or port.')
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return value
+    raise ValueError('CONTROL_PUBLIC_HOSTNAME must be a hostname, not an IP address.')
 
 
 def route_networks(value):
@@ -172,7 +186,141 @@ def write_vpn_files(tenant):
     tenant.save(update_fields=['wg_config_path', 'updated_at'])
 
 
-def proxy_text(tenant):
+def _nginx_available_dir():
+    return Path(os.environ.get('CONTROL_NGINX_SITES_AVAILABLE', '/etc/nginx/sites-available'))
+
+
+def _nginx_enabled_dir():
+    return Path(os.environ.get('CONTROL_NGINX_SITES_ENABLED', '/etc/nginx/sites-enabled'))
+
+
+def _acme_webroot():
+    return Path(os.environ.get('CONTROL_ACME_WEBROOT', '/var/www/letsencrypt'))
+
+
+def _certificate_dir(hostname):
+    base = Path(os.environ.get('CONTROL_CERTIFICATE_BASE_DIR', '/etc/letsencrypt/live'))
+    return base / hostname
+
+
+def _nginx_site_text(hostname, upstream_port, static_root, *, tls):
+    challenge_root = str(_acme_webroot())
+    http_action = 'return 301 https://$host$request_uri;' if tls else (
+        'proxy_pass http://127.0.0.1:%s;\n'
+        '        proxy_http_version 1.1;\n'
+        '        proxy_set_header Host $host;\n'
+        '        proxy_set_header X-Real-IP $remote_addr;\n'
+        '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+        '        proxy_set_header X-Forwarded-Proto $scheme;\n'
+        '        proxy_set_header Upgrade $http_upgrade;\n'
+        '        proxy_set_header Connection "upgrade";' % int(upstream_port)
+    )
+    text = (
+        'server {\n'
+        '    listen 80;\n'
+        '    listen [::]:80;\n'
+        f'    server_name {hostname};\n\n'
+        '    location ^~ /.well-known/acme-challenge/ {\n'
+        f'        root {challenge_root};\n'
+        '        default_type text/plain;\n'
+        '    }\n\n'
+        '    location / {\n'
+        f'        {http_action}\n'
+        '    }\n'
+        '}\n'
+    )
+    if not tls:
+        return text
+    cert_dir = _certificate_dir(hostname)
+    return text + (
+        '\nserver {\n'
+        '    listen 443 ssl;\n'
+        '    listen [::]:443 ssl;\n'
+        f'    server_name {hostname};\n\n'
+        f'    ssl_certificate {cert_dir / "fullchain.pem"};\n'
+        f'    ssl_certificate_key {cert_dir / "privkey.pem"};\n'
+        '    include /etc/letsencrypt/options-ssl-nginx.conf;\n\n'
+        '    client_max_body_size 32m;\n'
+        '    location /static/ {\n'
+        f'        alias {str(static_root).rstrip("/")}/;\n'
+        '        access_log off;\n'
+        '        expires 7d;\n'
+        '    }\n\n'
+        '    location / {\n'
+        f'        proxy_pass http://127.0.0.1:{int(upstream_port)};\n'
+        '        proxy_http_version 1.1;\n'
+        '        proxy_set_header Host $host;\n'
+        '        proxy_set_header X-Real-IP $remote_addr;\n'
+        '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+        '        proxy_set_header X-Forwarded-Proto https;\n'
+        '        proxy_set_header Upgrade $http_upgrade;\n'
+        '        proxy_set_header Connection "upgrade";\n'
+        '        proxy_read_timeout 300s;\n'
+        '    }\n'
+        '}\n'
+    )
+
+
+def _nginx_test_and_reload(run):
+    ok, output = run(['nginx', '-t'], timeout=30)
+    if ok:
+        ok, output = run(['systemctl', 'reload', 'nginx'], timeout=30)
+    return ok, output
+
+
+def _ensure_certificate(hostname, run):
+    cert_dir = _certificate_dir(hostname)
+    if (cert_dir / 'fullchain.pem').is_file() and (cert_dir / 'privkey.pem').is_file():
+        return
+    email = os.environ.get('CONTROL_ACME_EMAIL', '').strip()
+    if not email or '@' not in email:
+        raise ValueError('Set CONTROL_ACME_EMAIL before provisioning public HTTPS sites.')
+    ok, output = run([
+        'certbot', 'certonly', '--webroot', '-w', str(_acme_webroot()),
+        '-d', hostname, '--non-interactive', '--agree-tos', '--keep-until-expiring',
+        '--email', email,
+    ], timeout=180)
+    if not ok:
+        raise ValueError('HTTPS certificate could not be issued: ' + output[:300])
+
+
+def _publish_nginx_site(name, hostname, upstream_port, static_root, run):
+    available = _nginx_available_dir()
+    enabled = _nginx_enabled_dir()
+    if not available.is_dir() or not enabled.is_dir():
+        raise ValueError('Nginx site directories are missing. Run the public gateway setup first.')
+    _acme_webroot().mkdir(parents=True, exist_ok=True)
+    path = available / name
+    link = enabled / name
+    previous = path.read_text(encoding='utf-8') if path.exists() else None
+    link_existed = link.exists() or link.is_symlink()
+    try:
+        path.write_text(_nginx_site_text(hostname, upstream_port, static_root, tls=False), encoding='utf-8')
+        os.chmod(path, 0o644)
+        if available.resolve() != enabled.resolve() and not link_existed:
+            link.symlink_to(path)
+        ok, output = _nginx_test_and_reload(run)
+        if not ok:
+            raise ValueError(output[:300])
+        _ensure_certificate(hostname, run)
+        path.write_text(_nginx_site_text(hostname, upstream_port, static_root, tls=True), encoding='utf-8')
+        ok, output = _nginx_test_and_reload(run)
+        if not ok:
+            raise ValueError(output[:300])
+    except Exception as exc:
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(previous, encoding='utf-8')
+        if not link_existed and link != path:
+            link.unlink(missing_ok=True)
+        _nginx_test_and_reload(run)
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f'Public Nginx proxy could not be activated: {exc}') from exc
+
+
+def proxy_text(tenant, *, tls=True):
     # Validate even when called outside the create form.
     expected = f'{subdomain_label(tenant.subdomain)}.{base_domain()}'
     if not base_domain() or tenant.public_hostname != expected:
@@ -180,44 +328,37 @@ def proxy_text(tenant):
     port = int(tenant.panel_port)
     if not 1 <= port <= 65535:
         raise ValueError('Invalid tenant upstream port.')
-    static_root = json.dumps(str(Path(tenant.codebase_path) / 'staticfiles'))
-    return (f'{expected} {{\n'
-            f'    handle_path /static/* {{\n        root * {static_root}\n        file_server\n    }}\n'
-            f'    handle {{\n        reverse_proxy 127.0.0.1:{port}\n    }}\n}}\n')
+    return _nginx_site_text(
+        expected, port, Path(tenant.codebase_path) / 'staticfiles', tls=tls,
+    )
 
 
 def publish_proxy(tenant, run):
     if not tenant.public_hostname:
         remove_proxy(tenant, run)
         return
-    directory = Path(os.environ.get('CONTROL_CADDY_SITES_DIR', '/etc/caddy/optiverse-tenants'))
-    if not directory.is_dir():
-        raise ValueError('Public proxy is not installed. Run the public deployment setup first.')
-    path = directory / f'tenant-{tenant.pk}.caddy'
-    previous = path.read_text() if path.exists() else None
-    path.write_text(proxy_text(tenant), encoding='utf-8')
-    os.chmod(path, 0o644)
-    ok, output = run(['caddy', 'validate', '--config', '/etc/caddy/Caddyfile'], timeout=30)
-    if ok:
-        ok, output = run(['systemctl', 'reload', 'caddy'], timeout=30)
-    if not ok:
-        if previous is None:
-            path.unlink(missing_ok=True)
-        else:
-            path.write_text(previous, encoding='utf-8')
-        raise ValueError('Public proxy configuration could not be activated: ' + output[:300])
+    _publish_nginx_site(
+        f'optiverse-tenant-{int(tenant.pk)}', tenant.public_hostname, int(tenant.panel_port),
+        Path(tenant.codebase_path) / 'staticfiles', run,
+    )
 
 
 def remove_proxy(tenant, run):
-    directory = Path(os.environ.get('CONTROL_CADDY_SITES_DIR', '/etc/caddy/optiverse-tenants'))
-    path = directory / f'tenant-{tenant.pk}.caddy'
-    if not path.exists():
+    available = _nginx_available_dir()
+    enabled = _nginx_enabled_dir()
+    path = available / f'optiverse-tenant-{int(tenant.pk)}'
+    link = enabled / path.name
+    if not path.exists() and not link.exists() and not link.is_symlink():
         return
-    previous = path.read_text()
-    path.unlink()
-    ok, output = run(['caddy', 'validate', '--config', '/etc/caddy/Caddyfile'], timeout=30)
-    if ok:
-        ok, output = run(['systemctl', 'reload', 'caddy'], timeout=30)
+    previous = path.read_text(encoding='utf-8') if path.exists() else None
+    link_target = os.readlink(link) if link.is_symlink() else None
+    path.unlink(missing_ok=True)
+    if link != path:
+        link.unlink(missing_ok=True)
+    ok, output = _nginx_test_and_reload(run)
     if not ok:
-        path.write_text(previous)
+        if previous is not None:
+            path.write_text(previous, encoding='utf-8')
+        if link != path and link_target is not None:
+            link.symlink_to(link_target)
         raise ValueError('Could not remove the public tenant route: ' + output[:300])
