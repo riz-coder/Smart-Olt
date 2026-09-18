@@ -284,6 +284,12 @@
             letter-spacing:.10em;
             text-transform:uppercase;
         }
+        @media (max-width:1200px) and (min-width:981px) {
+            .layout { grid-template-columns:190px minmax(0,1fr); }
+            .side { padding-inline:11px; }
+            .main { padding:16px; }
+            .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        }
         @media (max-width:980px) {
             .layout { grid-template-columns:1fr; }
             .side {
@@ -332,6 +338,9 @@
             .stat strong { font-size:21px; overflow-wrap:anywhere; }
             .btn { min-height:42px; padding:10px 13px; }
             .cp-input { min-height:44px; font-size:16px; }
+            select.cp-input, input.cp-input { width:100% !important; max-width:100% !important; }
+            .panel > form[method="get"] { align-items:stretch !important; }
+            .panel > form[method="get"] .btn { flex:1 1 120px; }
             .billing-row, .billing-row form { width:100%; }
             .billing-row .cp-input, .billing-row .btn { width:100%; min-width:0; }
             .table-wrap { overflow:visible; border:0; background:transparent; }

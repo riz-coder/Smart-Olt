@@ -35,6 +35,7 @@
             --danger: #ff6b77;
         }
         * { box-sizing: border-box; }
+        html { -webkit-text-size-adjust: 100%; }
         body {
             margin: 0;
             min-height: 100vh;
@@ -47,6 +48,7 @@
         }
         body.authenticated {
             padding-left: 244px;
+            zoom: 1 !important;
         }
         /* The dashboard is laid out for large monitors; on laptop-sized screens
            it opens oversized. Scale the whole app down to fit like a native app.
@@ -137,6 +139,34 @@
             flex: 1;
             flex-wrap: nowrap;
         }
+        .nav-mobile-toggle {
+            display: none;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            border: 1px solid rgba(157, 192, 244, 0.38);
+            border-radius: 11px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #e8f0ff;
+            cursor: pointer;
+        }
+        .nav-mobile-toggle span,
+        .nav-mobile-toggle::before,
+        .nav-mobile-toggle::after {
+            display: block;
+            width: 19px;
+            height: 2px;
+            margin: 4px auto;
+            border-radius: 4px;
+            background: currentColor;
+            content: "";
+            transition: transform .18s ease, opacity .18s ease;
+        }
+        .main-nav.mobile-open .nav-mobile-toggle::before { transform: translateY(6px) rotate(45deg); }
+        .main-nav.mobile-open .nav-mobile-toggle span { opacity: 0; }
+        .main-nav.mobile-open .nav-mobile-toggle::after { transform: translateY(-6px) rotate(-45deg); }
+        .nav-mobile-panel { display: contents; }
+        .nav-mobile-panel-inner { display: contents; }
         .nav-link {
             color: #deebff;
             text-decoration: none;
@@ -838,6 +868,153 @@
             background: #eef5ff;
             border-color: #a9c0df;
         }
+        /* Shared mobile shell for every tenant/main-app page. */
+        @media (max-width: 900px) {
+            body.authenticated {
+                zoom: 1 !important;
+                padding-left: 0;
+                overflow-x: hidden;
+            }
+            .main-nav {
+                position: sticky;
+                top: 0;
+                bottom: auto;
+                width: 100%;
+                border-right: 0;
+                border-bottom: 1px solid #25406b;
+                box-shadow: 0 10px 28px rgba(2, 8, 20, 0.40);
+                z-index: 100;
+            }
+            .nav-inner {
+                width: 100%;
+                height: auto;
+                min-height: 64px;
+                margin: 0;
+                padding: 10px 14px;
+                display: flex;
+                flex-flow: row wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px 12px;
+            }
+            .nav-brand { margin: 0; padding: 0; border: 0; font-size: 21px; }
+            .nav-brand-mark { width: 29px; height: 29px; flex-basis: 29px; }
+            .nav-brand-mark::before { inset: 7px; }
+            .nav-brand-mark::after { top: 13px; }
+            .nav-mobile-toggle { display: block; }
+            .nav-mobile-panel {
+                display: grid;
+                grid-template-rows: 0fr;
+                flex: 1 0 100%;
+                width: 100%;
+                opacity: 0;
+                transition: grid-template-rows .2s ease, opacity .2s ease;
+            }
+            .nav-mobile-panel-inner { display: block; min-height: 0; overflow: hidden; }
+            .main-nav.mobile-open .nav-mobile-panel { grid-template-rows: 1fr; opacity: 1; }
+            .nav-links {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 7px;
+                padding-top: 10px;
+            }
+            .nav-link {
+                min-height: 43px;
+                padding: 10px;
+                justify-content: center;
+                text-align: center;
+                font-size: 13px;
+            }
+            .nav-theme { width: 100%; margin: 7px 0 0; }
+            .nav-logout { margin: 7px 0 2px; }
+            .nav-logout-btn {
+                width: 100%;
+                justify-content: center;
+                border: 1px solid rgba(255, 107, 119, .25);
+                background: rgba(255, 107, 119, .08);
+            }
+            .shell { width: calc(100% - 24px); max-width: none; margin: 12px auto 22px; }
+            .topbar { padding: 14px; }
+            .topbar-actions { width: 100%; flex-wrap: wrap; }
+            .topbar-actions .btn, .topbar-actions form { flex: 1 1 140px; }
+            .topbar-actions form .btn { width: 100%; }
+            .panel { padding: 15px; }
+            .form-grid { grid-template-columns: 1fr; }
+            input, select, textarea, .form-control { max-width: 100%; min-width: 0; }
+            img, svg, canvas { max-width: 100%; }
+            pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+            .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
+        @media (max-width: 600px) {
+            .nav-inner { padding: 9px 11px; }
+            .nav-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .shell { width: calc(100% - 14px); margin-top: 8px; }
+            .topbar, .panel { border-radius: 12px; }
+            .topbar { align-items: stretch; padding: 12px; }
+            .brand { font-size: 19px; overflow-wrap: anywhere; }
+            .panel { margin-top: 10px; padding: 12px; }
+            .btn { min-height: 42px; }
+            input, select, textarea, .form-control { min-height: 44px; font-size: 16px; }
+            .table-wrap { border-radius: 10px; }
+            .table-wrap table:not(.mobile-card-table) { min-width: 680px; }
+            th, td { padding: 10px; font-size: 12px; }
+            .table-wrap:has(.mobile-card-table) { overflow: visible; }
+            table.mobile-card-table {
+                display: block;
+                min-width: 0;
+                margin-top: 10px;
+                background: transparent;
+            }
+            .mobile-card-table thead {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0 0 0 0);
+                clip-path: inset(50%);
+                white-space: nowrap;
+            }
+            .mobile-card-table tbody { display: grid; gap: 10px; }
+            .mobile-card-table tr {
+                display: block;
+                overflow: hidden;
+                border: 1px solid var(--line);
+                border-radius: 12px;
+                background: rgba(13, 26, 49, .72);
+                box-shadow: 0 8px 20px rgba(2, 8, 20, .16);
+            }
+            .mobile-card-table td {
+                display: grid;
+                grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
+                gap: 10px;
+                align-items: start;
+                min-height: 42px;
+                padding: 10px 11px;
+                overflow-wrap: anywhere;
+                white-space: normal;
+            }
+            .mobile-card-table td::before {
+                content: attr(data-mobile-label);
+                color: #9cb5db;
+                font-size: 10px;
+                font-weight: 800;
+                letter-spacing: .05em;
+                text-transform: uppercase;
+            }
+            .mobile-card-table td[data-mobile-empty="true"] { display: block; }
+            .mobile-card-table td[data-mobile-empty="true"]::before { content: none; }
+            .mobile-card-table td.actions,
+            .mobile-card-table td form,
+            .mobile-card-table td .btn { max-width: 100%; white-space: normal; }
+            html[data-theme="light"] .mobile-card-table tr { background: #fff; }
+            .subscription-warning-overlay { inset: 8px 7px auto; width: auto; }
+            .subscription-warning-card { padding: 13px; border-radius: 13px; }
+            .subscription-warning-list li { align-items: flex-start; flex-direction: column; gap: 3px; }
+        }
+        @media (max-width: 380px) {
+            .nav-brand-text { font-size: 18px; }
+            .mobile-card-table td { grid-template-columns: 1fr; gap: 4px; }
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -849,7 +1026,10 @@
                 <span class="nav-brand-mark" aria-hidden="true"></span>
                 <span class="nav-brand-text">OptiVerse</span>
             </a>
-            <nav class="nav-links">
+            <button type="button" class="nav-mobile-toggle" id="mainNavToggle" aria-expanded="false" aria-controls="mainNavPanel" aria-label="Open navigation"><span></span></button>
+            <div class="nav-mobile-panel" id="mainNavPanel">
+              <div class="nav-mobile-panel-inner">
+                <nav class="nav-links">
                 <a href="{% url 'unconfigured_onus' %}" class="nav-link">Autofind</a>
                 <a href="{% url 'configured_onus' %}" class="nav-link">ONUs</a>
                 <a href="{% url 'olt_settings_olt' %}" class="nav-link">OLT</a>
@@ -857,7 +1037,7 @@
                 {% if user.is_staff or user.is_superuser %}
                 <a href="{% url 'settings_home' %}" class="nav-link">Settings</a>
                 {% endif %}
-            </nav>
+                </nav>
             <button type="button" class="nav-link nav-theme" id="themeToggleBtn" aria-label="Toggle light or dark theme">
                 <span class="theme-ico" data-theme-ico>🌙</span>
                 <span data-theme-label>Dark</span>
@@ -866,6 +1046,8 @@
                 {% csrf_token %}
                 <button type="submit" class="nav-link nav-logout-btn">Log out</button>
             </form>
+              </div>
+            </div>
         </div>
     </header>
     {% endif %}
@@ -917,6 +1099,65 @@
     {% endif %}
     {% block content %}{% endblock %}
     {% block extra_js %}{% endblock %}
+    <script>
+        (function () {
+            var nav = document.querySelector('.main-nav');
+            var toggle = document.getElementById('mainNavToggle');
+            if (!nav || !toggle) return;
+            function closeMenu() {
+                nav.classList.remove('mobile-open');
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.setAttribute('aria-label', 'Open navigation');
+            }
+            toggle.addEventListener('click', function () {
+                var open = nav.classList.toggle('mobile-open');
+                toggle.setAttribute('aria-expanded', String(open));
+                toggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+            });
+            nav.querySelectorAll('.nav-links a').forEach(function (link) {
+                link.addEventListener('click', closeMenu);
+            });
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') closeMenu();
+            });
+            window.addEventListener('resize', function () {
+                if (window.innerWidth > 900) closeMenu();
+            });
+        })();
+    </script>
+    <script>
+        (function () {
+            function prepareMobileTable(table) {
+                if (!table || table.dataset.mobilePrepared === 'true' || table.classList.contains('keep-wide-table')) return;
+                var headers = Array.from(table.querySelectorAll('thead th'));
+                if (!headers.length || headers.length > 10) return;
+                var labels = headers.map(function (cell) { return cell.textContent.trim(); });
+                table.querySelectorAll('tbody tr').forEach(function (row) {
+                    Array.from(row.children).forEach(function (cell, index) {
+                        if (cell.tagName !== 'TD') return;
+                        if (cell.colSpan > 1) cell.dataset.mobileEmpty = 'true';
+                        else cell.dataset.mobileLabel = labels[index] || '';
+                    });
+                });
+                table.classList.add('mobile-card-table');
+                table.dataset.mobilePrepared = 'true';
+            }
+            function prepareAll(root) {
+                if (root.matches && root.matches('table')) prepareMobileTable(root);
+                if (root.querySelectorAll) root.querySelectorAll('table').forEach(prepareMobileTable);
+            }
+            prepareAll(document);
+            if ('MutationObserver' in window) {
+                new MutationObserver(function (mutations) {
+                    mutations.forEach(function (mutation) {
+                        mutation.addedNodes.forEach(function (node) {
+                            if (node.nodeType === 1) prepareAll(node);
+                        });
+                    });
+                }).observe(document.body, { childList: true, subtree: true });
+            }
+        })();
+    </script>
     <script>
         (function () {
             var overlay = document.querySelector('[data-subscription-warning]');
