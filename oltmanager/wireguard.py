@@ -31,6 +31,8 @@ def _run(args, *, input_text=None, check=True):
 
 
 class WireGuardHelper:
+    APP_GROUP_ID = 1000
+
     interface = "wg0"
     tunnel_network = ipaddress.ip_network("10.75.75.0/30")
     server_address = "10.75.75.1/30"
@@ -214,7 +216,7 @@ class WireGuardHelper:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             server.bind(str(self.socket_path))
-            os.chmod(self.socket_path, 0o660)
+            self._grant_app_socket_access()
             server.listen(8)
             server.settimeout(1)
             while not stop_requested():
@@ -237,3 +239,14 @@ class WireGuardHelper:
             server.close()
             if self.socket_path.exists():
                 self.socket_path.unlink()
+
+    def _grant_app_socket_access(self):
+        """Allow the non-root web/worker roles to use the root-owned helper."""
+        try:
+            os.chown(self.socket_path, -1, self.APP_GROUP_ID)
+        except (AttributeError, OSError):
+            # The containing directory is private to the compose stack.  This
+            # fallback keeps the socket usable on platforms without chown.
+            os.chmod(self.socket_path, 0o666)
+        else:
+            os.chmod(self.socket_path, 0o660)

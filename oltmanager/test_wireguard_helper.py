@@ -1,4 +1,5 @@
 import ipaddress
+from pathlib import Path
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -32,3 +33,22 @@ class WireGuardRouteValidationTests(SimpleTestCase):
     def test_rejects_container_network_overlap(self, _networks):
         with self.assertRaises(WireGuardError):
             self.helper.validate_routes(["172.20.10.0/24"])
+
+    @patch("oltmanager.wireguard.os.chmod")
+    @patch("oltmanager.wireguard.os.chown", create=True)
+    def test_helper_socket_is_shared_with_non_root_app_group(self, chown, chmod):
+        self.helper.socket_path = Path("/run/optiverse/wg.sock")
+
+        self.helper._grant_app_socket_access()
+
+        chown.assert_called_once_with(self.helper.socket_path, -1, 1000)
+        chmod.assert_called_once_with(self.helper.socket_path, 0o660)
+
+    @patch("oltmanager.wireguard.os.chmod")
+    @patch("oltmanager.wireguard.os.chown", side_effect=PermissionError, create=True)
+    def test_helper_socket_has_private_directory_fallback(self, _chown, chmod):
+        self.helper.socket_path = Path("/run/optiverse/wg.sock")
+
+        self.helper._grant_app_socket_access()
+
+        chmod.assert_called_once_with(self.helper.socket_path, 0o666)
