@@ -1,13 +1,21 @@
 import base64
 import copy
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from django.conf import settings
 from django.test import SimpleTestCase
 
-from oltmanager.licensing.service import LicenceError, _verify
+from oltmanager.licensing.service import (
+    LicenceError,
+    _extract_public_key,
+    _public_key,
+    _verify,
+)
 
 
 class LicenceSignatureTests(SimpleTestCase):
@@ -55,3 +63,29 @@ class LicenceSignatureTests(SimpleTestCase):
         data["status"] = "suspended"
         with self.assertRaises(LicenceError):
             _verify(data, {})
+
+
+class LicencePublicKeyTests(SimpleTestCase):
+    def test_extracts_panel_public_key_pem_from_data_envelope(self):
+        pem = "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----\n"
+
+        self.assertEqual(
+            _extract_public_key({"success": True, "data": {"public_key_pem": pem}}),
+            pem,
+        )
+
+    @patch("oltmanager.licensing.service._request_json")
+    def test_public_key_request_is_authenticated_and_cached_by_kid(self, request_json):
+        pem = "-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----\n"
+        request_json.return_value = ({"data": {"public_key_pem": pem}}, {})
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("oltmanager.licensing.service._runtime_dir", return_value=Path(directory)):
+                self.assertEqual(_public_key("panel-default"), pem.encode("utf-8"))
+                self.assertEqual(_public_key("panel-default"), pem.encode("utf-8"))
+
+        request_json.assert_called_once_with(
+            "GET",
+            settings.OPTIVERSE_LICENCE_PUBLIC_KEY_URL,
+            authenticated=True,
+        )

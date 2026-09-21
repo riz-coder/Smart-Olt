@@ -102,7 +102,10 @@ def _extract_public_key(payload):
     if not isinstance(payload, dict):
         return ""
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-    for key in ("public_key", "key", "pem"):
+    # The Laravel panel wraps its response in ``data`` and exposes the SPKI
+    # value as ``public_key_pem``.  Keep the older aliases for compatibility
+    # with previously deployed panel versions.
+    for key in ("public_key_pem", "public_key", "key", "pem"):
         if data.get(key):
             return str(data[key])
     return ""
