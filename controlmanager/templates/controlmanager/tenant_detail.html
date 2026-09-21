@@ -31,7 +31,7 @@
     <pre>{{ tenant.vpn_routes }}</pre>
     <form method="post" action="{% url 'control_tenant_vpn_download' tenant.pk %}">{% csrf_token %}<button class="btn btn-blue">Download Ubuntu VPN config</button></form>
     <button type="button" class="btn btn-dark" id="vpn-check">Check tunnel</button>
-    <p id="vpn-state" class="subtle">A handshake will appear after the configuration is activated on the Ubuntu client. Configure local subnet forwarding and a return route on the client network.</p>
+    <p id="vpn-state" class="subtle">The remote Ubuntu/router initiates the outbound tunnel, including from dynamic IP or behind NAT. Configure local subnet forwarding and a return route on the client network.</p>
     <script>
     document.getElementById('vpn-check').addEventListener('click', async () => {
         const target = document.getElementById('vpn-state');
@@ -46,7 +46,7 @@
     <div class="table-wrap"><table>
         <tbody>
             <tr><th>Subdomain</th><td>{{ tenant.subdomain|default:"-" }}</td><th>VPN Enabled</th><td>{{ tenant.vpn_enabled|yesno:"Yes,No" }}</td></tr>
-            <tr><th>Client Public IP</th><td>{{ tenant.client_public_ip|default:"-" }}</td><th>Private VPN Pool</th><td>10.75.75.0/24</td></tr>
+            <tr><th>Connection Mode</th><td>Client initiated (dynamic IP/NAT supported)</td><th>Private VPN Pool</th><td>10.75.75.0/24</td></tr>
             <tr><th>Local Routes</th><td><pre>{{ tenant.vpn_routes|default:"-" }}</pre></td><th>Tunnel /30</th><td>{% if tenant.vpn_enabled %}{{ tenant.vpn_server_address }} ↔ {{ tenant.wg_client_address }}{% else %}Allocated when VPN is enabled{% endif %}</td></tr>
             <tr><th>WG Endpoint</th><td>{{ tenant.wg_server_endpoint|default:"-" }}</td><th>Client VPN Port</th><td>{{ tenant.client_vpn_port|default:"-" }}</td></tr>
             <tr><th>System Service</th><td>{{ tenant.service_name|default:"-" }}</td><th>Runtime</th><td>Python virtual environment</td></tr>
@@ -60,7 +60,7 @@
 </section>
 <section class="panel">
     <h2>Controls</h2>
-    <details><summary>Site-to-site VPN settings</summary>
+    <details><summary>Remote-access VPN settings</summary>
     <form method="post" class="form-grid">
         {% csrf_token %}<input type="hidden" name="action" value="connections">
         {{ connection_form.non_field_errors }}

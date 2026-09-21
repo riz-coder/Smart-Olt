@@ -61,8 +61,8 @@ class TenantDeploymentTests(TestCase):
                 )
 
     def test_overlapping_lans_have_distinct_tunnels_keys_ports_and_networks(self):
-        first = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
-        second = self.tenant('second', vpn_enabled=True, client_public_ip='203.0.113.30', vpn_routes='192.168.1.0/24')
+        first = self.tenant(vpn_enabled=True, vpn_routes='192.168.1.0/24')
+        second = self.tenant('second', vpn_enabled=True, vpn_routes='192.168.1.0/24')
         for item in (first, second):
             deployment.prepare_deployment(item, _wireguard_keypair)
         for field in ('vpn_server_address', 'wg_client_address', 'vpn_listen_port', 'wg_client_public_key'):
@@ -75,21 +75,22 @@ class TenantDeploymentTests(TestCase):
         self.assertEqual(second.vpn_server_address, '10.75.75.5/30')
         self.assertEqual(second.wg_client_address, '10.75.75.6/30')
         self.assertIn('AllowedIPs = 10.75.75.2/32, 192.168.1.0/24', deployment.server_config(first))
+        self.assertNotIn('Endpoint =', deployment.server_config(first))
+        self.assertIn('Endpoint = 203.0.113.10:', deployment.client_config(first))
         self.assertIn('Address = 10.75.75.1/30', deployment.server_config(first))
         self.assertIn(f'ListenPort = {first.vpn_listen_port}', deployment.server_config(first))
 
     def test_deleted_tenant_tunnel_slot_is_reused(self):
-        first = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
+        first = self.tenant(vpn_enabled=True, vpn_routes='192.168.1.0/24')
         deployment.prepare_deployment(first, _wireguard_keypair)
         first.delete()
-        replacement = self.tenant('replacement', vpn_enabled=True,
-            client_public_ip='203.0.113.21', vpn_routes='192.168.2.0/24')
+        replacement = self.tenant('replacement', vpn_enabled=True, vpn_routes='192.168.2.0/24')
         deployment.prepare_deployment(replacement, _wireguard_keypair)
         self.assertEqual(replacement.vpn_server_address, '10.75.75.1/30')
         self.assertEqual(replacement.wg_client_address, '10.75.75.2/30')
 
     def test_legacy_host_addresses_are_normalized_without_changing_ips(self):
-        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20',
+        tenant = self.tenant(vpn_enabled=True,
             vpn_routes='192.168.1.0/24', vpn_server_address='10.75.75.9/32',
             wg_client_address='10.75.75.10/32')
         deployment.prepare_deployment(tenant, _wireguard_keypair)
@@ -97,7 +98,7 @@ class TenantDeploymentTests(TestCase):
         self.assertEqual(tenant.wg_client_address, '10.75.75.10/30')
 
     def test_reapply_preserves_keys(self):
-        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='192.168.1.0/24')
+        tenant = self.tenant(vpn_enabled=True, vpn_routes='192.168.1.0/24')
         deployment.prepare_deployment(tenant, _wireguard_keypair)
         keys = (tenant.vpn_server_private_key, tenant.wg_client_private_key)
         deployment.prepare_deployment(tenant, _wireguard_keypair)
@@ -107,24 +108,29 @@ class TenantDeploymentTests(TestCase):
         for value in ('0.0.0.0/0', '127.0.0.0/8', '::/0'):
             with self.assertRaises(ValueError):
                 deployment.route_networks(value)
-        tenant = self.tenant(vpn_enabled=True, client_public_ip='203.0.113.20', vpn_routes='10.75.75.0/24')
+        tenant = self.tenant(vpn_enabled=True, vpn_routes='10.75.75.0/24')
         with self.assertRaises(ValueError):
             deployment.prepare_deployment(tenant, _wireguard_keypair)
 
-    def test_form_uses_name_for_subdomain_and_rejects_missing_vpn_details(self):
+    def test_form_uses_name_for_subdomain_and_rejects_missing_vpn_routes(self):
         form = TenantCreateForm(data={'name': 'nexus', 'owner_email': 'a@example.com',
             'panel_admin_username': 'admin', 'panel_admin_initial_password': 'test-password',
             'vpn_enabled': True})
         self.assertFalse(form.is_valid())
         self.assertIn('vpn_routes', form.errors)
-        self.assertIn('client_public_ip', form.errors)
+
+    def test_remote_vpn_does_not_require_client_public_ip(self):
+        form = TenantCreateForm(data={'name': 'remote-isp', 'owner_email': 'a@example.com',
+            'panel_admin_username': 'admin', 'panel_admin_initial_password': 'test-password',
+            'vpn_enabled': True, 'vpn_routes': '192.168.50.0/24'})
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_create_form_exposes_only_required_tenant_inputs(self):
         form = TenantCreateForm()
         self.assertEqual(list(form.fields), [
             'name', 'owner_email', 'panel_admin_username',
             'panel_admin_initial_password', 'vpn_enabled',
-            'client_public_ip', 'vpn_routes',
+            'vpn_routes',
         ])
 
     def test_local_creation_needs_no_vpn_endpoint(self):

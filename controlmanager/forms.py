@@ -23,8 +23,6 @@ def _validate_deployment_form(form, cleaned):
     except ValueError as exc:
         form.add_error(None, str(exc))
     if cleaned.get('vpn_enabled'):
-        if not cleaned.get('client_public_ip'):
-            form.add_error('client_public_ip', 'The Ubuntu client public IPv4 address is required to enable VPN.')
         if not deployment.os.environ.get('CONTROL_VPN_PUBLIC_HOST', '').strip():
             form.add_error(None, 'VPN setup is incomplete. Configure the server public IPv4 address in the deployment settings.')
         try:
@@ -55,7 +53,7 @@ class TenantForm(forms.ModelForm):
             "plan", "status", "monthly_price_override", "panel_scheme", "panel_host",
             "panel_port", "panel_base_path", "codebase_path", "database_path",
             "env_path", "service_name", "panel_admin_username", "panel_admin_initial_password", "notes",
-            "subdomain", "vpn_enabled", "client_public_ip", "client_vpn_port", "vpn_routes",
+            "subdomain", "vpn_enabled", "client_vpn_port", "vpn_routes",
         ]
         help_texts = {
             "slug": "Leave blank to generate automatically.",
@@ -86,7 +84,6 @@ class TenantCreateForm(forms.ModelForm):
             "panel_admin_username",
             "panel_admin_initial_password",
             "vpn_enabled",
-            "client_public_ip",
             "vpn_routes",
         ]
         labels = {
@@ -94,15 +91,13 @@ class TenantCreateForm(forms.ModelForm):
             "owner_email": "Email",
             "panel_admin_username": "Panel username",
             "panel_admin_initial_password": "Panel initial password",
-            "client_public_ip": "Client public IP",
-            "vpn_enabled": "Enable site-to-site VPN (Ubuntu client)",
-            "vpn_routes": "Client local subnet(s)",
+            "vpn_enabled": "Enable remote-access VPN gateway",
+            "vpn_routes": "Remote local/OLT subnet(s)",
         }
         help_texts = {
             "panel_admin_initial_password": "This will be created as the first tenant panel superuser password.",
-            "client_public_ip": "Client or router public IP address. Leave blank for local access without VPN.",
-            "vpn_enabled": "Enable now or leave disabled and configure the tunnel later. A dedicated /30 pair is allocated automatically.",
-            "vpn_routes": "Enter one IPv4 subnet per line. Linux routes only these networks through this tenant tunnel.",
+            "vpn_enabled": "The remote gateway initiates an outbound tunnel, so no client public IP is required.",
+            "vpn_routes": "Enter one IPv4 subnet per line. Linux routes only these remote networks through this tenant tunnel.",
         }
 
     def __init__(self, *args, **kwargs):
@@ -110,7 +105,6 @@ class TenantCreateForm(forms.ModelForm):
         self.fields["owner_email"].required = True
         self.fields["panel_admin_username"].required = True
         self.fields["panel_admin_initial_password"].required = True
-        self.fields["client_public_ip"].required = False
         self.fields["vpn_routes"].widget = forms.Textarea(attrs={"rows": 4})
         self.fields["panel_admin_initial_password"].widget = forms.PasswordInput(render_value=True)
         _style_form(self)
@@ -164,13 +158,14 @@ class TenantCreateForm(forms.ModelForm):
 class TenantConnectionForm(forms.ModelForm):
     class Meta:
         model = Tenant
-        fields = ['vpn_enabled', 'client_public_ip', 'vpn_routes']
+        fields = ['vpn_enabled', 'vpn_routes']
         widgets = {'vpn_routes': forms.Textarea(attrs={'rows': 4})}
-        labels = {'vpn_enabled': 'Enable site-to-site VPN (Ubuntu client)',
-                  'client_public_ip': 'Client public IP',
-                  'vpn_routes': 'Client local subnet(s)'}
-        help_texts = {'vpn_enabled': 'Enable now or leave disabled and configure the tunnel later.',
-                      'vpn_routes': 'Enter one IPv4 subnet per line. Linux installs these routes through the tenant tunnel.'}
+        labels = {'vpn_enabled': 'Enable remote-access VPN gateway',
+                  'vpn_routes': 'Remote local/OLT subnet(s)'}
+        help_texts = {
+            'vpn_enabled': 'The remote gateway initiates the tunnel; a public/static client IP is not required.',
+            'vpn_routes': 'Enter one IPv4 subnet per line. Linux installs these routes through the tenant tunnel.',
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

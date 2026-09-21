@@ -266,7 +266,7 @@ def tenant_vpn_download(request, pk):
     response = HttpResponse(deployment.client_config(tenant), content_type='text/plain; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="optiverse-{tenant.pk}.conf"'
     response['Cache-Control'] = 'no-store, private'
-    audit(request, 'tenant_vpn_download', tenant, 'Ubuntu client configuration downloaded')
+    audit(request, 'tenant_vpn_download', tenant, 'Client-initiated remote VPN configuration downloaded')
     return response
 
 

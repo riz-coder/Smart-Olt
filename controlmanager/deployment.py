@@ -1,4 +1,4 @@
-"""Public tenant addresses and isolated site-to-site VPN configuration."""
+"""Public tenant addresses and isolated client-initiated remote VPN configuration."""
 import ipaddress
 import os
 import re
@@ -117,15 +117,17 @@ def prepare_deployment(tenant, keypair):
         except ValueError as exc:
             raise ValueError('Set CONTROL_VPN_PUBLIC_HOST to the server public IPv4 address before enabling VPN.') from exc
         routes = route_networks(tenant.vpn_routes)
-        if not routes or not tenant.client_public_ip:
-            raise ValueError('VPN requires the client public IPv4 and local/OLT subnets.')
-        client_ip = ipaddress.ip_address(tenant.client_public_ip)
-        if client_ip.version != 4:
-            raise ValueError('Client VPN endpoint must be IPv4.')
+        if not routes:
+            raise ValueError('VPN requires at least one remote local/OLT subnet.')
+        client_ip = None
+        if tenant.client_public_ip:
+            client_ip = ipaddress.ip_address(tenant.client_public_ip)
+            if client_ip.version != 4:
+                raise ValueError('Legacy client VPN endpoint must be IPv4.')
         # Tunnel addresses are unique /30s; overlapping customer LANs are fine.
         tunnel_network = tunnel_pool()
         for route in routes:
-            if route.overlaps(tunnel_network) or ip in route or client_ip in route:
+            if route.overlaps(tunnel_network) or ip in route or (client_ip and client_ip in route):
                 raise ValueError('Client route overlaps the VPN tunnel pool or public endpoint. Use a distinct subnet.')
         tenant.vpn_server_address, tenant.wg_client_address = _allocate_tunnel_addresses(tenant)
         if not tenant.vpn_listen_port:
@@ -168,7 +170,7 @@ def server_config(tenant):
         '[Interface]', f'PrivateKey = {tenant.vpn_server_private_key}',
         f'Address = {tenant.vpn_server_address}', f'ListenPort = {tenant.vpn_listen_port}',
         '', '[Peer]', f'PublicKey = {tenant.wg_client_public_key}',
-        f'Endpoint = {tenant.client_public_ip}:{tenant.client_vpn_port}',
+        # No Endpoint: remote clients may use dynamic IP/NAT and initiate the tunnel.
         f'AllowedIPs = {", ".join(allowed)}', 'PersistentKeepalive = 25', '',
     ])
 

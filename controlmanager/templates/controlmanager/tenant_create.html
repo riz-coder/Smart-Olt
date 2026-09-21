@@ -4,7 +4,7 @@
 {% block content %}
 <section class="panel">
     <h2>New ISP Tenant</h2>
-    <p class="subtle">Each ISP gets a separate database and Python system service. The tenant name becomes its subdomain when a main domain is configured. Site-to-site VPN can be enabled now or later.</p>
+    <p class="subtle">Each ISP gets a separate database and Python system service. The tenant name becomes its subdomain when a main domain is configured. Client-initiated remote VPN can be enabled now or later without a client public IP.</p>
     <p class="subtle">Private VPN pool: <strong>10.75.75.0/24</strong>. Each enabled tenant automatically receives an isolated point-to-point /30 interface pair.</p>
     <form method="post" class="form-grid">
         {% csrf_token %}
