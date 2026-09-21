@@ -130,8 +130,9 @@ def _public_key(kid):
 def _canonical_signed_bytes(data):
     signed = dict(data)
     signed.pop("signature", None)
-    signed.pop("signature_kid", None)
-    signed.pop("signature_alg", None)
+    # Laravel adds kid/algorithm before signing and excludes only the signature
+    # value itself (LicensePayloadSigner::withoutSignature).  These metadata
+    # fields therefore form part of the authenticated payload.
     return json.dumps(signed, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 

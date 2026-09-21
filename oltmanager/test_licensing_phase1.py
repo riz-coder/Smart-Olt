@@ -26,16 +26,16 @@ class LicenceSignatureTests(SimpleTestCase):
             serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
-    def signed_data(self):
+    def signed_data(self, algorithm="RS256"):
         data = {
             "licence": "OPT-0001",
             "status": "active",
             "olts": [{"ref": "6d3c8ff7-dc74-4e88-a48d-e94d965d779f", "status": "active"}],
             "signature_kid": "test-key",
-            "signature_alg": "RS256",
+            "signature_alg": algorithm,
         }
         canonical = json.dumps(
-            {key: value for key, value in data.items() if key not in {"signature_kid", "signature_alg"}},
+            data,
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
@@ -52,8 +52,7 @@ class LicenceSignatureTests(SimpleTestCase):
     @patch("oltmanager.licensing.service._public_key")
     def test_laravel_sha256_signature_label_is_accepted(self, public_key):
         public_key.return_value = self.public_pem
-        data = self.signed_data()
-        data["signature_alg"] = "sha256"
+        data = self.signed_data(algorithm="sha256")
         _verify(data, {})
 
     @patch("oltmanager.licensing.service._public_key")
