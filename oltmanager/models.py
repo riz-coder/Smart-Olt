@@ -71,7 +71,7 @@ class OLT(models.Model):
     # Stable identifier shared with the Nexecode licence panel.  Existing OLTs
     # receive one during the migration and it must never be regenerated.
     licence_ref = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    licence_status = models.CharField(max_length=20, blank=True, default="legacy", db_index=True)
+    licence_status = models.CharField(max_length=32, blank=True, default="legacy", db_index=True)
     licence_invoice_url = models.URLField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -138,7 +138,10 @@ def _verify(data, headers):
     kid = data.get("signature_kid") or headers.get("X-License-Signature-Kid") or headers.get("x-license-signature-kid")
     algorithm = data.get("signature_alg") or headers.get("X-License-Signature-Alg") or headers.get("x-license-signature-alg")
     signature = data.get("signature")
-    if algorithm != "RS256" or not signature:
+    # Older Laravel responses label the same RSA PKCS#1/SHA-256 signature as
+    # "sha256". RS256 is the protocol name; accept the legacy label while still
+    # performing the identical asymmetric verification below.
+    if str(algorithm or "").upper() not in {"RS256", "SHA256"} or not signature:
         raise LicenceError("Licence response signature metadata is missing or unsupported.")
     try:
         key = serialization.load_pem_public_key(_public_key(kid))

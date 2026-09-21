@@ -42,6 +42,13 @@ class LicenceSignatureTests(SimpleTestCase):
         _verify(self.signed_data(), {})
 
     @patch("oltmanager.licensing.service._public_key")
+    def test_laravel_sha256_signature_label_is_accepted(self, public_key):
+        public_key.return_value = self.public_pem
+        data = self.signed_data()
+        data["signature_alg"] = "sha256"
+        _verify(data, {})
+
+    @patch("oltmanager.licensing.service._public_key")
     def test_tampered_response_is_rejected(self, public_key):
         public_key.return_value = self.public_pem
         data = copy.deepcopy(self.signed_data())
