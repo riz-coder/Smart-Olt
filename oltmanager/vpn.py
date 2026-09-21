@@ -117,7 +117,9 @@ def client_config():
     if not state:
         raise VPNError("Configure the VPN before downloading its client configuration")
     server = helper_request("server_key")
-    public_host = str(getattr(settings, "OPTIVERSE_VPN_PUBLIC_HOST", "") or "").strip()
+    # WireGuard shares the tenant's canonical public hostname. Only its UDP
+    # port differs; a separate vpn-<tenant> DNS record is not required.
+    public_host = str(getattr(settings, "OPTIVERSE_PUBLIC_HOSTNAME", "") or "").strip()
     public_port = int(getattr(settings, "OPTIVERSE_VPN_PORT", 0) or 0)
     if not public_host or not public_port:
         raise VPNError("VPN public endpoint is not configured")

@@ -8480,18 +8480,27 @@ def settings_vpn(request):
             return redirect("settings_vpn")
 
     status = None
-    status_error = ""
     try:
         status = vpn_status()
-    except VPNError as exc:
-        status_error = str(exc)
+    except VPNError:
+        pass
     return render(request, "oltmanager/settings_vpn.html", {
         "vpn_state": state,
         "vpn_routes": "\n".join((state or {}).get("routes", [])),
-        "vpn_status": status,
-        "vpn_status_error": status_error,
-        "vpn_endpoint": f"{settings.OPTIVERSE_VPN_PUBLIC_HOST}:{settings.OPTIVERSE_VPN_PORT}",
+        "vpn_tunnel_up": _vpn_tunnel_is_up(status),
     })
+
+
+def _vpn_tunnel_is_up(status, *, max_handshake_age_s=180):
+    """Return whether the configured WireGuard peer has a recent handshake."""
+    if not isinstance(status, dict) or not status.get("peer_public_key"):
+        return False
+    handshake_age = status.get("last_handshake_s")
+    return (
+        isinstance(handshake_age, (int, float))
+        and not isinstance(handshake_age, bool)
+        and 0 <= handshake_age <= max_handshake_age_s
+    )
 
 
 @login_required

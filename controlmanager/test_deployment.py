@@ -54,6 +54,7 @@ class TenantDeploymentTests(TestCase):
                 _write_tenant_env_file(tenant)
                 content = Path(tenant.env_path).read_text()
                 self.assertIn('DJANGO_CSRF_TRUSTED_ORIGINS=https://nexus.example.com', content)
+                self.assertIn('OPTIVERSE_PUBLIC_HOSTNAME=nexus.example.com', content)
                 self.assertIn('DJANGO_SESSION_COOKIE_SECURE=True', content)
                 self.assertIn(
                     'OLT_BACKGROUND_SYNC_THREADS=snmp_monitor,onu_status,signal_sample,inventory',
@@ -209,6 +210,20 @@ class TenantDeploymentTests(TestCase):
             self.assertEqual(deployment.public_control_hostname(), 'optiverse.nexecode.com')
             self.assertEqual(tenant.public_hostname, 'connect.nexecode.com')
             self.assertEqual(tenant.panel_url, 'https://connect.nexecode.com')
+
+    def test_vpn_endpoint_uses_the_same_canonical_tenant_hostname(self):
+        with patch.dict(os.environ, CONTROL_BASE_DOMAIN='nexecode.com'):
+            tenant = self.tenant('connect', vpn_enabled=True, vpn_routes='192.168.10.0/24')
+            deployment.prepare_deployment(tenant, _wireguard_keypair)
+
+            self.assertEqual(
+                tenant.wg_server_endpoint,
+                f'connect.nexecode.com:{tenant.vpn_listen_port}',
+            )
+            self.assertIn(
+                f'Endpoint = connect.nexecode.com:{tenant.vpn_listen_port}',
+                deployment.client_config(tenant),
+            )
 
     @patch('controlmanager.views.get_tenant_olts')
     @patch('controlmanager.views.refresh_tenant_database_snapshot')

@@ -190,6 +190,7 @@ DJANGO_SESSION_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_sessionid
 DJANGO_CSRF_COOKIE_NAME=optiverse_{_tenant_cookie_prefix(tenant)}_csrftoken
 DJANGO_TIME_ZONE=Asia/Karachi
 DJANGO_LANGUAGE_CODE=en-us
+OPTIVERSE_PUBLIC_HOSTNAME={tenant.public_hostname}
 OPTIVERSE_RUNTIME_DIR={tenant_dir}
 DB_ENGINE={tenant.database_engine}
 DB_NAME={tenant.database_name}

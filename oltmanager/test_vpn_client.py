@@ -14,7 +14,7 @@ class VPNClientStateTests(SimpleTestCase):
         self.settings = override_settings(
             OPTIVERSE_WG_STATE_DIR=self.temporary.name,
             OPTIVERSE_WG_SOCKET=str(Path(self.temporary.name) / "wg.sock"),
-            OPTIVERSE_VPN_PUBLIC_HOST="vpn-connect.nexecode.com",
+            OPTIVERSE_PUBLIC_HOSTNAME="connect.nexecode.com",
             OPTIVERSE_VPN_PORT=52001,
         )
         self.settings.enable()
@@ -45,5 +45,6 @@ class VPNClientStateTests(SimpleTestCase):
             "tunnel_address": "10.75.75.1/30",
         }
         config = client_config()
-        self.assertIn("Endpoint = vpn-connect.nexecode.com:52001", config)
+        self.assertIn("Endpoint = connect.nexecode.com:52001", config)
+        self.assertNotIn("vpn-connect.nexecode.com", config)
         self.assertIn("AllowedIPs = 10.75.75.1/32", config)

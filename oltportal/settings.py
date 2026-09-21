@@ -160,7 +160,12 @@ OPTIVERSE_LICENCE_GRACE_SECONDS = int(os.environ.get("OPTIVERSE_LICENCE_GRACE_SE
 OPTIVERSE_WG_LISTEN_PORT = int(os.environ.get("OPTIVERSE_WG_LISTEN_PORT", "51820"))
 OPTIVERSE_WG_STATE_DIR = os.environ.get("OPTIVERSE_WG_STATE_DIR", "/etc/optiverse/wg")
 OPTIVERSE_WG_SOCKET = os.environ.get("OPTIVERSE_WG_SOCKET", "/run/optiverse/wg.sock")
-OPTIVERSE_VPN_PUBLIC_HOST = os.environ.get("OPTIVERSE_VPN_PUBLIC_HOST", "").strip()
+OPTIVERSE_PUBLIC_HOSTNAME = os.environ.get("OPTIVERSE_PUBLIC_HOSTNAME", "").strip().lower().rstrip(".")
+if not OPTIVERSE_PUBLIC_HOSTNAME:
+    OPTIVERSE_PUBLIC_HOSTNAME = next(
+        (host for host in ALLOWED_HOSTS if host not in {"localhost", "127.0.0.1", "[::1]", "*"}),
+        "",
+    )
 OPTIVERSE_VPN_PORT = int(os.environ.get("OPTIVERSE_VPN_PORT", "0") or 0)
 
 OLT_SAMPLE_RETENTION_DAYS = {

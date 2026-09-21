@@ -163,7 +163,7 @@ OPTIVERSE_ADMIN_EMAIL
 OPTIVERSE_ADMIN_PASSWORD                      used only on first create (§4)
 OPTIVERSE_LICENCE_URL=https://licence.nexecode.com/api/optiverse/v1
 OPTIVERSE_LICENCE_TOKEN                       the licence API token (§8)
-OPTIVERSE_VPN_PUBLIC_HOST=vpn-<slug>.nexecode.com
+OPTIVERSE_PUBLIC_HOSTNAME=<slug>.nexecode.com
 OPTIVERSE_VPN_PORT                            public UDP port on the host
 OPTIVERSE_WG_LISTEN_PORT=51820                inside the wg container
 OPTIVERSE_WG_STATE_DIR=/etc/optiverse/wg
@@ -240,7 +240,7 @@ reachable); the helper adds routes **only** for the tenant's OLT subnets via
       Address = <client tunnel /30>
       [Peer]
       PublicKey = <server public key from server_key>
-      Endpoint = $OPTIVERSE_VPN_PUBLIC_HOST:$OPTIVERSE_VPN_PORT
+      Endpoint = $OPTIVERSE_PUBLIC_HOSTNAME:$OPTIVERSE_VPN_PORT
       AllowedIPs = <server tunnel /32>
       PersistentKeepalive = 25
 

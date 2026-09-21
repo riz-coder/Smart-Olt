@@ -143,7 +143,10 @@ def prepare_deployment(tenant, keypair):
             tenant.vpn_server_private_key, tenant.wg_server_public_key = keypair()
         if not tenant.wg_client_private_key:
             tenant.wg_client_private_key, tenant.wg_client_public_key = keypair()
-        tenant.wg_server_endpoint = f'{host}:{tenant.vpn_listen_port}'
+        # HTTPS and WireGuard share the canonical tenant hostname. WireGuard
+        # remains isolated by its tenant-specific UDP port.
+        endpoint_host = tenant.public_hostname or host
+        tenant.wg_server_endpoint = f'{endpoint_host}:{tenant.vpn_listen_port}'
         tenant.vpn_routes = '\n'.join(map(str, routes))
     tenant.save(update_fields=['subdomain', 'public_hostname', 'vpn_listen_port',
         'vpn_server_address', 'vpn_server_private_key', 'wg_server_public_key',

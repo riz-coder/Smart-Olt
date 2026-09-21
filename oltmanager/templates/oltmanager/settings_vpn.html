@@ -7,7 +7,6 @@
     <header class="topbar">
         <div>
             <h1 class="brand">OLT VPN</h1>
-            <p class="subtle">Configure only the private networks that contain this tenant's OLTs.</p>
         </div>
         <div class="topbar-actions">
             {% if vpn_state %}<a href="{% url 'settings_vpn_download' %}" class="btn btn-primary">Download client config</a>{% endif %}
@@ -23,21 +22,15 @@
 
     <section class="panel">
         <h2>Tunnel status</h2>
-        {% if vpn_status %}
-        <p><strong>Endpoint:</strong> {{ vpn_endpoint }}</p>
-        <p><strong>Peer:</strong> {{ vpn_status.peer_public_key|default:"Not configured" }}</p>
-        <p><strong>Last handshake:</strong>
-            {% if vpn_status.last_handshake_s == None %}Never{% else %}{{ vpn_status.last_handshake_s }} seconds ago{% endif %}
-        </p>
-        <p><strong>Transfer:</strong> RX {{ vpn_status.rx_bytes }} bytes / TX {{ vpn_status.tx_bytes }} bytes</p>
+        {% if vpn_tunnel_up %}
+        <p class="vpn-state vpn-state-up" role="status">UP</p>
         {% else %}
-        <p class="subtle">{{ vpn_status_error|default:"WireGuard helper is not available." }}</p>
+        <p class="vpn-state vpn-state-down" role="status">DOWN</p>
         {% endif %}
     </section>
 
     <section class="panel">
         <h2>OLT subnets</h2>
-        <p class="subtle">Enter one CIDR per line, for example <code>192.168.10.0/24</code>. Default routes, Docker networks, and the tunnel pool are rejected.</p>
         <form method="post">
             {% csrf_token %}
             <textarea name="routes" rows="8" class="form-control" spellcheck="false" placeholder="192.168.10.0/24">{{ vpn_routes }}</textarea>
@@ -47,4 +40,25 @@
         </form>
     </section>
 </div>
+<style>
+    .vpn-state {
+        display: inline-flex;
+        align-items: center;
+        margin: 4px 0 0;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+    }
+    .vpn-state::before {
+        width: 10px;
+        height: 10px;
+        margin-right: 9px;
+        border-radius: 50%;
+        content: "";
+    }
+    .vpn-state-up { color: #66e2a0; }
+    .vpn-state-up::before { background: #41d67d; }
+    .vpn-state-down { color: #ff8d98; }
+    .vpn-state-down::before { background: #ff6b77; }
+</style>
 {% endblock %}
