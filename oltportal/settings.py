@@ -148,6 +148,20 @@ CHANNEL_LAYERS = {
 from .database import database_config
 DATABASES = {'default': database_config()}
 OPTIVERSE_RUNTIME_DIR = os.environ.get('OPTIVERSE_RUNTIME_DIR', '')
+OPTIVERSE_ROLE = os.environ.get("OPTIVERSE_ROLE", "").strip().lower()
+OPTIVERSE_LICENCE_URL = os.environ.get("OPTIVERSE_LICENCE_URL", "").strip().rstrip("/")
+OPTIVERSE_LICENCE_TOKEN = os.environ.get("OPTIVERSE_LICENCE_TOKEN", "").strip()
+OPTIVERSE_LICENCE_PUBLIC_KEY_URL = os.environ.get(
+    "OPTIVERSE_LICENCE_PUBLIC_KEY_URL",
+    "https://licence.nexecode.com/api/v1/licenses/public-key",
+).strip()
+OPTIVERSE_LICENCE_TIMEOUT_SECONDS = int(os.environ.get("OPTIVERSE_LICENCE_TIMEOUT_SECONDS", "10"))
+OPTIVERSE_LICENCE_GRACE_SECONDS = int(os.environ.get("OPTIVERSE_LICENCE_GRACE_SECONDS", str(72 * 60 * 60)))
+OPTIVERSE_WG_LISTEN_PORT = int(os.environ.get("OPTIVERSE_WG_LISTEN_PORT", "51820"))
+OPTIVERSE_WG_STATE_DIR = os.environ.get("OPTIVERSE_WG_STATE_DIR", "/etc/optiverse/wg")
+OPTIVERSE_WG_SOCKET = os.environ.get("OPTIVERSE_WG_SOCKET", "/run/optiverse/wg.sock")
+OPTIVERSE_VPN_PUBLIC_HOST = os.environ.get("OPTIVERSE_VPN_PUBLIC_HOST", "").strip()
+OPTIVERSE_VPN_PORT = int(os.environ.get("OPTIVERSE_VPN_PORT", "0") or 0)
 
 OLT_SAMPLE_RETENTION_DAYS = {
     'onu_optical': int(os.environ.get('OLT_ONU_OPTICAL_RETENTION_DAYS', '15')),

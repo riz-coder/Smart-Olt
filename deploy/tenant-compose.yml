@@ -1,0 +1,111 @@
+name: optiverse-${TENANT_SLUG}
+
+x-app: &app
+  image: ${IMAGE_REF:?approved image digest is required}
+  env_file:
+    - tenant.env
+  restart: unless-stopped
+  init: true
+  volumes:
+    - ./runtime:/runtime
+    - ./media:/app/media
+    - ./wg:/etc/optiverse/wg
+    - optiverse-run:/run/optiverse
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    networks:
+      - tenant
+
+  wg:
+    <<: *app
+    command: ["python", "manage.py", "wg_helper"]
+    environment:
+      OPTIVERSE_ROLE: wg
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "127.0.0.1:${TENANT_HTTP_PORT}:8000"
+      - "${OPTIVERSE_VPN_PORT}:51820/udp"
+    networks:
+      - tenant
+
+  web:
+    <<: *app
+    command:
+      - gunicorn
+      - oltportal.asgi:application
+      - --bind
+      - 0.0.0.0:8000
+      - --workers
+      - "1"
+      - --worker-class
+      - uvicorn.workers.UvicornWorker
+      - --timeout
+      - "180"
+      - --graceful-timeout
+      - "30"
+      - --keep-alive
+      - "5"
+      - --max-requests
+      - "2000"
+      - --max-requests-jitter
+      - "200"
+      - --access-logfile
+      - "-"
+      - --error-logfile
+      - "-"
+    environment:
+      OPTIVERSE_ROLE: web
+      OLT_DISABLE_EMBEDDED_SYNC: "1"
+      OLT_ENABLE_EMBEDDED_SYNC: "false"
+    network_mode: service:wg
+    depends_on:
+      db:
+        condition: service_healthy
+      wg:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/healthz', headers={'X-Forwarded-Proto':'https'}); raise SystemExit(0 if urllib.request.urlopen(r, timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["python", "manage.py", "run_background_sync"]
+    environment:
+      OPTIVERSE_ROLE: worker
+      OLT_DISABLE_EMBEDDED_SYNC: "0"
+      OLT_ENABLE_EMBEDDED_SYNC: "true"
+    network_mode: service:wg
+    cpus: ${WORKER_CPUS:-1.0}
+    depends_on:
+      web:
+        condition: service_healthy
+
+networks:
+  tenant:
+    driver: bridge
+
+volumes:
+  optiverse-run:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=16m,mode=0770,uid=1000,gid=1000

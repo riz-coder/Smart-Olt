@@ -1,4 +1,5 @@
 import re
+import uuid
 
 from django.conf import settings
 from django.db import models
@@ -59,6 +60,7 @@ class OLT(models.Model):
     onboarding_log = models.TextField(blank=True, default='')
     onboarding_started_at = models.DateTimeField(blank=True, null=True)
     onboarding_finished_at = models.DateTimeField(blank=True, null=True)
+    onboarding_snmp_mode = models.CharField(max_length=16, blank=True, default="manual")
     # When False, onboarding fetches only OLT details/cards/PON/uplink/VLAN and
     # skips importing the ONUs (asked at Add OLT time).
     import_onus = models.BooleanField(default=True)
@@ -66,6 +68,11 @@ class OLT(models.Model):
     pricing_expires_at = models.DateTimeField(blank=True, null=True)
     pricing_locked = models.BooleanField(default=False, db_index=True)
     pricing_locked_reason = models.CharField(max_length=255, blank=True, default='')
+    # Stable identifier shared with the Nexecode licence panel.  Existing OLTs
+    # receive one during the migration and it must never be regenerated.
+    licence_ref = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    licence_status = models.CharField(max_length=20, blank=True, default="legacy", db_index=True)
+    licence_invoice_url = models.URLField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

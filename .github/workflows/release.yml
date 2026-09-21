@@ -1,0 +1,88 @@
+name: OptiVerse tenant image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: optiverse_test
+          POSTGRES_USER: optiverse_test
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U optiverse_test -d optiverse_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret-key-that-is-not-used-in-production
+      DJANGO_DEBUG: 'False'
+      DB_ENGINE: postgresql
+      DB_NAME: optiverse_test
+      DB_USER: optiverse_test
+      DB_PASSWORD: test-only-password
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_SSLMODE: disable
+      CONTROL_DB_ENGINE: postgresql
+      CONTROL_DB_NAME: optiverse_test
+      CONTROL_DB_USER: optiverse_test
+      CONTROL_DB_PASSWORD: test-only-password
+      CONTROL_DB_HOST: 127.0.0.1
+      CONTROL_DB_PORT: '5432'
+      CONTROL_DB_SSLMODE: disable
+      OLT_DISABLE_EMBEDDED_SYNC: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py check
+      - run: python manage.py test oltmanager --verbosity 1
+      - run: python manage_control.py test controlmanager --verbosity 1
+      - name: Validate production image build
+        run: docker build --build-arg VERSION=ci-${{ github.sha }} -t optiverse-ci .
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to private registry
+        uses: docker/login-action@v3
+        with:
+          registry: images.nexecode.com
+          username: ${{ secrets.OPTIVERSE_REGISTRY_USERNAME }}
+          password: ${{ secrets.OPTIVERSE_REGISTRY_PASSWORD }}
+      - name: Restore release signing key
+        env:
+          SIGNING_KEY_B64: ${{ secrets.OPTIVERSE_RELEASE_PRIVATE_KEY_B64 }}
+        run: |
+          umask 077
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/optiverse-release-key.pem"
+      - name: Build, push, sign, and register release
+        env:
+          RELEASE_SKIP_GIT: '1'
+          OPTIVERSE_RELEASE_SIGNING_KEY: ${{ runner.temp }}/optiverse-release-key.pem
+          OPTIVERSE_VENDOR_UPLOAD_TOKEN: ${{ secrets.OPTIVERSE_VENDOR_UPLOAD_TOKEN }}
+        run: sh ./release.sh "${GITHUB_REF_NAME#v}"
+      - name: Remove release key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/optiverse-release-key.pem"

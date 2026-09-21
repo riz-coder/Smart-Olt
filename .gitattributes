@@ -4,3 +4,4 @@
 *.py text eol=lf
 *.txt text eol=lf
 *.md text eol=lf
+Dockerfile text eol=lf

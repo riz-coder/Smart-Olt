@@ -29,6 +29,7 @@ runtime/
 *.log
 logs/
 backups/
+.tmp-optiverse-test-pg/
 staticfiles/
 control_staticfiles/
 media/

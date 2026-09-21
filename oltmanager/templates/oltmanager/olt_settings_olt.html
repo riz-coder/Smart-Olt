@@ -179,6 +179,12 @@
         <div class="topbar-actions">
             {% if user.is_staff or user.is_superuser %}
             <a href="{% url 'olt_add' %}" class="btn btn-primary">Add OLT</a>
+            {% if licence_enabled %}
+            <form method="post" action="{% url 'licence_recheck' %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary">Re-check licence</button>
+            </form>
+            {% endif %}
             {% endif %}
             <a href="{% url 'olt_export' %}" class="btn btn-success">Export OLTs list</a>
         </div>
@@ -232,6 +238,11 @@
                         <td class="actions">
                             <div class="action-cell">
                                 <a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a>
+                                {% if olt.licence_invoice_url and olt.pricing_access_locked %}
+                                <a href="{{ olt.licence_invoice_url }}" class="btn btn-success btn-mini" rel="noopener noreferrer">Pay to activate</a>
+                                {% elif olt.licence_invoice_url and olt.pricing_expires_at %}
+                                <a href="{{ olt.licence_invoice_url }}" class="btn btn-secondary btn-mini" rel="noopener noreferrer">Renew</a>
+                                {% endif %}
                                 {% if user.is_staff or user.is_superuser %}
                                 <a href="{% url 'olt_delete' olt.pk %}" class="btn btn-danger btn-mini">Delete</a>
                                 {% endif %}

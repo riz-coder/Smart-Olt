@@ -75,9 +75,9 @@
             </div>
             {% if user.is_staff or user.is_superuser %}
             <div class="settings-card">
-                <h2 class="settings-title">Tenants</h2>
-                <p class="settings-copy">Create tenant VPN and Docker agent provisioning configs for remote OLT access.</p>
-                <a href="{% url 'settings_tenants' %}" class="btn btn-primary">Open Tenants</a>
+                <h2 class="settings-title">OLT VPN</h2>
+                <p class="settings-copy">Configure OLT subnets, download the WireGuard client, and review tunnel status.</p>
+                <a href="{% url 'settings_vpn' %}" class="btn btn-primary">Open VPN Settings</a>
             </div>
             {% endif %}
             {% if user.is_staff or user.is_superuser %}

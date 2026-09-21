@@ -46,7 +46,15 @@ from django.views.decorators.http import require_POST
 from .forms import OLTForm, TenantProvisioningForm, VLANAddForm, VLANBulkAddForm
 from .authorize_progress import get_authorize_progress, save_authorize_progress
 from .operation_progress import SharedTasks
+from .vpn import VPNError, client_config, configure_client, load_client_state, vpn_status
 from .models import ConfiguredONU, DashboardStatusSample, OLT, OLTLoginHistory, ONUOpticalSample, ONUStatusSample, ONUTrafficSample, ONUTrapEvent, PONTrafficSample, PONPortTrafficSample, SpeedProfile, TenantProvisioning, UplinkPortTrafficSample
+from .licensing import (
+    LicenceError,
+    end_olt_subscription,
+    licence_is_configured,
+    register_olt,
+    run_licence_cycle,
+)
 from .services import get_olt_adapter
 from .utils import (
     _dashboard_status_counts_from_queryset,
@@ -8444,6 +8452,62 @@ def settings_home(request):
     return render(request, "oltmanager/settings_home.html")
 
 
+@login_required
+@admin_required
+def settings_vpn(request):
+    try:
+        state = load_client_state()
+    except VPNError as exc:
+        state = None
+        messages.error(request, str(exc))
+    if request.method == "POST":
+        raw_routes = str(request.POST.get("routes") or "")
+        candidates = [item.strip() for item in re.split(r"[,\r\n]+", raw_routes) if item.strip()]
+        routes = []
+        try:
+            for candidate in candidates:
+                network = ipaddress.ip_network(candidate, strict=True)
+                if network.version != 4 or network.prefixlen == 0:
+                    raise ValueError("Only specific IPv4 OLT subnets are allowed.")
+                if network.overlaps(ipaddress.ip_network("10.75.75.0/24")):
+                    raise ValueError("An OLT subnet overlaps the VPN tunnel pool.")
+                routes.append(str(network))
+            state = configure_client(sorted(set(routes)))
+        except (ValueError, VPNError) as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "VPN peer and OLT routes updated.")
+            return redirect("settings_vpn")
+
+    status = None
+    status_error = ""
+    try:
+        status = vpn_status()
+    except VPNError as exc:
+        status_error = str(exc)
+    return render(request, "oltmanager/settings_vpn.html", {
+        "vpn_state": state,
+        "vpn_routes": "\n".join((state or {}).get("routes", [])),
+        "vpn_status": status,
+        "vpn_status_error": status_error,
+        "vpn_endpoint": f"{settings.OPTIVERSE_VPN_PUBLIC_HOST}:{settings.OPTIVERSE_VPN_PORT}",
+    })
+
+
+@login_required
+@admin_required
+def settings_vpn_download(request):
+    try:
+        content = client_config()
+    except VPNError as exc:
+        messages.error(request, str(exc))
+        return redirect("settings_vpn")
+    response = HttpResponse(content, content_type="text/plain; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="optiverse-wireguard.conf"'
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 def _wireguard_keypair():
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import x25519
@@ -9246,6 +9310,7 @@ def olt_settings_olt(request):
         'oltmanager/olt_settings_olt.html',
         {
             'olts': olts,
+            'licence_enabled': licence_is_configured(),
         },
     )
 
@@ -9280,15 +9345,36 @@ def olt_add(request):
             # "Import ONUs as well?" — when unchecked, onboarding fetches only the
             # OLT details/cards/PON/uplink/VLAN and skips the ONU import.
             olt.import_onus = request.POST.get('import_onus') == 'on'
+            olt.onboarding_snmp_mode = snmp_mode
             olt.is_ready = False
-            olt.onboarding_status = "queued"
+            olt.onboarding_status = "awaiting_licence" if licence_is_configured() else "queued"
             olt.onboarding_progress = 0
             olt.onboarding_message = "OLT saved. Waiting to start..."
             olt.onboarding_log = "OLT saved. Waiting to start..."
             olt.onboarding_started_at = timezone.now()
             olt.onboarding_finished_at = None
+            if licence_is_configured():
+                olt.licence_status = "registration_pending"
+                olt.pricing_locked = True
+                olt.pricing_locked_reason = "Registering this OLT with the licence panel."
             olt.save()
-            _schedule_olt_onboarding(olt.pk, snmp_mode)
+            if licence_is_configured():
+                try:
+                    registration = register_olt(olt)
+                except LicenceError as exc:
+                    logger.warning("OLT %s licence registration failed: %s", olt.pk, exc)
+                    olt.licence_status = "registration_pending"
+                    olt.pricing_locked = True
+                    olt.pricing_locked_reason = "Licence registration is pending. Use Re-check to retry."
+                    olt.save(update_fields=["licence_status", "pricing_locked", "pricing_locked_reason"])
+                    messages.warning(request, "OLT saved, but licence registration is pending. Use Re-check when the panel is reachable.")
+                else:
+                    if registration.get("invoice_url"):
+                        messages.info(request, "OLT subscription created. Payment is required before onboarding can start.")
+            if not olt.pricing_access_locked:
+                _schedule_olt_onboarding(olt.pk, snmp_mode)
+            if olt.pricing_access_locked:
+                return redirect("olt_settings_olt")
             return redirect('olt_add_progress', pk=olt.pk)
     else:
         form = OLTForm()
@@ -9351,9 +9437,50 @@ def olt_edit(request, pk):
 def olt_delete(request, pk):
     olt = get_object_or_404(OLT, pk=pk)
     if request.method == 'POST':
+        if licence_is_configured():
+            try:
+                result = end_olt_subscription(olt)
+            except LicenceError as exc:
+                logger.warning("OLT %s subscription termination failed: %s", olt.pk, exc)
+                messages.error(request, "The licence panel could not end this subscription. The OLT was not deleted; please retry.")
+                return redirect("olt_delete", pk=olt.pk)
+            ends_at = str(result.get("ends_at") or "").strip()
+            if ends_at:
+                messages.info(request, f"Subscription scheduled to end at {ends_at}.")
         olt.delete()
         return redirect('olt_settings_olt')
     return render(request, 'oltmanager/olt_confirm_delete.html', {'olt': olt})
+
+
+@login_required
+@admin_required
+@require_POST
+def licence_recheck(request):
+    if not licence_is_configured():
+        messages.warning(request, "Licence integration is not configured for this tenant.")
+        return redirect("olt_settings_olt")
+    try:
+        result = run_licence_cycle()
+    except LicenceError as exc:
+        logger.warning("Manual licence validation failed: %s", exc)
+        messages.error(request, "Licence validation failed. The last verified state remains in effect during the network grace period.")
+    else:
+        if not _active_olt_onboarding():
+            awaiting = (
+                OLT.objects
+                .filter(licence_status="active", is_ready=False, onboarding_status="awaiting_licence")
+                .order_by("created_at", "pk")
+                .first()
+            )
+            if awaiting:
+                awaiting.onboarding_status = "queued"
+                awaiting.onboarding_started_at = timezone.now()
+                awaiting.onboarding_message = "Licence active. Waiting to start onboarding..."
+                awaiting.save(update_fields=["onboarding_status", "onboarding_started_at", "onboarding_message"])
+                _schedule_olt_onboarding(awaiting.pk, awaiting.onboarding_snmp_mode or "manual")
+                messages.info(request, f"Licence activated for {awaiting.name}; OLT onboarding has started.")
+        messages.success(request, f"Licence verified; {result['olt_count']} OLT entitlement(s) received.")
+    return redirect("olt_settings_olt")
 
 
 @login_required

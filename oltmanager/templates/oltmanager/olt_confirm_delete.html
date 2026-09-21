@@ -13,6 +13,9 @@
 
     <section class="panel">
         <p>Are you sure you want to remove <strong>{{ olt.name }}</strong> from inventory?</p>
+        {% if olt.licence_ref %}
+        <p class="subtle">Its licence subscription will be ended through the Nexecode panel. The current paid period is not refunded.</p>
+        {% endif %}
         <form method="post" style="margin-top: 14px;">
             {% csrf_token %}
             <button type="submit" class="btn btn-danger">Yes, Delete</button>

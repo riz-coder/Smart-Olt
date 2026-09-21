@@ -13630,6 +13630,12 @@ def _parse_service_port_detail_map_from_current_config(output_text, profile_name
             continue
         frame, slot, port, ont_id = [int(part) for part in match.groups()]
         details = _parse_service_port_details_from_current_config(line, profile_name_map)
+        # Keep the complete aligned lists for multi-service ONUs while exposing
+        # the first service-port through the long-standing singular API.
+        details["service_port_id"] = (details.get("service_port_ids") or [""])[0]
+        details["user_vlan"] = (details.get("user_vlans") or [""])[0]
+        details["download_profile_name"] = (details.get("download_profile_names") or [""])[0]
+        details["upload_profile_name"] = (details.get("upload_profile_names") or [""])[0]
         key = (frame, slot, port, ont_id)
         existing = detail_map.get(key)
         if not existing:
@@ -15264,7 +15270,7 @@ def _parse_ont_autofind_blocks(output):
             sn_display = _clean_autofind_sn(value)
             if sn_display:
                 current["sn_display"] = sn_display
-            current["pon_type"] = _normalize_autofind_pon_type(global_pon_type or "EPON")
+            current["pon_type"] = "EPON"
 
     sn_display = _clean_autofind_sn(current.get("sn_display") or "") or _fallback_autofind_sn_from_block(current)
     if current.get("f/s/p") and sn_display:
