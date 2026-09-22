@@ -29,7 +29,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db import DatabaseError, OperationalError, close_old_connections, connection
+from django.db import DatabaseError, OperationalError, close_old_connections, connection, transaction
 from django.db.models import Case, Count, FloatField, IntegerField, Max, Q, Value, When
 from django.db.models.functions import Cast, Lower, Replace, Trim
 from django.http import HttpResponse, JsonResponse
@@ -9310,10 +9310,19 @@ def settings_speed_profiles(request):
 @login_required
 def olt_settings_olt(request):
     _schedule_missing_device_snapshots_if_due()
-    olts = list(_ready_olts().order_by("name"))
+    olts = list(
+        OLT.objects
+        .filter(Q(is_ready=True) | Q(is_ready=False, onboarding_status="awaiting_licence"))
+        .order_by("name")
+    )
     down_ids = _dashboard_snmp_down_olt_ids()
     for olt in olts:
-        olt.status_state = "down" if olt.id in down_ids else "up"
+        if not olt.is_ready:
+            olt.status_state = "licence_active" if (
+                olt.licence_status == "active" and not olt.pricing_access_locked
+            ) else "licence_pending"
+        else:
+            olt.status_state = "down" if olt.id in down_ids else "up"
     return render(
         request,
         'oltmanager/olt_settings_olt.html',
@@ -9380,9 +9389,9 @@ def olt_add(request):
                 else:
                     if registration.get("invoice_url"):
                         messages.info(request, "OLT subscription created. Payment is required before onboarding can start.")
-            if not olt.pricing_access_locked:
+            if not licence_is_configured() and not olt.pricing_access_locked:
                 _schedule_olt_onboarding(olt.pk, snmp_mode)
-            if olt.pricing_access_locked:
+            if licence_is_configured() or olt.pricing_access_locked:
                 return redirect("olt_settings_olt")
             return redirect('olt_add_progress', pk=olt.pk)
     else:
@@ -9474,22 +9483,36 @@ def licence_recheck(request):
         logger.warning("Manual licence validation failed: %s", exc)
         messages.error(request, "Licence validation failed. The last verified state remains in effect during the network grace period.")
     else:
-        if not _active_olt_onboarding():
-            awaiting = (
-                OLT.objects
-                .filter(licence_status="active", is_ready=False, onboarding_status="awaiting_licence")
-                .order_by("created_at", "pk")
-                .first()
-            )
-            if awaiting:
-                awaiting.onboarding_status = "queued"
-                awaiting.onboarding_started_at = timezone.now()
-                awaiting.onboarding_message = "Licence active. Waiting to start onboarding..."
-                awaiting.save(update_fields=["onboarding_status", "onboarding_started_at", "onboarding_message"])
-                _schedule_olt_onboarding(awaiting.pk, awaiting.onboarding_snmp_mode or "manual")
-                messages.info(request, f"Licence activated for {awaiting.name}; OLT onboarding has started.")
         messages.success(request, f"Licence verified; {result['olt_count']} OLT entitlement(s) received.")
     return redirect("olt_settings_olt")
+
+
+@login_required
+@admin_required
+@require_POST
+def olt_activate(request, pk):
+    with transaction.atomic():
+        olt = get_object_or_404(
+            OLT.objects.select_for_update(),
+            pk=pk,
+            is_ready=False,
+            onboarding_status="awaiting_licence",
+        )
+        if olt.licence_status != "active" or olt.pricing_access_locked:
+            messages.warning(request, "This OLT licence is still pending. Re-check the licence after activation in the panel.")
+            return redirect("olt_settings_olt")
+        active_onboarding = _active_olt_onboarding()
+        if active_onboarding and active_onboarding.pk != olt.pk:
+            messages.warning(request, f"OLT onboarding is already running for {active_onboarding.name}.")
+            return redirect("olt_settings_olt")
+        olt.onboarding_status = "queued"
+        olt.onboarding_started_at = timezone.now()
+        olt.onboarding_message = "Licence active. Waiting to start onboarding..."
+        olt.save(update_fields=["onboarding_status", "onboarding_started_at", "onboarding_message"])
+
+    _schedule_olt_onboarding(olt.pk, olt.onboarding_snmp_mode or "manual")
+    messages.success(request, f"Licence active for {olt.name}; OLT onboarding has started.")
+    return redirect("olt_add_progress", pk=olt.pk)
 
 
 @login_required

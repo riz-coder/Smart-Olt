@@ -45,6 +45,7 @@ urlpatterns = [
     path('settings/tenants/<int:pk>/', views.settings_tenant_detail, name='settings_tenant_detail'),
     path('settings/olt/', views.olt_settings_olt, name='olt_settings_olt'),
     path('settings/licence/recheck/', views.licence_recheck, name='licence_recheck'),
+    path('settings/olt/<int:pk>/activate/', views.olt_activate, name='olt_activate'),
     path('settings/users/', views.settings_users, name='settings_users'),
     path('settings/onu-types/', views.settings_onu_types, name='settings_onu_types'),
     path('settings/speed-profiles/', views.settings_speed_profiles, name='settings_speed_profiles'),

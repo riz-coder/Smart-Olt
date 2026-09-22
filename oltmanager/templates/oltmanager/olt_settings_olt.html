@@ -218,7 +218,11 @@
                     {% for olt in olts %}
                     <tr>
                         <td class="status-cell">
-                            {% if olt.status_state == 'up' %}
+                            {% if olt.status_state == 'licence_pending' %}
+                            <span class="status-pill down locked" title="Waiting for activation in the licence panel">PENDING</span>
+                            {% elif olt.status_state == 'licence_active' %}
+                            <span class="status-pill up" title="Licence active; setup is ready to start">ACTIVE</span>
+                            {% elif olt.status_state == 'up' %}
                             <span class="status-pill up {% if olt.pricing_access_locked %}locked{% endif %}" title="OLT Up{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">UP{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% else %}
                             <span class="status-pill down {% if olt.pricing_access_locked %}locked{% endif %}" title="OLT Down{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">DOWN{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
@@ -231,13 +235,28 @@
                         <td>{{ olt.hardware_version|default:"-" }}</td>
                         <td>{{ olt.sw_version|default:"-" }}</td>
                         <td>
+                            {% if not olt.is_ready %}
+                            <span class="pricing-badge {{ olt.pricing_mode }} {% if olt.pricing_access_locked %}locked{% endif %}">
+                                {{ olt.get_pricing_mode_display }} / {% if olt.status_state == 'licence_active' %}Active{% else %}Pending{% endif %}
+                            </span>
+                            {% else %}
                             <span class="pricing-badge {{ olt.pricing_mode }} {% if olt.pricing_access_locked %}locked{% endif %}" title="{{ olt.pricing_lock_message|default:'Active' }}">
                                 {{ olt.get_pricing_mode_display }} / {{ olt.pricing_status_label }}
                             </span>
+                            {% endif %}
                         </td>
                         <td class="actions">
                             <div class="action-cell">
+                                {% if olt.is_ready %}
                                 <a href="{% url 'olt_view' olt.pk %}" class="btn btn-primary btn-mini">View</a>
+                                {% elif olt.status_state == 'licence_active' and user.is_staff or olt.status_state == 'licence_active' and user.is_superuser %}
+                                <form method="post" action="{% url 'olt_activate' olt.pk %}" style="display:inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-success btn-mini" title="Licence active — start OLT setup">Active</button>
+                                </form>
+                                {% else %}
+                                <span class="btn btn-secondary btn-mini" aria-disabled="true">Pending</span>
+                                {% endif %}
                                 {% if olt.licence_invoice_url and olt.pricing_access_locked %}
                                 <a href="{{ olt.licence_invoice_url }}" class="btn btn-success btn-mini" rel="noopener noreferrer">Pay to activate</a>
                                 {% elif olt.licence_invoice_url and olt.pricing_expires_at %}
