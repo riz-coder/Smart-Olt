@@ -1883,8 +1883,24 @@ def _run_olt_onboarding_worker_locked(olt_id, snmp_mode):
         )
         _raise_if_olt_onboarding_aborted(olt_id)
 
-        # ONU signal strengths are filled by the background signal-sample loop
-        # after the OLT is added, so they are no longer fetched during onboarding.
+        # Populate the first optical cache immediately so a newly-added OLT
+        # does not show dashes until the next hourly signal cycle. A signal
+        # failure is non-fatal: onboarding still reaches review and the normal
+        # hourly worker will retry later.
+        _run_step(
+            "Fetching ONU optical signals",
+            100,
+            100,
+            lambda: sync_onu_signals_from_snmp(olt, overwrite=True),
+            attempts=1,
+            success_message=lambda value: (
+                f"Optical signals cached for {int((value or {}).get('filled') or 0)} "
+                f"of {int((value or {}).get('total') or 0)} ONU(s)."
+            ),
+            allow_failure=True,
+            fallback={"filled": 0, "total": counts["total"], "status": "Initial signal fetch failed."},
+        )
+        _raise_if_olt_onboarding_aborted(olt_id)
 
         olt = OLT.objects.filter(pk=olt_id).first()
         counts = _onu_onboarding_counts(olt)
