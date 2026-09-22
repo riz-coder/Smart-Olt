@@ -79,3 +79,42 @@ class LicenceOnboardingFlowTests(TestCase):
         olt.refresh_from_db()
         self.assertEqual(olt.onboarding_status, "awaiting_licence")
         schedule.assert_not_called()
+
+    @patch("oltmanager.views._dashboard_snmp_down_olt_ids", return_value=set())
+    @patch("oltmanager.views._schedule_missing_device_snapshots_if_due")
+    def test_aborted_olt_remains_visible_and_retryable(self, _snapshots, _down):
+        olt = self.create_waiting_olt(
+            onboarding_status="running",
+            licence_status="active",
+            pricing_locked=False,
+        )
+
+        response = self.client.post(
+            reverse("olt_add_progress_action", args=[olt.pk]),
+            {"action": "abort"},
+        )
+
+        self.assertRedirects(response, reverse("olt_settings_olt"))
+        olt.refresh_from_db()
+        self.assertFalse(olt.is_ready)
+        self.assertEqual(olt.onboarding_status, "aborted")
+
+        response = self.client.get(reverse("olt_settings_olt"))
+        self.assertContains(response, olt.name)
+        self.assertContains(response, "ABORTED")
+        self.assertContains(response, "Review / Retry")
+
+    @patch("oltmanager.views._dashboard_snmp_down_olt_ids", return_value=set())
+    @patch("oltmanager.views._schedule_missing_device_snapshots_if_due")
+    def test_failed_olt_remains_visible_and_retryable(self, _snapshots, _down):
+        olt = self.create_waiting_olt(
+            onboarding_status="failed",
+            licence_status="active",
+            pricing_locked=False,
+        )
+
+        response = self.client.get(reverse("olt_settings_olt"))
+
+        self.assertContains(response, olt.name)
+        self.assertContains(response, "FAILED")
+        self.assertContains(response, "Review / Retry")

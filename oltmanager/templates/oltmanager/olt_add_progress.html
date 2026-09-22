@@ -331,7 +331,7 @@
             <p class="subtle">OLT details are being fetched and saved.</p>
         </div>
         <div class="topbar-actions">
-            <form method="post" action="{{ action_url }}" onsubmit="return confirm('Abort process and rollback this OLT?');">
+            <form method="post" action="{{ action_url }}" onsubmit="return confirm('Abort this process? The saved OLT will remain available to retry.');">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="abort">
                 <button type="submit" class="btn btn-danger">Abort Process</button>
@@ -484,7 +484,7 @@
             <form method="post" action="{{ action_url }}">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="rollback">
-                <button type="submit" class="btn btn-danger">Rollback</button>
+                <button type="submit" class="btn btn-danger">Stop and keep OLT</button>
             </form>
             <form method="post" action="{{ action_url }}">
                 {% csrf_token %}

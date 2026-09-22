@@ -222,6 +222,14 @@
                             <span class="status-pill down locked" title="Waiting for activation in the licence panel">PENDING</span>
                             {% elif olt.status_state == 'licence_active' %}
                             <span class="status-pill up" title="Licence active; setup is ready to start">ACTIVE</span>
+                            {% elif olt.status_state == 'onboarding_failed' %}
+                            <span class="status-pill down" title="Onboarding failed; open setup to review or retry">FAILED</span>
+                            {% elif olt.status_state == 'onboarding_aborted' %}
+                            <span class="status-pill down" title="Onboarding was aborted; open setup to retry">ABORTED</span>
+                            {% elif olt.status_state == 'onboarding_review' %}
+                            <span class="status-pill up" title="Fetched data is ready for review">REVIEW</span>
+                            {% elif olt.status_state == 'onboarding_queued' or olt.status_state == 'onboarding_running' or olt.status_state == 'onboarding_aborting' %}
+                            <span class="status-pill up" title="OLT onboarding is in progress">SETTING UP</span>
                             {% elif olt.status_state == 'up' %}
                             <span class="status-pill up {% if olt.pricing_access_locked %}locked{% endif %}" title="OLT Up{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}">UP{% if olt.pricing_access_locked %} / {{ olt.pricing_status_label }}{% endif %}</span>
                             {% else %}
@@ -237,7 +245,7 @@
                         <td>
                             {% if not olt.is_ready %}
                             <span class="pricing-badge {{ olt.pricing_mode }} {% if olt.pricing_access_locked %}locked{% endif %}">
-                                {{ olt.get_pricing_mode_display }} / {% if olt.status_state == 'licence_active' %}Active{% else %}Pending{% endif %}
+                                {{ olt.get_pricing_mode_display }} / {% if olt.licence_status == 'active' and not olt.pricing_access_locked %}Active{% else %}Pending{% endif %}
                             </span>
                             {% else %}
                             <span class="pricing-badge {{ olt.pricing_mode }} {% if olt.pricing_access_locked %}locked{% endif %}" title="{{ olt.pricing_lock_message|default:'Active' }}">
@@ -254,6 +262,10 @@
                                     {% csrf_token %}
                                     <button type="submit" class="btn btn-success btn-mini" title="Licence active — start OLT setup">Active</button>
                                 </form>
+                                {% elif olt.status_state != 'licence_pending' %}
+                                <a href="{% url 'olt_add_progress' olt.pk %}" class="btn btn-secondary btn-mini">
+                                    {% if olt.status_state == 'onboarding_queued' or olt.status_state == 'onboarding_running' or olt.status_state == 'onboarding_aborting' %}View progress{% else %}Review / Retry{% endif %}
+                                </a>
                                 {% else %}
                                 <span class="btn btn-secondary btn-mini" aria-disabled="true">Pending</span>
                                 {% endif %}

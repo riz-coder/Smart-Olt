@@ -1599,7 +1599,6 @@ def _public_onboarding_message(message):
     return text
 def _run_olt_onboarding_worker_locked(olt_id, snmp_mode):
     try:
-        _clear_olt_onboarding_abort(olt_id)
         olt = OLT.objects.filter(pk=olt_id).first()
         if not olt:
             return
@@ -1904,7 +1903,13 @@ def _run_olt_onboarding_worker_locked(olt_id, snmp_mode):
             finished=True,
         )
     except OnboardingAborted:
-        OLT.objects.filter(pk=olt_id).delete()
+        _update_olt_onboarding(
+            olt_id,
+            status="aborted",
+            message="Onboarding aborted. The saved OLT is available to retry.",
+            ready=False,
+            finished=True,
+        )
     except Exception as exc:
         _update_olt_onboarding(
             olt_id,
@@ -1951,6 +1956,10 @@ def _schedule_olt_onboarding(olt_id, snmp_mode):
     with _OLT_ONBOARDING_LOCK:
         if olt_id in _OLT_ONBOARDING_RUNNING:
             return
+        # A retry is the explicit point at which an earlier abort request may
+        # be cleared. Clearing it inside the worker creates a race where an
+        # abort submitted while the thread is starting gets lost.
+        _OLT_ONBOARDING_ABORT_REQUESTED.discard(olt_id)
         _OLT_ONBOARDING_RUNNING.add(olt_id)
     threading.Thread(
         target=_run_olt_onboarding_worker,
@@ -9310,17 +9319,19 @@ def settings_speed_profiles(request):
 @login_required
 def olt_settings_olt(request):
     _schedule_missing_device_snapshots_if_due()
-    olts = list(
-        OLT.objects
-        .filter(Q(is_ready=True) | Q(is_ready=False, onboarding_status="awaiting_licence"))
-        .order_by("name")
-    )
+    # Keep every saved OLT visible until the user explicitly deletes it.
+    # Aborted and failed onboarding records must remain available to retry.
+    olts = list(OLT.objects.order_by("name"))
     down_ids = _dashboard_snmp_down_olt_ids()
     for olt in olts:
         if not olt.is_ready:
-            olt.status_state = "licence_active" if (
-                olt.licence_status == "active" and not olt.pricing_access_locked
-            ) else "licence_pending"
+            onboarding_status = str(olt.onboarding_status or "").lower()
+            if onboarding_status == "awaiting_licence":
+                olt.status_state = "licence_active" if (
+                    olt.licence_status == "active" and not olt.pricing_access_locked
+                ) else "licence_pending"
+            else:
+                olt.status_state = f"onboarding_{onboarding_status or 'saved'}"
         else:
             olt.status_state = "down" if olt.id in down_ids else "up"
     return render(
@@ -10217,15 +10228,26 @@ def olt_add_progress_action(request, pk):
         messages.success(request, f"{olt.name} added successfully.")
         return redirect("olt_view", pk=olt.pk)
     if action == "rollback":
-        name = olt.name
-        olt.delete()
-        messages.success(request, f"{name} onboarding rolled back.")
+        _request_olt_onboarding_abort(olt.pk)
+        _update_olt_onboarding(
+            olt.pk,
+            status="aborted",
+            message="Onboarding stopped. The saved OLT is available to retry.",
+            ready=False,
+            finished=True,
+        )
+        messages.info(request, f"{olt.name} onboarding stopped. The saved OLT remains available to retry.")
         return redirect("olt_settings_olt")
     if action == "abort":
-        name = olt.name
         _request_olt_onboarding_abort(olt.pk)
-        olt.delete()
-        messages.success(request, f"{name} onboarding aborted and rolled back.")
+        _update_olt_onboarding(
+            olt.pk,
+            status="aborted",
+            message="Onboarding aborted. The saved OLT is available to retry.",
+            ready=False,
+            finished=True,
+        )
+        messages.info(request, f"{olt.name} onboarding aborted. The saved OLT remains available to retry.")
         return redirect("olt_settings_olt")
     if action == "retry":
         _reset_olt_onboarding_data(olt)
