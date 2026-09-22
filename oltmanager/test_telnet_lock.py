@@ -39,6 +39,18 @@ class TelnetHostLockTests(SimpleTestCase):
         self.assertEqual(first, second)
         self.assertEqual(Path(first).parent, Path(shared))
 
+    def test_default_lock_path_uses_writable_runtime_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = str(Path(directory) / 'runtime')
+            with patch.dict(os.environ, {
+                    'OPTIVERSE_TELNET_LOCK_DIR': '',
+                    'OPTIVERSE_RUNTIME_DIR': runtime,
+            }):
+                lock_path = utils._telnet_lock_path(self.olt)
+
+            self.assertEqual(Path(lock_path).parent, Path(runtime) / 'device-locks')
+            self.assertTrue((Path(runtime) / 'device-locks').is_dir())
+
     def test_stale_cleanup_runs_before_file_lock_wait(self):
         events = []
         fake_session = Mock()

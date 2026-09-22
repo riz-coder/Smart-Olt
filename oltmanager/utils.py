@@ -5084,13 +5084,17 @@ def _telnet_lock_dir():
     configured = os.environ.get("OPTIVERSE_TELNET_LOCK_DIR", "").strip()
     if configured:
         path = configured
-    elif os.name == "nt":
-        path = os.path.join(str(getattr(settings, "BASE_DIR", "") or "."), "runtime", "device-locks")
     else:
-        # This path is intentionally shared by every tenant process. A lock
-        # below a tenant runtime directory cannot protect the same physical OLT
-        # when it is registered in more than one tenant.
-        path = "/opt/optiverse/runtime/device-locks"
+        # The tenant image runs as an unprivileged user and mounts its shared,
+        # persistent runtime directory at /runtime.  Deriving the lock path
+        # from that configured directory keeps web and worker processes on the
+        # same lock files without trying to create an unwritable /opt path.
+        runtime_dir = os.environ.get("OPTIVERSE_RUNTIME_DIR", "").strip()
+        if not runtime_dir:
+            runtime_dir = str(getattr(settings, "OPTIVERSE_RUNTIME_DIR", "") or "").strip()
+        if not runtime_dir:
+            runtime_dir = os.path.join(str(getattr(settings, "BASE_DIR", "") or "."), "runtime")
+        path = os.path.join(runtime_dir, "device-locks")
     os.makedirs(path, exist_ok=True)
     return path
 
