@@ -274,6 +274,7 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
     }
     try:
         from pysnmp.hlapi.asyncio import (  # type: ignore
+            bulk_cmd,
             CommunityData,
             ContextData,
             ObjectIdentity,
@@ -281,7 +282,6 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
             SnmpEngine,
             UdpTransportTarget,
             get_cmd,
-            next_cmd,
         )
     except Exception:
         snapshot["status"] = "pysnmp not installed, showing saved data"
@@ -313,13 +313,18 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
             )
             engine = SnmpEngine()
             current_oid = base_oid
-            for _ in range(limit):
-                error_indication, error_status, _, var_binds = await next_cmd(
+            max_repetitions = 12
+            max_rounds = max(1, (int(limit or 1) // max_repetitions) + 2)
+            for _ in range(max_rounds):
+                error_indication, error_status, _, var_binds = await bulk_cmd(
                     engine,
                     CommunityData(olt.snmp_community, mpModel=mp_model),
                     target,
                     ContextData(),
+                    0,
+                    max_repetitions,
                     ObjectType(ObjectIdentity(current_oid)),
+                    lexicographicMode=False,
                 )
                 if error_indication:
                     engine.close_dispatcher()
@@ -337,6 +342,9 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
                         break
                     rows[oid_text.split(".")[-1]] = str(value)
                     current_oid = oid_text
+                    if len(rows) >= int(limit or 0):
+                        stop = True
+                        break
                 if stop:
                     break
             engine.close_dispatcher()
@@ -357,13 +365,17 @@ def fetch_snmp_snapshot(olt, *, include_entity_metrics=True, operation_timeout=4
                 except Exception:
                     return {}
 
-            names = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.7")
-            classes = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.5")
             cpus = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5")
             mems = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7")
             temps = _safe_walk("1.3.6.1.4.1.2011.5.25.31.1.1.1.1.11")
-            if not any((names, classes, cpus, mems, temps)):
+            if not any((cpus, mems, temps)):
                 return {"temperature": "--", "cpu": "--", "memory": "--"}
+
+            # Entity labels improve controller/chassis selection, but they are
+            # optional. Fetch them only after a metric table returned data so
+            # unsupported OLTs do not pay for two additional WAN walks.
+            names = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.7")
+            classes = _safe_walk("1.3.6.1.2.1.47.1.1.1.1.5")
 
             candidates = []
             all_indexes = set(list(temps.keys()) + list(cpus.keys()) + list(mems.keys()))
@@ -1127,8 +1139,14 @@ def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1, operation_timeout=
         # Use GETBULK instead of one GETNEXT per row. Large OLTs have thousands
         # of ONUs; walking them row-by-row makes dashboard status sync take
         # minutes and leaves online/offline counts stale.
-        max_repetitions = 48
-        max_rounds = max(1, (int(limit or 1) // max_repetitions) + 2)
+        # Large GETBULK replies fragment easily across WireGuard/Internet
+        # paths. Sixteen rows stays friendlier to tunnel MTUs while still
+        # avoiding one GETNEXT round trip per table row.
+        max_repetitions = max(
+            4,
+            min(32, int(os.environ.get("OPTIVERSE_SNMP_BULK_REPETITIONS", "16") or 16)),
+        )
+        max_rounds = max(1, (int(limit or 1) // 4) + 2)
         for _ in range(max_rounds):
             error_indication, error_status, _, var_binds = await bulk_cmd(
                 engine,
@@ -1140,12 +1158,13 @@ def _snmp_walk_rows(olt, base_oid, *, limit=4096, mp_model=1, operation_timeout=
                 ObjectType(ObjectIdentity(current_oid)),
                 lexicographicMode=False,
             )
-            if error_indication:
+            if error_indication or error_status:
+                if max_repetitions > 4:
+                    max_repetitions = max(4, max_repetitions // 2)
+                    continue
                 engine.close_dispatcher()
-                raise RuntimeError(str(error_indication))
-            if error_status:
-                engine.close_dispatcher()
-                raise RuntimeError(error_status.prettyPrint())
+                detail = str(error_indication or error_status.prettyPrint())
+                raise RuntimeError(detail)
             if not var_binds:
                 break
             stop = False
@@ -7720,6 +7739,13 @@ def sync_configured_onus_inventory(olt, *, include_optical=False):
             "synced_at": now,
         }
 
+        # Unknown optical values are absence of data, not real readings. Keep
+        # them empty so a later successful background SNMP poll can populate
+        # the cache and cache-quality checks do not count literal "--" values.
+        for signal_field in ("onu_rx", "olt_rx", "tx_power"):
+            if str(payload.get(signal_field) or "").strip() == "--":
+                payload[signal_field] = ""
+
         existing = existing_map.get(key)
         if existing is None:
             payload["onu_mode_cache"] = "routing"
@@ -8001,6 +8027,9 @@ def sync_detected_onu_keys_inventory(olt, target_keys):
             "raw_line": (row.get("raw_line") or "")[:2000],
             "synced_at": now,
         }
+        for signal_field in ("onu_rx", "olt_rx", "tx_power"):
+            if str(payload.get(signal_field) or "").strip() == "--":
+                payload[signal_field] = ""
         existing = existing_map.get(key)
         if existing is None:
             new_onu_rows.append({

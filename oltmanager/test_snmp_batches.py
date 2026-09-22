@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from .utils import _snmp_get_oid_rows_chunked
+from .utils import _snmp_get_oid_rows_chunked, _snmp_walk_rows
 
 
 class SnmpBatchTests(SimpleTestCase):
@@ -52,3 +52,23 @@ class SnmpBatchTests(SimpleTestCase):
         self.assertEqual(rows, {})
         factory.assert_not_called()
         get.assert_not_called()
+
+    def test_bulk_walk_reduces_response_size_after_timeout(self):
+        olt = SimpleNamespace(ip_address="127.0.0.1", snmp_port=161, snmp_community="test")
+        base_oid = "1.3.6.1.4.1.2011.1"
+        engine = MagicMock()
+        replies = [
+            ("No SNMP response received before timeout", 0, 0, []),
+            (None, 0, 0, [(f"{base_oid}.1", 10), ("1.3.6.1.4.1.9999.1", 0)]),
+        ]
+        with patch.dict("os.environ", {"OPTIVERSE_SNMP_BULK_REPETITIONS": "16"}), \
+                patch("pysnmp.hlapi.asyncio.SnmpEngine", return_value=engine), \
+                patch("pysnmp.hlapi.asyncio.UdpTransportTarget.create", new=AsyncMock()), \
+                patch("pysnmp.hlapi.asyncio.bulk_cmd", new=AsyncMock(side_effect=replies)) as bulk:
+            rows = _snmp_walk_rows(olt, base_oid, limit=100)
+
+        self.assertEqual(rows, {f"{base_oid}.1": "10"})
+        self.assertEqual(bulk.await_count, 2)
+        self.assertEqual(bulk.await_args_list[0].args[5], 16)
+        self.assertEqual(bulk.await_args_list[1].args[5], 8)
+        engine.close_dispatcher.assert_called_once()
