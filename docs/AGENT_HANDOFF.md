@@ -20,3 +20,13 @@ Relevant files:
 - `oltmanager/test_licence_onboarding_flow.py`
 
 Deployment boundary for this change: push code and publish the tenant image only. Do not access or update the VPS/tenant; the user will perform the tenant update.
+
+## Release status
+
+- Code commit: `0be80c8` (`feat: gate OLT onboarding on explicit licence activation`)
+- Release tag: `v1.0.7`
+- Main and tag validation jobs passed, including `oltmanager` and `controlmanager` tests.
+- GitHub Actions run `35685659417` could not publish the image because the private-registry login step failed.
+- Image build/push/sign/register steps were skipped by GitHub after that login failure.
+- No VPS or tenant deployment was attempted, per the user's instruction.
+- Repair/replace `OPTIVERSE_REGISTRY_USERNAME` and/or `OPTIVERSE_REGISTRY_PASSWORD` in the GitHub `production` environment, then rerun the failed publish job. Do not create another code change solely to retry the same release.
